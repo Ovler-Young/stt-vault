@@ -79,7 +79,12 @@ class Worker:
         )
 
         db.update_stage(self.settings.stt_db_path, asset_id, "transcribing speech")
-        db.reset_transcript_chunks(self.settings.stt_db_path, asset_id)
+        existing_chunks = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+        completed_chunk_indexes = {
+            int(chunk["chunk_index"])
+            for chunk in existing_chunks
+            if chunk.get("status") == "success"
+        }
         chunk_progress = {"done": 0, "failed": 0}
 
         def on_chunk_done(index: int, result: dict[str, Any]) -> None:
@@ -151,10 +156,19 @@ class Worker:
             max_seconds=self.settings.transcribe_chunk_seconds,
             overlap_seconds=self.settings.transcribe_chunk_overlap_seconds,
         )
-        db.update_progress(self.settings.stt_db_path, asset_id, total_chunks=len(chunks))
+        chunks_to_transcribe = [
+            chunk for chunk in chunks if int(chunk["chunk_index"]) not in completed_chunk_indexes
+        ]
+        chunk_progress["done"] = len(completed_chunk_indexes)
+        db.update_progress(
+            self.settings.stt_db_path,
+            asset_id,
+            total_chunks=len(chunks),
+            done_chunks=chunk_progress["done"],
+        )
         transcript_segments = []
         try:
-            transcript_segments = transcriber.transcribe_chunks(original_path, chunks, work_dir)
+            transcript_segments = transcriber.transcribe_chunks(original_path, chunks_to_transcribe, work_dir)
             transcript_segments = apply_speaker_names(transcript_segments, speaker_matches)
         except Exception as exc:
             transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)

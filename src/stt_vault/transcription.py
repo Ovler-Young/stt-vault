@@ -16,6 +16,7 @@ def build_chunks(
     overlap_seconds: float,
 ) -> list[dict[str, Any]]:
     chunks: list[dict[str, Any]] = []
+    chunk_index = 0
     for segment in segments:
         start = float(segment["start"])
         end = float(segment["end"])
@@ -24,6 +25,7 @@ def build_chunks(
             chunk_end = min(end, cursor + max_seconds)
             chunks.append(
                 {
+                    "chunk_index": chunk_index,
                     "start": max(0.0, cursor - overlap_seconds),
                     "end": chunk_end,
                     "speaker": segment["speaker"],
@@ -31,6 +33,7 @@ def build_chunks(
                     "source_end": end,
                 }
             )
+            chunk_index += 1
             cursor = chunk_end
     return chunks
 
@@ -73,7 +76,13 @@ class Transcriber:
 
         with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
             futures = [
-                executor.submit(self._transcribe_one, media_path, chunk, tmp_dir, index)
+                executor.submit(
+                    self._transcribe_one,
+                    media_path,
+                    chunk,
+                    tmp_dir,
+                    int(chunk.get("chunk_index", index)),
+                )
                 for index, chunk in enumerate(chunks)
             ]
             results = [future.result() for future in as_completed(futures)]
@@ -91,6 +100,7 @@ class Transcriber:
         try:
             for attempt in range(1, self.max_retries + 1):
                 try:
+                    self._wait_for_pause()
                     extract_transcription_chunk(
                         media_path,
                         chunk_path,
@@ -143,3 +153,9 @@ class Transcriber:
             self._resume_at = max(self._resume_at, now + delay)
             sleep_for = max(0.0, self._resume_at - now)
         time.sleep(sleep_for)
+
+    def _wait_for_pause(self) -> None:
+        with self._pause_lock:
+            sleep_for = max(0.0, self._resume_at - time.time())
+        if sleep_for > 0:
+            time.sleep(sleep_for)

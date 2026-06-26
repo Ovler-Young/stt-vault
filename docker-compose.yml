@@ -1,0 +1,16 @@
+services:
+  stt-vault:
+    build: .
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - "${STT_HOST_DATA_DIR:-./data}:/data"
+    env_file:
+      - .env
+    environment:
+      STT_DATA_DIR: /data
+      STT_DB_PATH: /data/app.sqlite3
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8080
+    restart: unless-stopped
+

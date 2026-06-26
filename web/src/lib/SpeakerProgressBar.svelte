@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import type { TranscriptSegment } from '$lib/api';
   import { formatTime } from '$lib/format';
 
@@ -8,6 +8,11 @@
   export let currentTime = 0;
 
   const dispatch = createEventDispatcher<{ seek: { time: number } }>();
+  const minZoomSize = 0.02;
+  const wheelZoomSensitivity = 0.003;
+  const wheelPanSensitivity = 0.00125;
+  const keyZoomStep = 0.12;
+  const keyPanStep = 0.12;
 
   const speakerColors = [
     '#bcab4d',
@@ -27,6 +32,11 @@
   let hovered: { x: number; time: number; speaker: string | null } | null = null;
   let zoomStart = 0;
   let zoomEnd = 1;
+  let dragStartX = 0;
+  let dragStartZoom = { start: 0, end: 1 };
+  let dragContainerWidth = 1;
+  let dragMoved = false;
+  let dragActive = false;
 
   $: effectiveDuration =
     duration && duration > 0
@@ -39,6 +49,11 @@
   $: progressInWindow = effectiveDuration
     ? currentTime / effectiveDuration >= zoomStart && currentTime / effectiveDuration <= zoomEnd
     : false;
+  $: isZoomed = zoomStart > 0.0001 || zoomEnd < 0.9999;
+
+  onDestroy(() => {
+    stopDrag();
+  });
 
   function hashSpeaker(speaker: string) {
     let hash = 0;
@@ -76,7 +91,43 @@
     };
   }
 
+  function setZoomWindow(start: number, end: number) {
+    const nextSize = Math.min(1, Math.max(minZoomSize, end - start));
+    let nextStart = Math.min(Math.max(0, start), 1 - nextSize);
+    let nextEnd = nextStart + nextSize;
+    if (nextEnd > 1) {
+      nextEnd = 1;
+      nextStart = Math.max(0, 1 - nextSize);
+    }
+    zoomStart = nextStart;
+    zoomEnd = nextEnd;
+  }
+
+  function resetZoom() {
+    zoomStart = 0;
+    zoomEnd = 1;
+  }
+
+  function zoomAround(center: number, scale: number) {
+    const clampedCenter = Math.min(1, Math.max(0, center));
+    const currentSize = zoomEnd - zoomStart;
+    const nextSize = Math.min(1, Math.max(minZoomSize, currentSize * scale));
+    const centerOffset = currentSize > 0 ? (clampedCenter - zoomStart) / currentSize : 0.5;
+    const nextStart = clampedCenter - nextSize * Math.min(1, Math.max(0, centerOffset));
+    setZoomWindow(nextStart, nextStart + nextSize);
+  }
+
+  function panWindow(delta: number) {
+    const currentSize = zoomEnd - zoomStart;
+    if (currentSize >= 0.9999) return;
+    setZoomWindow(zoomStart + delta, zoomEnd + delta);
+  }
+
   function handleClick(event: MouseEvent) {
+    if (dragMoved) {
+      dragMoved = false;
+      return;
+    }
     const time = eventTime(event);
     const segment = segmentAt(time);
     dispatch('seek', { time: segment?.start ?? time });
@@ -95,8 +146,78 @@
     const center = (fullStart + fullEnd) / 2;
     const segmentWidth = Math.max(fullEnd - fullStart, 0.015);
     const nextWidth = Math.max(0.02, Math.min(0.35, segmentWidth * 4, zoomSize * 0.55));
-    zoomStart = Math.max(0, Math.min(1 - nextWidth, center - nextWidth / 2));
-    zoomEnd = Math.min(1, zoomStart + nextWidth);
+    setZoomWindow(center - nextWidth / 2, center + nextWidth / 2);
+  }
+
+  function handleWheel(event: WheelEvent) {
+    if (!effectiveDuration) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) && isZoomed) {
+      panWindow(event.deltaX * wheelPanSensitivity * zoomSize);
+      return;
+    }
+    zoomAround(zoomStart + ratio * zoomSize, 1 + event.deltaY * wheelZoomSensitivity);
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (!effectiveDuration) return;
+    const currentRatio = Math.min(1, Math.max(0, currentTime / effectiveDuration));
+    if (event.code === 'KeyW') {
+      event.preventDefault();
+      zoomAround(currentRatio, 1 - keyZoomStep);
+    } else if (event.code === 'KeyS') {
+      event.preventDefault();
+      zoomAround(currentRatio, 1 + keyZoomStep);
+    } else if (event.code === 'KeyA') {
+      event.preventDefault();
+      panWindow(-keyPanStep * zoomSize);
+    } else if (event.code === 'KeyD') {
+      event.preventDefault();
+      panWindow(keyPanStep * zoomSize);
+    } else if (event.code === 'Escape') {
+      event.preventDefault();
+      resetZoom();
+    }
+  }
+
+  function handleMouseDown(event: MouseEvent) {
+    if (event.button !== 0 || !isZoomed) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    dragStartX = event.clientX;
+    dragStartZoom = { start: zoomStart, end: zoomEnd };
+    dragContainerWidth = Math.max(1, rect.width);
+    dragMoved = false;
+    dragActive = true;
+    if (typeof document !== 'undefined') {
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', handleDocumentMouseMove);
+      document.addEventListener('mouseup', handleDocumentMouseUp);
+    }
+  }
+
+  function handleDocumentMouseMove(event: MouseEvent) {
+    if (!dragActive) return;
+    const dx = event.clientX - dragStartX;
+    if (Math.abs(dx) > 3) dragMoved = true;
+    const currentSize = dragStartZoom.end - dragStartZoom.start;
+    const delta = -(dx / dragContainerWidth) * currentSize;
+    setZoomWindow(dragStartZoom.start + delta, dragStartZoom.end + delta);
+  }
+
+  function handleDocumentMouseUp() {
+    stopDrag();
+  }
+
+  function stopDrag() {
+    dragActive = false;
+    if (typeof document !== 'undefined') {
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', handleDocumentMouseMove);
+      document.removeEventListener('mouseup', handleDocumentMouseUp);
+    }
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -116,12 +237,23 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="speaker-progress"
+    class:dragging={dragActive}
+    role="slider"
+    tabindex="0"
+    aria-label="Speaker timeline"
+    aria-valuemin="0"
+    aria-valuemax={Math.round(effectiveDuration)}
+    aria-valuenow={Math.round(currentTime)}
+    aria-valuetext={formatTime(currentTime)}
     on:click={handleClick}
     on:dblclick={handleDoubleClick}
     on:contextmenu={handleContextMenu}
+    on:keydown={handleKeydown}
+    on:mousedown={handleMouseDown}
     on:mousemove={handleMouseMove}
     on:mouseleave={() => (hovered = null)}
-    title="Click to jump to a speaker segment. Double click to zoom. Right click to seek exactly."
+    on:wheel={handleWheel}
+    title="Click to jump to a speaker segment. Double click to zoom. Right click to seek exactly. Wheel zooms. Drag pans when zoomed."
   >
     <svg aria-hidden="true">
       {#each segments as segment}
@@ -149,6 +281,17 @@
         <span>{formatTime(hovered.time)}</span>
       </div>
     {/if}
+
+    {#if isZoomed}
+      <button
+        class="zoom-reset"
+        type="button"
+        title={`${formatTime(zoomStart * effectiveDuration)} - ${formatTime(zoomEnd * effectiveDuration)}`}
+        on:click|stopPropagation={resetZoom}
+      >
+        Reset
+      </button>
+    {/if}
   </div>
 {/if}
 
@@ -164,6 +307,15 @@
     background: #595959;
     cursor: pointer;
     user-select: none;
+  }
+
+  .speaker-progress:focus-visible {
+    outline: 2px solid #3b7dd8;
+    outline-offset: 2px;
+  }
+
+  .speaker-progress.dragging {
+    cursor: grabbing;
   }
 
   svg {
@@ -229,5 +381,24 @@
 
   .hover-tip span {
     color: #666052;
+  }
+
+  .zoom-reset {
+    position: absolute;
+    top: calc(100% + 5px);
+    right: 0;
+    z-index: 2;
+    border: 1px solid #b9b2a4;
+    border-radius: 6px;
+    background: #fbfaf7;
+    color: #151515;
+    padding: 2px 6px;
+    font-size: 11px;
+    line-height: 1.3;
+    cursor: pointer;
+  }
+
+  .zoom-reset:hover {
+    background: #f0ede5;
   }
 </style>

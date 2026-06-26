@@ -2,7 +2,8 @@ FROM node:22-alpine AS frontend
 WORKDIR /app/web
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile || pnpm install
+COPY web/pnpm-workspace.yaml* ./
+RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
@@ -31,4 +32,3 @@ RUN uv pip install --system .
 
 EXPOSE 8080
 CMD ["python", "-m", "stt_vault.app"]
-

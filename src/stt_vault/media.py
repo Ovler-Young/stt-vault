@@ -54,6 +54,99 @@ def ffprobe_duration(input_path: Path) -> float:
     return float(payload["format"]["duration"])
 
 
+def ffprobe_audio_streams(input_path: Path) -> list[dict[str, object]]:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index,codec_name,channels,channel_layout,bit_rate:stream_tags=language,title",
+            "-of",
+            "json",
+            str(input_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    streams = []
+    for audio_index, stream in enumerate(payload.get("streams") or []):
+        tags = stream.get("tags") or {}
+        streams.append(
+            {
+                "audio_index": audio_index,
+                "stream_index": stream.get("index"),
+                "codec_name": stream.get("codec_name"),
+                "channels": stream.get("channels"),
+                "channel_layout": stream.get("channel_layout"),
+                "bit_rate": stream.get("bit_rate"),
+                "language": tags.get("language"),
+                "title": tags.get("title"),
+            }
+        )
+    return streams
+
+
+def playback_media_stream_command(input_path: Path, audio_track: str) -> list[str]:
+    streams = ffprobe_audio_streams(input_path)
+    if not streams:
+        raise ValueError("No audio tracks are available")
+
+    if audio_track == "all":
+        pass
+    else:
+        try:
+            track_index = int(audio_track)
+        except ValueError:
+            raise ValueError("audio_track must be all or an audio stream index") from None
+        if track_index < 0 or track_index >= len(streams):
+            raise ValueError("audio_track is out of range")
+
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-map",
+        "0:v:0?",
+    ]
+
+    if audio_track == "all":
+        if len(streams) == 1:
+            command += ["-map", "0:a:0"]
+        else:
+            inputs = "".join(f"[0:a:{index}]" for index in range(len(streams)))
+            command += [
+                "-filter_complex",
+                f"{inputs}amix=inputs={len(streams)}:duration=longest:normalize=0[aout]",
+                "-map",
+                "[aout]",
+            ]
+    else:
+        command += ["-map", f"0:a:{int(audio_track)}"]
+
+    command += [
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-movflags",
+        "frag_keyframe+empty_moov+default_base_moof",
+        "-f",
+        "mp4",
+        "pipe:1",
+    ]
+    return command
+
+
 def to_wav_16k_mono(input_path: Path, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(

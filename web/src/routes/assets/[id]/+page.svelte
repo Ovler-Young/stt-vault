@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { page } from '$app/stores';
   import SpeakerProgressBar from '$lib/SpeakerProgressBar.svelte';
   import {
     deleteAsset,
     detectAssetVisualEvents,
     fetchAsset,
+    fetchAssetAudioTracks,
     recomputeAssetSpeakers,
     retryAsset,
     saveAssetSpeaker,
+    type AudioTrack,
     type AssetDetail,
     type TranscriptSegment,
     type VisualEvent
@@ -34,6 +36,10 @@
   let visualMessage = '';
   let speakerEditor: SpeakerEditor | null = null;
   let editorName = '';
+  let audioTracks: AudioTrack[] = [];
+  let audioTracksAssetId = '';
+  let selectedAudioTrack = 'default';
+  let pendingMediaSeek: number | null = null;
   let dragStartX = 0;
   let dragScrollLeft = 0;
   let thumbDragging = false;
@@ -60,6 +66,7 @@
     try {
       if (!assetId) return;
       asset = await fetchAsset(assetId);
+      await loadAudioTracks(asset.id);
       syncSpeakerDrafts();
       error = '';
     } catch (err) {
@@ -95,6 +102,50 @@
 
   function updateCurrentTime() {
     currentTime = mediaEl?.currentTime ?? 0;
+  }
+
+  async function loadAudioTracks(nextAssetId: string) {
+    if (audioTracksAssetId === nextAssetId) return;
+    try {
+      audioTracks = await fetchAssetAudioTracks(nextAssetId);
+      audioTracksAssetId = nextAssetId;
+      selectedAudioTrack = 'default';
+    } catch {
+      audioTracks = [];
+      audioTracksAssetId = nextAssetId;
+      selectedAudioTrack = 'default';
+    }
+  }
+
+  function mediaUrl(assetId: string) {
+    const params = new URLSearchParams();
+    if (selectedAudioTrack !== 'default') {
+      params.set('audio_track', selectedAudioTrack);
+    }
+    const query = params.toString();
+    return `/api/assets/${assetId}/media${query ? `?${query}` : ''}`;
+  }
+
+  async function changeAudioTrack() {
+    pendingMediaSeek = mediaEl?.currentTime ?? currentTime;
+    await tick();
+    mediaEl?.load();
+  }
+
+  function restoreMediaSeek() {
+    if (pendingMediaSeek === null || !mediaEl) return;
+    mediaEl.currentTime = pendingMediaSeek;
+    pendingMediaSeek = null;
+  }
+
+  function audioTrackLabel(track: AudioTrack) {
+    const parts = [`Track ${track.audio_index + 1}`];
+    if (track.title) parts.push(track.title);
+    if (track.language) parts.push(track.language);
+    if (track.channel_layout) parts.push(track.channel_layout);
+    else if (track.channels) parts.push(`${track.channels}ch`);
+    if (track.codec_name) parts.push(track.codec_name);
+    return parts.join(' · ');
   }
 
   function startPlaybackClock() {
@@ -289,13 +340,14 @@
         <video
           bind:this={mediaEl}
           controls
-          src={`/api/assets/${asset.id}/media`}
+          src={mediaUrl(asset.id)}
           on:timeupdate={updateCurrentTime}
           on:seeked={updateCurrentTime}
           on:play={updateCurrentTime}
           on:playing={startPlaybackClock}
           on:pause={stopPlaybackClock}
           on:ended={stopPlaybackClock}
+          on:loadedmetadata={restoreMediaSeek}
         >
           <track
             kind="captions"
@@ -305,6 +357,19 @@
             default
           />
         </video>
+
+        {#if audioTracks.length > 1}
+          <label class="audio-track-picker">
+            <span>Audio</span>
+            <select bind:value={selectedAudioTrack} on:change={changeAudioTrack}>
+              <option value="default">Original playback</option>
+              <option value="all">All tracks mixed</option>
+              {#each audioTracks as track}
+                <option value={`${track.audio_index}`}>{audioTrackLabel(track)}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
 
         <SpeakerProgressBar
           segments={asset.transcript_segments ?? []}
@@ -551,6 +616,26 @@
     max-height: 58vh;
     background: #111;
     border-radius: 8px;
+  }
+
+  .audio-track-picker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    color: #666052;
+    font-size: 12px;
+  }
+
+  .audio-track-picker select {
+    min-width: 0;
+    max-width: 100%;
+    border: 1px solid #c7c1b4;
+    border-radius: 6px;
+    background: white;
+    color: #151515;
+    font: inherit;
+    padding: 5px 8px;
   }
 
   .visual-bar {

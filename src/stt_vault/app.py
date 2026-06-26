@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Annotated
@@ -6,14 +7,14 @@ from uuid import uuid4
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db
 from .diarization import match_speakers
 from .exports import write_exports
-from .media import store_upload
+from .media import ffprobe_audio_streams, playback_media_stream_command, store_upload
 from .settings import Settings, get_settings
 from .visual import (
     detect_slide_changes,
@@ -266,12 +267,36 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Asset not found") from None
         return {"status": "queued"}
 
-    @app.get("/api/assets/{asset_id}/media")
-    def get_media(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> FileResponse:
+    @app.get("/api/assets/{asset_id}/audio-tracks")
+    def get_audio_tracks(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
         asset = db.get_asset(settings.stt_db_path, asset_id)
         if asset is None:
             raise HTTPException(status_code=404, detail="Asset not found")
-        return FileResponse(asset["original_path"], filename=asset["filename"])
+        try:
+            return ffprobe_audio_streams(Path(asset["original_path"]))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not probe audio tracks: {exc}") from exc
+
+    @app.get("/api/assets/{asset_id}/media", response_model=None)
+    def get_media(
+        asset_id: str,
+        _: Annotated[None, Depends(require_admin)],
+        audio_track: str | None = None,
+    ):
+        asset = db.get_asset(settings.stt_db_path, asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        if not audio_track or audio_track == "default":
+            return FileResponse(asset["original_path"], filename=asset["filename"])
+        try:
+            command = playback_media_stream_command(Path(asset["original_path"]), audio_track)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return StreamingResponse(
+            stream_process_stdout(command),
+            media_type="video/mp4",
+            headers={"Accept-Ranges": "none"},
+        )
 
     @app.get("/api/assets/{asset_id}/exports/{format_name}")
     def get_export(
@@ -425,6 +450,27 @@ def recompute_asset_speaker_matches(settings: Settings, asset_ids: list[str]) ->
         db.relabel_asset_speakers(settings.stt_db_path, asset_id, matches)
         updated_asset_ids.append(asset_id)
     return updated_asset_ids
+
+
+def stream_process_stdout(command: list[str]):
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        if process.stdout is None:
+            return
+        while True:
+            chunk = process.stdout.read(1024 * 1024)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        if process.stdout is not None:
+            process.stdout.close()
 
 
 def run() -> None:

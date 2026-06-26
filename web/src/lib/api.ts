@@ -78,6 +78,17 @@ export type VisualEvent = {
   created_at: number;
 };
 
+export type AudioTrack = {
+  audio_index: number;
+  stream_index: number | null;
+  codec_name: string | null;
+  channels: number | null;
+  channel_layout: string | null;
+  bit_rate: string | null;
+  language: string | null;
+  title: string | null;
+};
+
 const passwordKey = 'stt-vault-admin-password';
 
 export function getStoredPassword(): string {
@@ -107,6 +118,10 @@ export async function fetchConfig(): Promise<{ auth_required: boolean; transcrib
 
 export async function fetchAssets(): Promise<AssetSummary[]> {
   return request('/api/assets');
+}
+
+export async function fetchAssetAudioTracks(assetId: string): Promise<AudioTrack[]> {
+  return request(`/api/assets/${assetId}/audio-tracks`);
 }
 
 export async function fetchJobs(): Promise<Job[]> {

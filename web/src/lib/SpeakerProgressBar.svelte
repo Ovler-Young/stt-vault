@@ -25,14 +25,20 @@
   ];
 
   let hovered: { x: number; time: number; speaker: string | null } | null = null;
+  let zoomStart = 0;
+  let zoomEnd = 1;
 
   $: effectiveDuration =
     duration && duration > 0
       ? duration
       : Math.max(0, ...segments.map((segment) => segment.end));
+  $: zoomSize = Math.max(0.001, zoomEnd - zoomStart);
   $: progressPercent = effectiveDuration
-    ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100))
+    ? Math.min(100, Math.max(0, ((currentTime / effectiveDuration - zoomStart) / zoomSize) * 100))
     : 0;
+  $: progressInWindow = effectiveDuration
+    ? currentTime / effectiveDuration >= zoomStart && currentTime / effectiveDuration <= zoomEnd
+    : false;
 
   function hashSpeaker(speaker: string) {
     let hash = 0;
@@ -50,11 +56,24 @@
     if (!effectiveDuration) return 0;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    return ratio * effectiveDuration;
+    return (zoomStart + ratio * zoomSize) * effectiveDuration;
   }
 
   function segmentAt(time: number) {
     return segments.find((segment) => time >= segment.start && time < segment.end) ?? null;
+  }
+
+  function segmentPosition(segment: TranscriptSegment) {
+    if (!effectiveDuration) return null;
+    const start = segment.start / effectiveDuration;
+    const end = segment.end / effectiveDuration;
+    const visibleStart = Math.max(start, zoomStart);
+    const visibleEnd = Math.min(end, zoomEnd);
+    if (visibleStart >= visibleEnd) return null;
+    return {
+      x: ((visibleStart - zoomStart) / zoomSize) * 100,
+      width: Math.max(0.15, ((visibleEnd - visibleStart) / zoomSize) * 100)
+    };
   }
 
   function handleClick(event: MouseEvent) {
@@ -66,6 +85,18 @@
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
     dispatch('seek', { time: eventTime(event) });
+  }
+
+  function handleDoubleClick(event: MouseEvent) {
+    const time = eventTime(event);
+    const segment = segmentAt(time);
+    const fullStart = segment ? segment.start / effectiveDuration : time / effectiveDuration;
+    const fullEnd = segment ? segment.end / effectiveDuration : fullStart;
+    const center = (fullStart + fullEnd) / 2;
+    const segmentWidth = Math.max(fullEnd - fullStart, 0.015);
+    const nextWidth = Math.max(0.02, Math.min(0.35, segmentWidth * 4, zoomSize * 0.55));
+    zoomStart = Math.max(0, Math.min(1 - nextWidth, center - nextWidth / 2));
+    zoomEnd = Math.min(1, zoomStart + nextWidth);
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -86,20 +117,20 @@
   <div
     class="speaker-progress"
     on:click={handleClick}
+    on:dblclick={handleDoubleClick}
     on:contextmenu={handleContextMenu}
     on:mousemove={handleMouseMove}
     on:mouseleave={() => (hovered = null)}
-    title="Click to jump to a speaker segment. Right click to seek exactly."
+    title="Click to jump to a speaker segment. Double click to zoom. Right click to seek exactly."
   >
     <svg aria-hidden="true">
       {#each segments as segment}
-        {#if segment.end > segment.start}
-          {@const x = Math.max(0, (segment.start / effectiveDuration) * 100)}
-          {@const width = Math.max(0.15, ((segment.end - segment.start) / effectiveDuration) * 100)}
+        {@const position = segmentPosition(segment)}
+        {#if segment.end > segment.start && position}
           <rect
-            x={`${x}%`}
+            x={`${position.x}%`}
             y="0"
-            width={`${Math.min(100 - x, width)}%`}
+            width={`${Math.min(100 - position.x, position.width)}%`}
             height="100%"
             fill={speakerColor(segment.speaker_name ?? segment.speaker)}
           />
@@ -107,8 +138,10 @@
       {/each}
     </svg>
 
-    <div class="progress-mask" style={`width:${progressPercent}%`}></div>
-    <div class="time-marker" style={`left:${progressPercent}%`}></div>
+    {#if progressInWindow}
+      <div class="progress-mask" style={`width:${progressPercent}%`}></div>
+      <div class="time-marker" style={`left:${progressPercent}%`}></div>
+    {/if}
 
     {#if hovered}
       <div class="hover-tip" style={`left:${hovered.x}px`}>

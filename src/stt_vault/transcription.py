@@ -1,6 +1,6 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
 import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 
@@ -74,18 +74,34 @@ class Transcriber:
         if not chunks:
             return []
 
+        results: list[dict[str, Any]] = []
+        chunk_iter = iter(enumerate(chunks))
+        pending: set[Future[dict[str, Any]]] = set()
+
         with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
-            futures = [
-                executor.submit(
-                    self._transcribe_one,
-                    media_path,
-                    chunk,
-                    tmp_dir,
-                    int(chunk.get("chunk_index", index)),
-                )
-                for index, chunk in enumerate(chunks)
-            ]
-            results = [future.result() for future in as_completed(futures)]
+            while True:
+                self._wait_for_pause()
+                while len(pending) < self.concurrency:
+                    try:
+                        index, chunk = next(chunk_iter)
+                    except StopIteration:
+                        break
+                    pending.add(
+                        executor.submit(
+                            self._transcribe_one,
+                            media_path,
+                            chunk,
+                            tmp_dir,
+                            int(chunk.get("chunk_index", index)),
+                        )
+                    )
+
+                if not pending:
+                    break
+
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    results.append(future.result())
 
         return sorted(results, key=lambda item: (item["start"], item["end"]))
 
@@ -113,7 +129,9 @@ class Transcriber:
                         kwargs["prompt"] = self.prompt
 
                     with chunk_path.open("rb") as audio_file:
-                        response = self.client.audio.transcriptions.create(file=audio_file, **kwargs)
+                        response = self.client.audio.transcriptions.create(
+                            file=audio_file, **kwargs
+                        )
 
                     text = getattr(response, "text", None)
                     if text is None and isinstance(response, dict):
@@ -126,6 +144,7 @@ class Transcriber:
                         "chunk_end": chunk["end"],
                         "speaker": chunk["speaker"],
                         "text": (text or "").strip(),
+                        "attempts": attempt,
                     }
                     if self.on_chunk_done:
                         self.on_chunk_done(index, result)

@@ -16,6 +16,7 @@
   let mediaEl: HTMLMediaElement | null = null;
   let currentTime = 0;
   let poll: ReturnType<typeof setInterval> | null = null;
+  let showHistory = false;
 
   $: assetId = $page.params.id ?? '';
 
@@ -154,10 +155,17 @@
       </article>
 
       <aside class="events">
-        <h2>Log</h2>
-        {#each asset.events ?? [] as event}
+        <div class="events-head">
+          <h2>{showHistory ? 'Full Log' : 'Current Run Log'}</h2>
+          <button on:click={() => (showHistory = !showHistory)}>
+            {showHistory ? 'Current run' : 'All history'}
+          </button>
+        </div>
+        {#each (showHistory ? asset.event_history : asset.events) ?? [] as event}
           <div class={`event ${event.level}`}>
-            <small>{formatDate(event.created_at)} · {event.stage ?? event.level}</small>
+            <small>
+              {formatDate(event.created_at)} · run {event.run_attempt ?? 0} · {event.stage ?? event.level}
+            </small>
             <p>{event.message}</p>
           </div>
         {/each}
@@ -241,6 +249,13 @@
   .events {
     display: grid;
     align-content: start;
+    gap: 8px;
+  }
+
+  .events-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 8px;
   }
 

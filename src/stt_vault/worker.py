@@ -1,6 +1,5 @@
 import shutil
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +94,7 @@ class Worker:
                 asset_id,
                 index,
                 enriched,
-                attempts=1,
+                attempts=int(result.get("attempts", 1)),
             )
             db.update_progress(
                 self.settings.stt_db_path,
@@ -128,12 +127,16 @@ class Worker:
                 "transcribing speech",
                 (
                     f"Chunk {index + 1} failed on attempt {attempt}; "
-                    f"pausing all transcription until retry"
+                    "OpenAI cooldown active until retry"
                 ),
                 {
                     "chunk_index": index,
                     "attempt": attempt,
                     "retry_at": retry_at,
+                    "note": (
+                        "New OpenAI requests pause until retry; "
+                        "already in-flight requests may still finish."
+                    ),
                     "error_type": exc.__class__.__name__,
                     "error": str(exc),
                 },
@@ -168,7 +171,11 @@ class Worker:
         )
         transcript_segments = []
         try:
-            transcript_segments = transcriber.transcribe_chunks(original_path, chunks_to_transcribe, work_dir)
+            transcript_segments = transcriber.transcribe_chunks(
+                original_path,
+                chunks_to_transcribe,
+                work_dir,
+            )
             transcript_segments = apply_speaker_names(transcript_segments, speaker_matches)
         except Exception as exc:
             transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
@@ -202,7 +209,9 @@ class Worker:
             return
 
         db.update_stage(self.settings.stt_db_path, asset_id, "writing exports")
-        transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id) or transcript_segments
+        transcript_segments = (
+            db.list_transcript_chunks(self.settings.stt_db_path, asset_id) or transcript_segments
+        )
         exports = write_exports(
             self.settings.exports_dir,
             asset_id,

@@ -69,7 +69,8 @@ def initialize(db_path: Path) -> None:
                 progress_total_chunks INTEGER DEFAULT 0,
                 progress_done_chunks INTEGER DEFAULT 0,
                 progress_failed_chunks INTEGER DEFAULT 0,
-                next_retry_at INTEGER
+                next_retry_at INTEGER,
+                run_attempt INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS job_events (
@@ -80,6 +81,7 @@ def initialize(db_path: Path) -> None:
                 stage TEXT,
                 message TEXT NOT NULL,
                 payload TEXT,
+                run_attempt INTEGER DEFAULT 0,
                 created_at INTEGER NOT NULL
             );
 
@@ -118,6 +120,14 @@ def initialize(db_path: Path) -> None:
                 "progress_done_chunks": "INTEGER DEFAULT 0",
                 "progress_failed_chunks": "INTEGER DEFAULT 0",
                 "next_retry_at": "INTEGER",
+                "run_attempt": "INTEGER DEFAULT 0",
+            },
+        )
+        add_missing_columns(
+            conn,
+            "job_events",
+            {
+                "run_attempt": "INTEGER DEFAULT 0",
             },
         )
 
@@ -233,7 +243,8 @@ def get_asset(db_path: Path, asset_id: str) -> dict[str, Any] | None:
         if chunks:
             asset["transcript_segments"] = chunks
         asset["job"] = get_job(db_path, asset_id)
-        asset["events"] = list_events(db_path, asset_id)
+        asset["events"] = list_current_run_events(db_path, asset_id)
+        asset["event_history"] = list_events(db_path, asset_id)
     return asset
 
 
@@ -251,7 +262,14 @@ def claim_next_job(db_path: Path) -> str | None:
         if row is None:
             return None
         conn.execute(
-            "UPDATE jobs SET status = 'processing', started_at = ?, stage = ? WHERE id = ?",
+            """
+            UPDATE jobs
+            SET status = 'processing',
+                started_at = ?,
+                stage = ?,
+                run_attempt = run_attempt + 1
+            WHERE id = ?
+            """,
             (timestamp, "starting", row["id"]),
         )
         conn.execute(
@@ -305,13 +323,18 @@ def add_event(
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
-        row = conn.execute("SELECT id FROM jobs WHERE asset_id = ?", (asset_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, run_attempt FROM jobs WHERE asset_id = ?",
+            (asset_id,),
+        ).fetchone()
         if row is None:
             return
         conn.execute(
             """
-            INSERT INTO job_events (job_id, asset_id, level, stage, message, payload, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO job_events (
+                job_id, asset_id, level, stage, message, payload, run_attempt, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["id"],
@@ -320,6 +343,7 @@ def add_event(
                 stage,
                 message,
                 json.dumps(payload) if payload is not None else None,
+                row["run_attempt"],
                 timestamp,
             ),
         )
@@ -329,13 +353,37 @@ def list_events(db_path: Path, asset_id: str, limit: int = 200) -> list[dict[str
     with connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT id, level, stage, message, payload, created_at
+            SELECT id, level, stage, message, payload, run_attempt, created_at
             FROM job_events
             WHERE asset_id = ?
             ORDER BY id DESC
             LIMIT ?
             """,
             (asset_id, limit),
+        ).fetchall()
+    events = []
+    for row in reversed(rows):
+        item = dict(row)
+        if item.get("payload"):
+            item["payload"] = json.loads(item["payload"])
+        events.append(item)
+    return events
+
+
+def list_current_run_events(db_path: Path, asset_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    job = get_job(db_path, asset_id)
+    if job is None:
+        return []
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, level, stage, message, payload, run_attempt, created_at
+            FROM job_events
+            WHERE asset_id = ? AND run_attempt = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (asset_id, job["run_attempt"], limit),
         ).fetchall()
     events = []
     for row in reversed(rows):
@@ -532,6 +580,13 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
         row = conn.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if row is None:
             raise KeyError(asset_id)
+        job = conn.execute(
+            "SELECT id, run_attempt FROM jobs WHERE asset_id = ?",
+            (asset_id,),
+        ).fetchone()
+        if job is None:
+            raise KeyError(asset_id)
+        next_run_attempt = int(job["run_attempt"]) + 1
         conn.execute(
             """
             UPDATE assets
@@ -556,7 +611,15 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
             """,
             (asset_id,),
         )
-    add_event(db_path, asset_id, "info", "queued", "Job queued for retry")
+        conn.execute(
+            """
+            INSERT INTO job_events (
+                job_id, asset_id, level, stage, message, payload, run_attempt, created_at
+            )
+            VALUES (?, ?, 'info', 'queued', 'Job queued for retry', NULL, ?, ?)
+            """,
+            (job["id"], asset_id, next_run_attempt, timestamp),
+        )
 
 
 def list_speakers(db_path: Path) -> list[dict[str, Any]]:

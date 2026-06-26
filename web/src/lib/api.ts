@@ -28,6 +28,7 @@ export type AssetDetail = AssetSummary & {
   diarization_stats?: Record<string, number>;
   job?: Job;
   events?: JobEvent[];
+  event_history?: JobEvent[];
 };
 
 export type Job = {
@@ -54,6 +55,7 @@ export type JobEvent = {
   stage: string | null;
   message: string;
   payload?: unknown;
+  run_attempt?: number;
   created_at: number;
 };
 

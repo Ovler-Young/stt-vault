@@ -474,6 +474,53 @@ def mark_success(
     add_event(db_path, asset_id, "info", "done", "Job completed")
 
 
+def update_diarization_metadata(
+    db_path: Path,
+    asset_id: str,
+    *,
+    wav_path: Path,
+    duration: float,
+    diarization_stats: dict[str, Any],
+    raw_segments: list[dict[str, Any]],
+    merged_segments: list[dict[str, Any]],
+    speaker_centroids: dict[str, list[float]],
+) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE assets
+            SET wav_path = ?,
+                duration = ?,
+                diarization_stats = ?,
+                raw_segments = ?,
+                merged_segments = ?,
+                speaker_centroids = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                str(wav_path),
+                duration,
+                json.dumps(diarization_stats),
+                json.dumps(raw_segments),
+                json.dumps(merged_segments),
+                json.dumps(speaker_centroids),
+                timestamp,
+                asset_id,
+            ),
+        )
+
+
+def update_asset_exports(db_path: Path, asset_id: str, exports: dict[str, str]) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute(
+            "UPDATE assets SET exports = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(exports), timestamp, asset_id),
+        )
+
+
 def reset_transcript_chunks(db_path: Path, asset_id: str) -> None:
     with transaction(db_path) as conn:
         conn.execute("DELETE FROM transcript_chunks WHERE asset_id = ?", (asset_id,))
@@ -633,6 +680,29 @@ def list_speakers(db_path: Path) -> list[dict[str, Any]]:
     return speakers
 
 
+def get_speaker(db_path: Path, speaker_id: str) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
+    if row is None:
+        return None
+    item = dict(row)
+    item["centroid"] = json.loads(item["centroid"])
+    return item
+
+
+def find_speaker_by_display_name(db_path: Path, display_name: str) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM speakers WHERE lower(display_name) = lower(?)",
+            (display_name,),
+        ).fetchone()
+    if row is None:
+        return None
+    item = dict(row)
+    item["centroid"] = json.loads(item["centroid"])
+    return item
+
+
 def upsert_speaker(
     db_path: Path,
     speaker_id: str,
@@ -642,6 +712,18 @@ def upsert_speaker(
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
+        existing = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
+        if existing is not None:
+            existing_centroid = json.loads(existing["centroid"])
+            existing_count = max(1, int(existing["sample_count"]))
+            incoming_count = max(1, sample_count)
+            if len(existing_centroid) == len(centroid):
+                total = existing_count + incoming_count
+                centroid = [
+                    ((float(old) * existing_count) + (float(new) * incoming_count)) / total
+                    for old, new in zip(existing_centroid, centroid, strict=False)
+                ]
+                sample_count = total
         conn.execute(
             """
             INSERT INTO speakers (id, display_name, centroid, sample_count, created_at, updated_at)
@@ -653,4 +735,102 @@ def upsert_speaker(
                 updated_at = excluded.updated_at
             """,
             (speaker_id, display_name, json.dumps(centroid), sample_count, timestamp, timestamp),
+        )
+
+
+def rename_speaker(db_path: Path, speaker_id: str, display_name: str) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute(
+            "UPDATE speakers SET display_name = ?, updated_at = ? WHERE id = ?",
+            (display_name, timestamp, speaker_id),
+        )
+        conn.execute(
+            """
+            UPDATE transcript_chunks
+            SET speaker_name = ?, updated_at = ?
+            WHERE speaker_id = ?
+            """,
+            (display_name, timestamp, speaker_id),
+        )
+        refresh_asset_transcripts_for_speaker_from_conn(conn, speaker_id, timestamp)
+
+
+def delete_speaker(db_path: Path, speaker_id: str) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id = ?",
+            (speaker_id,),
+        ).fetchall()
+        conn.execute("DELETE FROM speakers WHERE id = ?", (speaker_id,))
+        conn.execute(
+            """
+            UPDATE transcript_chunks
+            SET speaker_id = speaker,
+                speaker_name = speaker,
+                speaker_similarity = NULL,
+                updated_at = ?
+            WHERE speaker_id = ?
+            """,
+            (timestamp, speaker_id),
+        )
+        for row in rows:
+            asset_id = row["asset_id"]
+            conn.execute(
+                "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+            )
+
+
+def relabel_asset_speaker(
+    db_path: Path,
+    asset_id: str,
+    local_speaker: str,
+    speaker_id: str,
+    display_name: str,
+    similarity: float | None,
+) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE transcript_chunks
+            SET speaker_id = ?,
+                speaker_name = ?,
+                speaker_similarity = ?,
+                updated_at = ?
+            WHERE asset_id = ? AND speaker = ?
+            """,
+            (speaker_id, display_name, similarity, timestamp, asset_id, local_speaker),
+        )
+        conn.execute(
+            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+        )
+
+
+def list_asset_ids_for_speaker(db_path: Path, speaker_id: str) -> list[str]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id = ?",
+            (speaker_id,),
+        ).fetchall()
+    return [row["asset_id"] for row in rows]
+
+
+def refresh_asset_transcripts_for_speaker_from_conn(
+    conn: sqlite3.Connection,
+    speaker_id: str,
+    timestamp: int,
+) -> None:
+    rows = conn.execute(
+        "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id = ?",
+        (speaker_id,),
+    ).fetchall()
+    for row in rows:
+        asset_id = row["asset_id"]
+        conn.execute(
+            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
         )

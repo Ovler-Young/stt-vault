@@ -2,16 +2,23 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from . import db
+from .exports import write_exports
 from .media import store_upload
 from .settings import Settings, get_settings
 from .worker import Worker
+
+
+class SpeakerNameRequest(BaseModel):
+    display_name: str
 
 
 def require_admin(
@@ -95,12 +102,73 @@ def create_app() -> FastAPI:
     def list_jobs(_: Annotated[None, Depends(require_admin)]) -> list[dict]:
         return db.list_jobs(settings.stt_db_path)
 
+    @app.get("/api/speakers")
+    def list_speakers(_: Annotated[None, Depends(require_admin)]) -> list[dict]:
+        return db.list_speakers(settings.stt_db_path)
+
+    @app.put("/api/speakers/{speaker_id}", dependencies=[Depends(require_admin)])
+    def rename_speaker(speaker_id: str, payload: SpeakerNameRequest) -> dict:
+        display_name = clean_display_name(payload.display_name)
+        if db.get_speaker(settings.stt_db_path, speaker_id) is None:
+            raise HTTPException(status_code=404, detail="Speaker not found")
+
+        affected_asset_ids = db.list_asset_ids_for_speaker(settings.stt_db_path, speaker_id)
+        db.rename_speaker(settings.stt_db_path, speaker_id, display_name)
+        rewrite_asset_exports(settings, affected_asset_ids)
+        return db.get_speaker(settings.stt_db_path, speaker_id) or {}
+
+    @app.delete("/api/speakers/{speaker_id}", dependencies=[Depends(require_admin)])
+    def delete_speaker(speaker_id: str) -> dict[str, str]:
+        if db.get_speaker(settings.stt_db_path, speaker_id) is None:
+            raise HTTPException(status_code=404, detail="Speaker not found")
+
+        affected_asset_ids = db.list_asset_ids_for_speaker(settings.stt_db_path, speaker_id)
+        db.delete_speaker(settings.stt_db_path, speaker_id)
+        rewrite_asset_exports(settings, affected_asset_ids)
+        return {"status": "deleted"}
+
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> dict:
         asset = db.get_asset(settings.stt_db_path, asset_id)
         if asset is None:
             raise HTTPException(status_code=404, detail="Asset not found")
         return asset
+
+    @app.post("/api/assets/{asset_id}/speakers/{local_speaker}", dependencies=[Depends(require_admin)])
+    def save_asset_speaker(
+        asset_id: str,
+        local_speaker: str,
+        payload: SpeakerNameRequest,
+    ) -> dict:
+        display_name = clean_display_name(payload.display_name)
+        asset = db.get_asset(settings.stt_db_path, asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        centroids = asset.get("speaker_centroids") or {}
+        centroid = centroids.get(local_speaker)
+        if centroid is None:
+            raise HTTPException(status_code=400, detail="Speaker centroid is not available yet")
+
+        speaker_id = resolve_speaker_id(settings, asset, local_speaker, display_name)
+        sample_count = count_local_speaker_segments(asset, local_speaker)
+        db.upsert_speaker(
+            settings.stt_db_path,
+            speaker_id,
+            display_name,
+            centroid,
+            sample_count,
+        )
+        db.relabel_asset_speaker(
+            settings.stt_db_path,
+            asset_id,
+            local_speaker,
+            speaker_id,
+            display_name,
+            1.0,
+        )
+        rewrite_asset_exports(settings, [asset_id])
+        return db.get_speaker(settings.stt_db_path, speaker_id) or {}
 
     @app.get("/api/assets/{asset_id}/events")
     def get_asset_events(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
@@ -165,6 +233,64 @@ def create_app() -> FastAPI:
             return FileResponse(index_path)
 
     return app
+
+
+def clean_display_name(display_name: str) -> str:
+    value = display_name.strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Display name is required")
+    if len(value) > 120:
+        raise HTTPException(status_code=400, detail="Display name is too long")
+    return value
+
+
+def resolve_speaker_id(
+    settings: Settings,
+    asset: dict,
+    local_speaker: str,
+    display_name: str,
+) -> str:
+    for segment in asset.get("transcript_segments") or []:
+        if segment.get("speaker") != local_speaker:
+            continue
+        speaker_id = segment.get("speaker_id")
+        if speaker_id and speaker_id != local_speaker:
+            return speaker_id
+
+    existing = db.find_speaker_by_display_name(settings.stt_db_path, display_name)
+    if existing is not None:
+        return existing["id"]
+
+    return f"spk_{uuid4().hex[:12]}"
+
+
+def count_local_speaker_segments(asset: dict, local_speaker: str) -> int:
+    return max(
+        1,
+        sum(1 for segment in asset.get("transcript_segments") or [] if segment["speaker"] == local_speaker),
+    )
+
+
+def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:
+    for asset_id in asset_ids:
+        asset = db.get_asset(settings.stt_db_path, asset_id)
+        if asset is None:
+            continue
+
+        transcript_segments = asset.get("transcript_segments") or []
+        raw_segments = asset.get("raw_segments") or []
+        if not transcript_segments or not raw_segments:
+            continue
+
+        exports = write_exports(
+            settings.exports_dir,
+            asset_id,
+            asset["filename"],
+            transcript_segments,
+            raw_segments,
+            settings.parsed_export_formats,
+        )
+        db.update_asset_exports(settings.stt_db_path, asset_id, exports)
 
 
 def run() -> None:

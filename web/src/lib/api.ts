@@ -26,6 +26,7 @@ export type AssetDetail = AssetSummary & {
   transcript_segments?: TranscriptSegment[];
   exports?: Record<string, string>;
   diarization_stats?: Record<string, number>;
+  speaker_centroids?: Record<string, number[]>;
   job?: Job;
   events?: JobEvent[];
   event_history?: JobEvent[];
@@ -57,6 +58,15 @@ export type JobEvent = {
   payload?: unknown;
   run_attempt?: number;
   created_at: number;
+};
+
+export type Speaker = {
+  id: string;
+  display_name: string;
+  centroid: number[];
+  sample_count: number;
+  created_at: number;
+  updated_at: number;
 };
 
 const passwordKey = 'stt-vault-admin-password';
@@ -94,6 +104,22 @@ export async function fetchJobs(): Promise<Job[]> {
   return request('/api/jobs');
 }
 
+export async function fetchSpeakers(): Promise<Speaker[]> {
+  return request('/api/speakers');
+}
+
+export async function renameSpeaker(id: string, displayName: string): Promise<Speaker> {
+  return request(`/api/speakers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: displayName })
+  });
+}
+
+export async function deleteSpeaker(id: string): Promise<void> {
+  await request(`/api/speakers/${id}`, { method: 'DELETE' });
+}
+
 export async function fetchAsset(id: string): Promise<AssetDetail> {
   return request(`/api/assets/${id}`);
 }
@@ -113,4 +139,16 @@ export async function deleteAsset(id: string): Promise<void> {
 
 export async function retryAsset(id: string): Promise<void> {
   await request(`/api/assets/${id}/retry`, { method: 'POST' });
+}
+
+export async function saveAssetSpeaker(
+  assetId: string,
+  localSpeaker: string,
+  displayName: string
+): Promise<Speaker> {
+  return request(`/api/assets/${assetId}/speakers/${encodeURIComponent(localSpeaker)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: displayName })
+  });
 }

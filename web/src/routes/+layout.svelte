@@ -10,6 +10,7 @@
   <nav>
     <a class:active={$page.url.pathname === '/'} href="/">Dashboard</a>
     <a class:active={$page.url.pathname.startsWith('/jobs')} href="/jobs">Jobs</a>
+    <a class:active={$page.url.pathname.startsWith('/speakers')} href="/speakers">Speakers</a>
     <a class:active={$page.url.pathname.startsWith('/settings')} href="/settings">Settings</a>
   </nav>
   <slot />

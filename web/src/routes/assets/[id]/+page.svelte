@@ -5,8 +5,8 @@
     deleteAsset,
     fetchAsset,
     retryAsset,
+    saveAssetSpeaker,
     type AssetDetail,
-    type AssetSummary,
     type TranscriptSegment
   } from '$lib/api';
   import { formatDate, formatTime } from '$lib/format';
@@ -17,6 +17,8 @@
   let currentTime = 0;
   let poll: ReturnType<typeof setInterval> | null = null;
   let showHistory = false;
+  let speakerDrafts: Record<string, string> = {};
+  let speakerMessage = '';
 
   $: assetId = $page.params.id ?? '';
 
@@ -33,6 +35,7 @@
     try {
       if (!assetId) return;
       asset = await fetchAsset(assetId);
+      syncSpeakerDrafts();
       error = '';
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -65,6 +68,48 @@
     const job = asset.job;
     if (!job || !job.progress_total_chunks) return '';
     return `${job.progress_done_chunks}/${job.progress_total_chunks} chunks`;
+  }
+
+  function syncSpeakerDrafts() {
+    if (!asset) return;
+    for (const row of localSpeakerRows(asset)) {
+      if (!(row.localSpeaker in speakerDrafts)) {
+        speakerDrafts[row.localSpeaker] = row.displayName;
+      }
+    }
+  }
+
+  function localSpeakerRows(asset: AssetDetail) {
+    const speakers = new Set<string>();
+    for (const speaker of Object.keys(asset.speaker_centroids ?? {})) speakers.add(speaker);
+    for (const segment of asset.transcript_segments ?? []) speakers.add(segment.speaker);
+
+    return [...speakers].sort().map((localSpeaker) => {
+      const segments = asset.transcript_segments?.filter((segment) => segment.speaker === localSpeaker) ?? [];
+      const named = segments.find((segment) => segment.speaker_name && segment.speaker_name !== localSpeaker);
+      const matched = segments.find((segment) => segment.speaker_id && segment.speaker_id !== localSpeaker);
+      return {
+        localSpeaker,
+        displayName: named?.speaker_name ?? localSpeaker,
+        speakerId: matched?.speaker_id,
+        similarity: matched?.speaker_similarity ?? null,
+        count: segments.length
+      };
+    });
+  }
+
+  async function saveSpeakerName(localSpeaker: string) {
+    if (!asset) return;
+    const displayName = speakerDrafts[localSpeaker]?.trim();
+    if (!displayName) return;
+    try {
+      const speaker = await saveAssetSpeaker(asset.id, localSpeaker, displayName);
+      speakerMessage = `${localSpeaker} saved as ${speaker.display_name}`;
+      await load();
+    } catch (err) {
+      speakerMessage = '';
+      error = err instanceof Error ? err.message : String(err);
+    }
   }
 </script>
 
@@ -134,6 +179,24 @@
           {#each Object.keys(asset.exports) as format}
             <a href={`/api/assets/${asset.id}/exports/${format}`} target="_blank">{format}</a>
           {/each}
+        </div>
+      {/if}
+
+      {#if Object.keys(asset.speaker_centroids ?? {}).length}
+        <div class="speaker-controls">
+          <h2>Speakers</h2>
+          {#each localSpeakerRows(asset) as speaker}
+            <div class="speaker-row">
+              <strong>{speaker.localSpeaker}</strong>
+              <input bind:value={speakerDrafts[speaker.localSpeaker]} />
+              <small>
+                {speaker.count} chunks
+                {#if speaker.similarity !== null} · match {speaker.similarity.toFixed(3)}{/if}
+              </small>
+              <button on:click={() => saveSpeakerName(speaker.localSpeaker)}>Save</button>
+            </div>
+          {/each}
+          {#if speakerMessage}<p class="message">{speakerMessage}</p>{/if}
         </div>
       {/if}
     </section>
@@ -226,8 +289,21 @@
 
   .progress,
   .stats,
-  .exports {
+  .exports,
+  .speaker-controls {
     margin-top: 12px;
+  }
+
+  .speaker-controls {
+    display: grid;
+    gap: 8px;
+  }
+
+  .speaker-row {
+    display: grid;
+    grid-template-columns: 110px minmax(180px, 1fr) 160px auto;
+    gap: 8px;
+    align-items: center;
   }
 
   .progress span,
@@ -303,6 +379,10 @@
     color: #9b1c1c;
   }
 
+  .message {
+    color: #2f6f73;
+  }
+
   .error-box {
     margin-top: 12px;
     white-space: pre-wrap;
@@ -318,6 +398,10 @@
     }
 
     .transcript button {
+      grid-template-columns: 1fr;
+    }
+
+    .speaker-row {
       grid-template-columns: 1fr;
     }
   }

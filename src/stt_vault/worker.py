@@ -70,12 +70,22 @@ class Worker:
             raise RuntimeError("No speech detected")
 
         centroids = serialize_centroids(diarization["speaker_centroids"])
-        known_speakers = db.list_speakers(self.settings.stt_db_path)
-        speaker_matches = match_speakers(
-            centroids,
-            known_speakers,
-            self.settings.speaker_similarity_threshold,
+        db.update_diarization_metadata(
+            self.settings.stt_db_path,
+            asset_id,
+            wav_path=wav_path,
+            duration=duration,
+            diarization_stats=diarization["timing_stats"],
+            raw_segments=diarization["raw_segments"],
+            merged_segments=diarization["merged_segments"],
+            speaker_centroids=centroids,
         )
+        def current_speaker_matches() -> dict[str, dict[str, Any]]:
+            return match_speakers(
+                centroids,
+                db.list_speakers(self.settings.stt_db_path),
+                self.settings.speaker_similarity_threshold,
+            )
 
         db.update_stage(self.settings.stt_db_path, asset_id, "transcribing speech")
         existing_chunks = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
@@ -87,7 +97,7 @@ class Worker:
         chunk_progress = {"done": 0, "failed": 0}
 
         def on_chunk_done(index: int, result: dict[str, Any]) -> None:
-            enriched = apply_speaker_names([result], speaker_matches)[0]
+            enriched = apply_speaker_names([result], current_speaker_matches())[0]
             chunk_progress["done"] += 1
             db.upsert_transcript_chunk(
                 self.settings.stt_db_path,
@@ -176,7 +186,7 @@ class Worker:
                 chunks_to_transcribe,
                 work_dir,
             )
-            transcript_segments = apply_speaker_names(transcript_segments, speaker_matches)
+            transcript_segments = apply_speaker_names(transcript_segments, current_speaker_matches())
         except Exception as exc:
             transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
             db.update_stage(self.settings.stt_db_path, asset_id, "writing partial exports")

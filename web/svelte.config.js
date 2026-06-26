@@ -8,6 +8,9 @@ const config = {
     }),
     prerender: {
       handleUnseenRoutes: 'ignore'
+    },
+    paths: {
+      relative: false
     }
   }
 };

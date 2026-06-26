@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { page } from '$app/stores';
+  import SpeakerProgressBar from '$lib/SpeakerProgressBar.svelte';
   import {
     deleteAsset,
     detectAssetVisualEvents,
@@ -82,6 +83,10 @@
     if (!mediaEl) return;
     mediaEl.currentTime = segment.start;
     mediaEl.play().catch(() => {});
+  }
+
+  function seekToTime(time: number) {
+    seek({ start: time, end: time + 1 });
   }
 
   function isActive(segment: TranscriptSegment) {
@@ -300,6 +305,13 @@
             default
           />
         </video>
+
+        <SpeakerProgressBar
+          segments={asset.transcript_segments ?? []}
+          duration={asset.duration}
+          {currentTime}
+          on:seek={(event) => seekToTime(event.detail.time)}
+        />
 
         {#if asset.media_type === 'video'}
           <div class="visual-bar">

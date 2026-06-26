@@ -707,6 +707,7 @@
 
 <style>
   main {
+    box-sizing: border-box;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 8px;
@@ -771,6 +772,7 @@
   .media-pane,
   .transcript {
     min-width: 0;
+    min-height: 0;
     max-height: 100%;
     overflow-y: auto;
   }
@@ -1064,25 +1066,37 @@
 
   @media (max-width: 980px) {
     main {
-      height: auto;
-      min-height: 100vh;
-      overflow: visible;
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
       padding: 8px;
     }
 
     .workspace {
       grid-template-columns: 1fr;
-      overflow: visible;
+      grid-template-rows: auto minmax(0, 1fr);
+      align-items: stretch;
+      overflow: hidden;
     }
 
-    .media-pane,
+    .media-pane {
+      max-height: 52vh;
+      overflow-y: auto;
+    }
+
     .transcript {
-      max-height: none;
-      overflow: visible;
+      max-height: 100%;
+      overflow-y: auto;
     }
 
     .speaker-row {
       grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 760px) {
+    main {
+      height: calc(100vh - 54px);
     }
   }
 </style>

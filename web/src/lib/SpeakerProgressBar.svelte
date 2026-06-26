@@ -182,18 +182,23 @@
     const currentRatio = Math.min(1, Math.max(0, currentTime / effectiveDuration));
     if (event.code === 'KeyW') {
       event.preventDefault();
+      event.stopPropagation();
       zoomAround(currentRatio, 1 - keyZoomStep);
     } else if (event.code === 'KeyS') {
       event.preventDefault();
+      event.stopPropagation();
       zoomAround(currentRatio, 1 + keyZoomStep);
     } else if (event.code === 'KeyA') {
       event.preventDefault();
+      event.stopPropagation();
       panWindow(-keyPanStep * zoomSize);
     } else if (event.code === 'KeyD') {
       event.preventDefault();
+      event.stopPropagation();
       panWindow(keyPanStep * zoomSize);
     } else if (event.code === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       resetZoom();
     }
   }

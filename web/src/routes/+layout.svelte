@@ -56,6 +56,7 @@
   }
 
   .shell {
+    box-sizing: border-box;
     min-height: 100vh;
     display: grid;
     grid-template-columns: 54px minmax(0, 1fr);

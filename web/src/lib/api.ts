@@ -30,6 +30,7 @@ export type AssetDetail = AssetSummary & {
   job?: Job;
   events?: JobEvent[];
   event_history?: JobEvent[];
+  visual_events?: VisualEvent[];
 };
 
 export type Job = {
@@ -67,6 +68,14 @@ export type Speaker = {
   sample_count: number;
   created_at: number;
   updated_at: number;
+};
+
+export type VisualEvent = {
+  event_index: number;
+  timestamp: number;
+  score: number;
+  kind: string;
+  created_at: number;
 };
 
 const passwordKey = 'stt-vault-admin-password';
@@ -116,6 +125,18 @@ export async function renameSpeaker(id: string, displayName: string): Promise<Sp
   });
 }
 
+export async function mergeSpeaker(targetId: string, sourceId: string): Promise<Speaker> {
+  return request(`/api/speakers/${targetId}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_speaker_id: sourceId })
+  });
+}
+
+export async function recomputeAllSpeakers(): Promise<{ assets: number }> {
+  return request('/api/speakers/recompute', { method: 'POST' });
+}
+
 export async function deleteSpeaker(id: string): Promise<void> {
   await request(`/api/speakers/${id}`, { method: 'DELETE' });
 }
@@ -139,6 +160,14 @@ export async function deleteAsset(id: string): Promise<void> {
 
 export async function retryAsset(id: string): Promise<void> {
   await request(`/api/assets/${id}/retry`, { method: 'POST' });
+}
+
+export async function recomputeAssetSpeakers(id: string): Promise<{ assets: number }> {
+  return request(`/api/assets/${id}/speaker-matches/recompute`, { method: 'POST' });
+}
+
+export async function detectAssetVisualEvents(id: string): Promise<{ events: number }> {
+  return request(`/api/assets/${id}/visual-events`, { method: 'POST' });
 }
 
 export async function saveAssetSpeaker(

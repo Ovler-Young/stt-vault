@@ -9,6 +9,7 @@ from .exports import write_exports
 from .media import ffprobe_duration, to_wav_16k_mono
 from .settings import Settings
 from .transcription import Transcriber, build_chunks
+from .visual import detect_slide_changes, write_visual_events_export
 
 
 class Worker:
@@ -20,6 +21,7 @@ class Worker:
             device=settings.senko_device,
             idle_timeout_seconds=settings.diarizer_idle_timeout_seconds,
             use_batched_embeddings=settings.senko_batched_embeddings,
+            fbank_batch_segments=settings.senko_fbank_batch_segments,
         )
 
     def start(self) -> None:
@@ -80,6 +82,7 @@ class Worker:
             merged_segments=diarization["merged_segments"],
             speaker_centroids=centroids,
         )
+
         def current_speaker_matches() -> dict[str, dict[str, Any]]:
             return match_speakers(
                 centroids,
@@ -198,6 +201,7 @@ class Worker:
                 diarization["raw_segments"],
                 self.settings.parsed_export_formats,
             )
+            exports.update(self.detect_visual_events(asset_id, asset, original_path))
             db.mark_success(
                 self.settings.stt_db_path,
                 asset_id,
@@ -230,6 +234,7 @@ class Worker:
             diarization["raw_segments"],
             self.settings.parsed_export_formats,
         )
+        exports.update(self.detect_visual_events(asset_id, asset, original_path))
 
         db.mark_success(
             self.settings.stt_db_path,
@@ -244,6 +249,42 @@ class Worker:
             exports=exports,
         )
         shutil.rmtree(work_dir, ignore_errors=True)
+
+    def detect_visual_events(
+        self,
+        asset_id: str,
+        asset: dict[str, Any],
+        original_path: Path,
+    ) -> dict[str, str]:
+        if asset.get("media_type") != "video":
+            return {}
+
+        db.update_stage(self.settings.stt_db_path, asset_id, "detecting slide changes")
+        try:
+            visual_events = detect_slide_changes(
+                original_path,
+                sample_interval_seconds=self.settings.visual_sample_interval_seconds,
+                threshold=self.settings.visual_change_threshold,
+                min_gap_seconds=self.settings.visual_min_gap_seconds,
+            )
+            db.replace_visual_events(self.settings.stt_db_path, asset_id, visual_events)
+            return {
+                "visual_events": write_visual_events_export(
+                    self.settings.exports_dir,
+                    asset_id,
+                    visual_events,
+                )
+            }
+        except Exception as exc:
+            db.add_event(
+                self.settings.stt_db_path,
+                asset_id,
+                "warning",
+                "detecting slide changes",
+                "Slide-change detection failed",
+                {"type": exc.__class__.__name__, "message": str(exc)},
+            )
+            return {}
 
 
 def apply_speaker_names(

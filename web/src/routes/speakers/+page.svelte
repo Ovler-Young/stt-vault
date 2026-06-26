@@ -1,10 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { deleteSpeaker, fetchSpeakers, renameSpeaker, type Speaker } from '$lib/api';
+  import {
+    deleteSpeaker,
+    fetchSpeakers,
+    mergeSpeaker,
+    recomputeAllSpeakers,
+    renameSpeaker,
+    type Speaker
+  } from '$lib/api';
   import { formatDate } from '$lib/format';
 
   let speakers: Speaker[] = [];
   let drafts: Record<string, string> = {};
+  let mergeTargets: Record<string, string> = {};
   let error = '';
   let message = '';
 
@@ -47,13 +55,45 @@
       error = err instanceof Error ? err.message : String(err);
     }
   }
+
+  async function merge(source: Speaker) {
+    const targetId = mergeTargets[source.id];
+    if (!targetId || targetId === source.id) return;
+    const target = speakers.find((speaker) => speaker.id === targetId);
+    if (!target) return;
+    if (!confirm(`Merge ${source.display_name} into ${target.display_name}?`)) return;
+    try {
+      const updated = await mergeSpeaker(target.id, source.id);
+      delete drafts[source.id];
+      delete mergeTargets[source.id];
+      message = `${source.display_name} merged into ${updated.display_name}`;
+      await load();
+    } catch (err) {
+      message = '';
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function recomputeAll() {
+    try {
+      const result = await recomputeAllSpeakers();
+      message = `${result.assets} assets recomputed`;
+      await load();
+    } catch (err) {
+      message = '';
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
 </script>
 
 <main>
   <section class="panel">
     <header>
       <h1>Speakers</h1>
-      <button on:click={load}>Refresh</button>
+      <div class="actions">
+        <button on:click={recomputeAll}>Recompute all</button>
+        <button on:click={load}>Refresh</button>
+      </div>
     </header>
     {#if error}<p class="error">{error}</p>{/if}
     {#if message}<p class="message">{message}</p>{/if}
@@ -67,6 +107,13 @@
           </div>
           <input bind:value={drafts[speaker.id]} />
           <button on:click={() => save(speaker)}>Save</button>
+          <select bind:value={mergeTargets[speaker.id]}>
+            <option value="">Merge into...</option>
+            {#each speakers.filter((candidate) => candidate.id !== speaker.id) as candidate}
+              <option value={candidate.id}>{candidate.display_name}</option>
+            {/each}
+          </select>
+          <button disabled={!mergeTargets[speaker.id]} on:click={() => merge(speaker)}>Merge</button>
           <button class="danger" on:click={() => remove(speaker)}>Delete</button>
         </div>
       {:else}
@@ -105,9 +152,14 @@
     margin-top: 14px;
   }
 
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
+
   .speaker-row {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) minmax(180px, 280px) auto auto;
+    grid-template-columns: minmax(180px, 1fr) minmax(180px, 260px) auto minmax(150px, 220px) auto auto;
     gap: 8px;
     align-items: center;
     border: 1px solid #d2cec4;

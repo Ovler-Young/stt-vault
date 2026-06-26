@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     diarization_concurrency: int = Field(default=1, alias="DIARIZATION_CONCURRENCY")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
     senko_device: str = Field(default="auto", alias="SENKO_DEVICE")
-    senko_batched_embeddings: bool = Field(default=False, alias="SENKO_BATCHED_EMBEDDINGS")
+    senko_batched_embeddings: bool = Field(default=True, alias="SENKO_BATCHED_EMBEDDINGS")
+    senko_fbank_batch_segments: int = Field(default=256, alias="SENKO_FBANK_BATCH_SEGMENTS")
 
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     transcribe_chunk_seconds: float = Field(default=45.0, alias="TRANSCRIBE_CHUNK_SECONDS")
     transcribe_chunk_overlap_seconds: float = Field(default=1.0, alias="TRANSCRIBE_CHUNK_OVERLAP_SECONDS")
     speaker_similarity_threshold: float = Field(default=0.875, alias="SPEAKER_SIMILARITY_THRESHOLD")
+    visual_sample_interval_seconds: float = Field(default=2.0, alias="VISUAL_SAMPLE_INTERVAL_SECONDS")
+    visual_change_threshold: float = Field(default=18.0, alias="VISUAL_CHANGE_THRESHOLD")
+    visual_min_gap_seconds: float = Field(default=6.0, alias="VISUAL_MIN_GAP_SECONDS")
     export_formats: str = Field(
         default="json,whisper_json,ai_text,srt,vtt,hyperaudio_html,rttm",
         alias="EXPORT_FORMATS",

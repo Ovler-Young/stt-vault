@@ -11,14 +11,20 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db
+from .diarization import match_speakers
 from .exports import write_exports
 from .media import store_upload
 from .settings import Settings, get_settings
+from .visual import detect_slide_changes, write_visual_events_export
 from .worker import Worker
 
 
 class SpeakerNameRequest(BaseModel):
     display_name: str
+
+
+class SpeakerMergeRequest(BaseModel):
+    source_speaker_id: str
 
 
 def require_admin(
@@ -127,6 +133,32 @@ def create_app() -> FastAPI:
         rewrite_asset_exports(settings, affected_asset_ids)
         return {"status": "deleted"}
 
+    @app.post("/api/speakers/{target_speaker_id}/merge", dependencies=[Depends(require_admin)])
+    def merge_speaker(target_speaker_id: str, payload: SpeakerMergeRequest) -> dict:
+        source_speaker_id = payload.source_speaker_id
+        if source_speaker_id == target_speaker_id:
+            raise HTTPException(status_code=400, detail="Choose two different speakers")
+        if db.get_speaker(settings.stt_db_path, target_speaker_id) is None:
+            raise HTTPException(status_code=404, detail="Target speaker not found")
+        if db.get_speaker(settings.stt_db_path, source_speaker_id) is None:
+            raise HTTPException(status_code=404, detail="Source speaker not found")
+
+        affected_asset_ids = sorted(
+            set(db.list_asset_ids_for_speaker(settings.stt_db_path, source_speaker_id))
+            | set(db.list_asset_ids_for_speaker(settings.stt_db_path, target_speaker_id))
+        )
+        db.merge_speakers(settings.stt_db_path, source_speaker_id, target_speaker_id)
+        affected_asset_ids = recompute_asset_speaker_matches(settings, affected_asset_ids)
+        rewrite_asset_exports(settings, affected_asset_ids)
+        return db.get_speaker(settings.stt_db_path, target_speaker_id) or {}
+
+    @app.post("/api/speakers/recompute", dependencies=[Depends(require_admin)])
+    def recompute_all_speakers() -> dict[str, int]:
+        asset_ids = db.list_asset_ids_with_speaker_centroids(settings.stt_db_path)
+        updated_asset_ids = recompute_asset_speaker_matches(settings, asset_ids)
+        rewrite_asset_exports(settings, updated_asset_ids)
+        return {"assets": len(updated_asset_ids)}
+
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> dict:
         asset = db.get_asset(settings.stt_db_path, asset_id)
@@ -167,14 +199,40 @@ def create_app() -> FastAPI:
             display_name,
             1.0,
         )
-        rewrite_asset_exports(settings, [asset_id])
+        updated_asset_ids = recompute_asset_speaker_matches(
+            settings,
+            db.list_asset_ids_with_speaker_centroids(settings.stt_db_path),
+        )
+        rewrite_asset_exports(settings, updated_asset_ids)
         return db.get_speaker(settings.stt_db_path, speaker_id) or {}
+
+    @app.post("/api/assets/{asset_id}/speaker-matches/recompute", dependencies=[Depends(require_admin)])
+    def recompute_asset_speakers(asset_id: str) -> dict[str, int]:
+        if db.get_asset(settings.stt_db_path, asset_id) is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        updated_asset_ids = recompute_asset_speaker_matches(settings, [asset_id])
+        rewrite_asset_exports(settings, updated_asset_ids)
+        return {"assets": len(updated_asset_ids)}
 
     @app.get("/api/assets/{asset_id}/events")
     def get_asset_events(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
         if db.get_asset(settings.stt_db_path, asset_id) is None:
             raise HTTPException(status_code=404, detail="Asset not found")
         return db.list_events(settings.stt_db_path, asset_id)
+
+    @app.get("/api/assets/{asset_id}/visual-events")
+    def get_visual_events(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
+        if db.get_asset(settings.stt_db_path, asset_id) is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return db.list_visual_events(settings.stt_db_path, asset_id)
+
+    @app.post("/api/assets/{asset_id}/visual-events", dependencies=[Depends(require_admin)])
+    def detect_visual_events(asset_id: str) -> dict[str, int]:
+        asset = db.get_asset(settings.stt_db_path, asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        events = detect_asset_visual_events(settings, asset)
+        return {"events": len(events)}
 
     @app.post("/api/assets/{asset_id}/retry", dependencies=[Depends(require_admin)])
     def retry_asset(asset_id: str) -> dict[str, str]:
@@ -291,6 +349,50 @@ def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:
             settings.parsed_export_formats,
         )
         db.update_asset_exports(settings.stt_db_path, asset_id, exports)
+
+
+def detect_asset_visual_events(settings: Settings, asset: dict) -> list[dict]:
+    if asset.get("media_type") != "video":
+        return []
+
+    events = detect_slide_changes(
+        Path(asset["original_path"]),
+        sample_interval_seconds=settings.visual_sample_interval_seconds,
+        threshold=settings.visual_change_threshold,
+        min_gap_seconds=settings.visual_min_gap_seconds,
+    )
+    db.replace_visual_events(settings.stt_db_path, asset["id"], events)
+    exports = dict(asset.get("exports") or {})
+    exports["visual_events"] = write_visual_events_export(
+        settings.exports_dir,
+        asset["id"],
+        events,
+    )
+    db.update_asset_exports(settings.stt_db_path, asset["id"], exports)
+    return events
+
+
+def recompute_asset_speaker_matches(settings: Settings, asset_ids: list[str]) -> list[str]:
+    updated_asset_ids = []
+    known_speakers = db.list_speakers(settings.stt_db_path)
+    for asset_id in dict.fromkeys(asset_ids):
+        asset = db.get_asset(settings.stt_db_path, asset_id)
+        if asset is None:
+            continue
+
+        centroids = asset.get("speaker_centroids") or {}
+        transcript_segments = asset.get("transcript_segments") or []
+        if not centroids or not transcript_segments:
+            continue
+
+        matches = match_speakers(
+            centroids,
+            known_speakers,
+            settings.speaker_similarity_threshold,
+        )
+        db.relabel_asset_speakers(settings.stt_db_path, asset_id, matches)
+        updated_asset_ids.append(asset_id)
+    return updated_asset_ids
 
 
 def run() -> None:

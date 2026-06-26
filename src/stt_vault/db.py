@@ -104,12 +104,24 @@ def initialize(db_path: Path) -> None:
                 PRIMARY KEY (asset_id, chunk_index)
             );
 
+            CREATE TABLE IF NOT EXISTS asset_visual_events (
+                asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+                event_index INTEGER NOT NULL,
+                timestamp REAL NOT NULL,
+                score REAL NOT NULL,
+                kind TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (asset_id, event_index)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_assets_created_at ON assets(created_at);
             CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_job_events_asset_created_at
                 ON job_events(asset_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_transcript_chunks_asset_index
                 ON transcript_chunks(asset_id, chunk_index);
+            CREATE INDEX IF NOT EXISTS idx_visual_events_asset_index
+                ON asset_visual_events(asset_id, event_index);
             """
         )
         add_missing_columns(
@@ -245,6 +257,7 @@ def get_asset(db_path: Path, asset_id: str) -> dict[str, Any] | None:
         asset["job"] = get_job(db_path, asset_id)
         asset["events"] = list_current_run_events(db_path, asset_id)
         asset["event_history"] = list_events(db_path, asset_id)
+        asset["visual_events"] = list_visual_events(db_path, asset_id)
     return asset
 
 
@@ -521,6 +534,49 @@ def update_asset_exports(db_path: Path, asset_id: str, exports: dict[str, str]) 
         )
 
 
+def replace_visual_events(
+    db_path: Path,
+    asset_id: str,
+    events: list[dict[str, Any]],
+) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute("DELETE FROM asset_visual_events WHERE asset_id = ?", (asset_id,))
+        conn.executemany(
+            """
+            INSERT INTO asset_visual_events (
+                asset_id, event_index, timestamp, score, kind, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    asset_id,
+                    index,
+                    float(event["timestamp"]),
+                    float(event["score"]),
+                    event.get("kind", "slide_change"),
+                    timestamp,
+                )
+                for index, event in enumerate(events)
+            ],
+        )
+
+
+def list_visual_events(db_path: Path, asset_id: str) -> list[dict[str, Any]]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT event_index, timestamp, score, kind, created_at
+            FROM asset_visual_events
+            WHERE asset_id = ?
+            ORDER BY event_index ASC
+            """,
+            (asset_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def reset_transcript_chunks(db_path: Path, asset_id: str) -> None:
     with transaction(db_path) as conn:
         conn.execute("DELETE FROM transcript_chunks WHERE asset_id = ?", (asset_id,))
@@ -680,6 +736,19 @@ def list_speakers(db_path: Path) -> list[dict[str, Any]]:
     return speakers
 
 
+def list_asset_ids_with_speaker_centroids(db_path: Path) -> list[str]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id
+            FROM assets
+            WHERE speaker_centroids IS NOT NULL
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
+    return [row["id"] for row in rows]
+
+
 def get_speaker(db_path: Path, speaker_id: str) -> dict[str, Any] | None:
     with connect(db_path) as conn:
         row = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
@@ -756,6 +825,69 @@ def rename_speaker(db_path: Path, speaker_id: str, display_name: str) -> None:
         refresh_asset_transcripts_for_speaker_from_conn(conn, speaker_id, timestamp)
 
 
+def merge_speakers(db_path: Path, source_speaker_id: str, target_speaker_id: str) -> None:
+    if source_speaker_id == target_speaker_id:
+        return
+
+    timestamp = now()
+    with transaction(db_path) as conn:
+        source = conn.execute(
+            "SELECT * FROM speakers WHERE id = ?",
+            (source_speaker_id,),
+        ).fetchone()
+        target = conn.execute(
+            "SELECT * FROM speakers WHERE id = ?",
+            (target_speaker_id,),
+        ).fetchone()
+        if source is None or target is None:
+            raise KeyError(source_speaker_id if source is None else target_speaker_id)
+
+        source_centroid = json.loads(source["centroid"])
+        target_centroid = json.loads(target["centroid"])
+        source_count = max(1, int(source["sample_count"]))
+        target_count = max(1, int(target["sample_count"]))
+        merged_centroid = target_centroid
+        merged_count = target_count + source_count
+        if len(source_centroid) == len(target_centroid):
+            merged_centroid = [
+                ((float(target_value) * target_count) + (float(source_value) * source_count))
+                / merged_count
+                for target_value, source_value in zip(target_centroid, source_centroid, strict=False)
+            ]
+
+        rows = conn.execute(
+            "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id IN (?, ?)",
+            (source_speaker_id, target_speaker_id),
+        ).fetchall()
+        conn.execute(
+            """
+            UPDATE speakers
+            SET centroid = ?,
+                sample_count = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(merged_centroid), merged_count, timestamp, target_speaker_id),
+        )
+        conn.execute("DELETE FROM speakers WHERE id = ?", (source_speaker_id,))
+        conn.execute(
+            """
+            UPDATE transcript_chunks
+            SET speaker_id = ?,
+                speaker_name = ?,
+                updated_at = ?
+            WHERE speaker_id = ?
+            """,
+            (target_speaker_id, target["display_name"], timestamp, source_speaker_id),
+        )
+        for row in rows:
+            asset_id = row["asset_id"]
+            conn.execute(
+                "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+            )
+
+
 def delete_speaker(db_path: Path, speaker_id: str) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -804,6 +936,38 @@ def relabel_asset_speaker(
             """,
             (speaker_id, display_name, similarity, timestamp, asset_id, local_speaker),
         )
+        conn.execute(
+            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+        )
+
+
+def relabel_asset_speakers(
+    db_path: Path,
+    asset_id: str,
+    matches: dict[str, dict[str, Any]],
+) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        for local_speaker, match in matches.items():
+            conn.execute(
+                """
+                UPDATE transcript_chunks
+                SET speaker_id = ?,
+                    speaker_name = ?,
+                    speaker_similarity = ?,
+                    updated_at = ?
+                WHERE asset_id = ? AND speaker = ?
+                """,
+                (
+                    match.get("speaker_id", local_speaker),
+                    match.get("display_name", local_speaker),
+                    match.get("score"),
+                    timestamp,
+                    asset_id,
+                    local_speaker,
+                ),
+            )
         conn.execute(
             "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
             (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),

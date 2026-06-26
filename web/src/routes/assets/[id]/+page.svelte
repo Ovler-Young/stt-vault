@@ -3,7 +3,9 @@
   import { page } from '$app/stores';
   import {
     deleteAsset,
+    detectAssetVisualEvents,
     fetchAsset,
+    recomputeAssetSpeakers,
     retryAsset,
     saveAssetSpeaker,
     type AssetDetail,
@@ -19,6 +21,7 @@
   let showHistory = false;
   let speakerDrafts: Record<string, string> = {};
   let speakerMessage = '';
+  let visualMessage = '';
 
   $: assetId = $page.params.id ?? '';
 
@@ -93,7 +96,9 @@
         displayName: named?.speaker_name ?? localSpeaker,
         speakerId: matched?.speaker_id,
         similarity: matched?.speaker_similarity ?? null,
-        count: segments.length
+        count: segments.length,
+        firstStart: segments.length ? Math.min(...segments.map((segment) => segment.start)) : null,
+        lastEnd: segments.length ? Math.max(...segments.map((segment) => segment.end)) : null
       };
     });
   }
@@ -108,6 +113,30 @@
       await load();
     } catch (err) {
       speakerMessage = '';
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function recomputeSpeakers() {
+    if (!asset) return;
+    try {
+      const result = await recomputeAssetSpeakers(asset.id);
+      speakerMessage = `${result.assets} asset recomputed`;
+      await load();
+    } catch (err) {
+      speakerMessage = '';
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function detectVisualEvents() {
+    if (!asset) return;
+    try {
+      const result = await detectAssetVisualEvents(asset.id);
+      visualMessage = `${result.events} slide markers detected`;
+      await load();
+    } catch (err) {
+      visualMessage = '';
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -182,15 +211,44 @@
         </div>
       {/if}
 
+      {#if asset.media_type === 'video'}
+        <div class="visual-events">
+          <div class="visual-head">
+            <h2>Slide Markers</h2>
+            <button on:click={detectVisualEvents}>Detect</button>
+          </div>
+          {#if visualMessage}<p class="message">{visualMessage}</p>{/if}
+          {#if asset.visual_events?.length}
+            <div class="marker-list">
+              {#each asset.visual_events as event}
+                <button on:click={() => seek({ start: event.timestamp, end: event.timestamp + 1, speaker: '', text: '' })}>
+                  <span>{formatTime(event.timestamp)}</span>
+                  <small>{event.score.toFixed(1)}</small>
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p class="muted">No slide markers detected yet.</p>
+          {/if}
+        </div>
+      {/if}
+
       {#if Object.keys(asset.speaker_centroids ?? {}).length}
         <div class="speaker-controls">
-          <h2>Speakers</h2>
+          <div class="speaker-head">
+            <h2>Speakers</h2>
+            <button on:click={recomputeSpeakers}>Recompute matches</button>
+          </div>
           {#each localSpeakerRows(asset) as speaker}
             <div class="speaker-row">
               <strong>{speaker.localSpeaker}</strong>
               <input bind:value={speakerDrafts[speaker.localSpeaker]} />
               <small>
                 {speaker.count} chunks
+                {#if speaker.firstStart !== null && speaker.lastEnd !== null}
+                  · {formatTime(speaker.firstStart)} - {formatTime(speaker.lastEnd)}
+                {/if}
+                {#if speaker.speakerId} · {speaker.speakerId}{/if}
                 {#if speaker.similarity !== null} · match {speaker.similarity.toFixed(3)}{/if}
               </small>
               <button on:click={() => saveSpeakerName(speaker.localSpeaker)}>Save</button>
@@ -299,9 +357,35 @@
     gap: 8px;
   }
 
+  .visual-events {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .visual-head,
+  .speaker-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .marker-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .marker-list button {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
   .speaker-row {
     display: grid;
-    grid-template-columns: 110px minmax(180px, 1fr) 160px auto;
+    grid-template-columns: 110px minmax(180px, 1fr) minmax(220px, 1.4fr) auto;
     gap: 8px;
     align-items: center;
   }

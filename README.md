@@ -8,16 +8,38 @@ STT Vault combines:
 - OpenAI audio transcription
 - Persistent speaker identity matching by centroid similarity
 - A single-port web UI and API
-- Export formats for JSON, Whisper-like JSON, SRT, VTT, RTTM, and Hyperaudio-style HTML
+- Export formats for JSON, Whisper-like JSON, AI-readable text, SRT, VTT, RTTM, and Hyperaudio-style HTML
 
 ## Quick Start
 
+Use the published GHCR image for normal deployment:
+
 ```sh
 cp .env.example .env
-docker compose up --build
+mkdir -p ./data
+docker compose pull
+docker compose up -d
 ```
 
 Open `http://localhost:8080`.
+
+For a private GitHub package, log in to GHCR before pulling:
+
+```sh
+gh auth token | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+Set `STT_HOST_DATA_DIR` to choose the host data directory and `APP_PORT` to choose the published port:
+
+```sh
+STT_HOST_DATA_DIR=/srv/stt-vault APP_PORT=8080 docker compose up -d
+```
+
+For local image builds, use the build override:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+```
 
 ## Configuration
 
@@ -35,8 +57,17 @@ Important optional settings:
 - `OPENAI_CONCURRENCY`: concurrent transcription requests
 - `DIARIZATION_CONCURRENCY`: concurrent local diarization jobs, usually `1` on CPU
 - `DIARIZER_IDLE_TIMEOUT_SECONDS`: unload the in-process Senko diarizer after idle time
+- `SENKO_BATCHED_EMBEDDINGS`: process Senko fbank and embeddings in batches before global clustering
+- `SENKO_FBANK_BATCH_SEGMENTS`: number of Senko subsegments per fbank/embedding batch
 - `SPEAKER_SIMILARITY_THRESHOLD`: centroid similarity threshold for speaker identity matching
 - `ADMIN_PASSWORD`: optional API write protection password
+
+## Runtime Checks
+
+```sh
+docker compose ps
+curl -fsS http://localhost:${APP_PORT:-8080}/api/health
+```
 
 ## Development
 
@@ -60,4 +91,3 @@ The first version keeps Senko as an external dependency and wraps it behind `Dia
 1. Keep one warm `Diarizer` instance per process.
 2. Add a Senko path that batches fbank extraction and embedding generation.
 3. Accumulate embeddings and keep final global clustering.
-

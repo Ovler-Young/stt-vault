@@ -27,7 +27,13 @@
   let asset: AssetDetail | null = null;
   let error = '';
   let mediaEl: HTMLMediaElement | null = null;
+  let speakerProgressBar: {
+    centerOnTime: (time: number) => void;
+    zoomAtTime: (time: number, scale: number) => void;
+    panByWindow: (delta: number) => void;
+  } | null = null;
   let stripEl: HTMLDivElement | null = null;
+  let transcriptEl: HTMLElement | null = null;
   let currentTime = 0;
   let poll: ReturnType<typeof setInterval> | null = null;
   let showHistory = false;
@@ -39,6 +45,7 @@
   let audioTracks: AudioTrack[] = [];
   let audioTracksAssetId = '';
   let selectedAudioTrack = 'default';
+  let playbackRate = 1;
   let pendingMediaSeek: number | null = null;
   let dragStartX = 0;
   let dragScrollLeft = 0;
@@ -46,18 +53,24 @@
   let thumbMoved = false;
   let currentSlideEventIndex = -1;
   let lastScrolledSlideIndex = -1;
+  let lastScrolledTranscriptIndex = -1;
   let playbackFrame: number | null = null;
 
   $: assetId = $page.params.id ?? '';
+  $: activeSegmentIndex = activeTranscriptSegmentIndex(asset?.transcript_segments ?? [], currentTime);
   $: currentSlideEventIndex = activeVisualEventIndex(asset?.visual_events ?? [], currentTime);
+  $: scrollActiveTranscriptIntoView(activeSegmentIndex);
   $: scrollActiveSlideIntoView(currentSlideEventIndex);
 
   onMount(async () => {
+    playbackRate = Number(localStorage.getItem('stt-vault-playback-rate') ?? 1) || 1;
+    document.addEventListener('keydown', handleGlobalKeydown);
     await load();
     poll = setInterval(load, 3000);
   });
 
   onDestroy(() => {
+    document.removeEventListener('keydown', handleGlobalKeydown);
     if (poll) clearInterval(poll);
     stopPlaybackClock();
   });
@@ -104,6 +117,16 @@
     currentTime = mediaEl?.currentTime ?? 0;
   }
 
+  function applyPlaybackRate() {
+    if (!mediaEl) return;
+    mediaEl.playbackRate = playbackRate;
+  }
+
+  function changePlaybackRate() {
+    localStorage.setItem('stt-vault-playback-rate', String(playbackRate));
+    applyPlaybackRate();
+  }
+
   async function loadAudioTracks(nextAssetId: string) {
     if (audioTracksAssetId === nextAssetId) return;
     try {
@@ -133,6 +156,7 @@
   }
 
   function restoreMediaSeek() {
+    applyPlaybackRate();
     if (pendingMediaSeek === null || !mediaEl) return;
     mediaEl.currentTime = pendingMediaSeek;
     pendingMediaSeek = null;
@@ -165,6 +189,113 @@
       playbackFrame = null;
     }
     updateCurrentTime();
+  }
+
+  function togglePlay() {
+    if (!mediaEl) return;
+    if (mediaEl.paused) mediaEl.play().catch(() => {});
+    else mediaEl.pause();
+  }
+
+  function seekRelative(delta: number) {
+    if (!mediaEl) return;
+    const duration = Number.isFinite(mediaEl.duration) ? mediaEl.duration : asset?.duration ?? 0;
+    const nextTime = Math.min(duration, Math.max(0, mediaEl.currentTime + delta));
+    mediaEl.currentTime = nextTime;
+    updateCurrentTime();
+  }
+
+  function seekNextSegment() {
+    const segments = asset?.transcript_segments ?? [];
+    const next = segments.find((segment) => segment.start > currentTime + 0.05);
+    if (next) seek(next);
+  }
+
+  function seekPreviousSegment() {
+    const segments = asset?.transcript_segments ?? [];
+    const current = segments.find((segment) => currentTime >= segment.start && currentTime < segment.end);
+    if (current && currentTime - current.start > 5) {
+      seek(current);
+      return;
+    }
+    const previous = [...segments].reverse().find((segment) => segment.end < currentTime - 0.05);
+    if (previous) seek(previous);
+    else seekToTime(0);
+  }
+
+  function seekPreviousSpeakerSegment() {
+    const segments = asset?.transcript_segments ?? [];
+    const current = segments.find((segment) => currentTime >= segment.start && currentTime < segment.end);
+    if (!current) return;
+    const previous = [...segments]
+      .reverse()
+      .find((segment) => segment.speaker === current.speaker && segment.end < currentTime - 0.05);
+    if (previous) seek(previous);
+  }
+
+  function seekNextSpeakerSegment() {
+    const segments = asset?.transcript_segments ?? [];
+    const current = segments.find((segment) => currentTime >= segment.start && currentTime < segment.end);
+    if (!current) return;
+    const next = segments.find((segment) => segment.speaker === current.speaker && segment.start > currentTime + 0.05);
+    if (next) seek(next);
+  }
+
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    if (shouldIgnorePlaybackKey(target)) return;
+
+    if (event.code === 'Space') {
+      event.preventDefault();
+      togglePlay();
+    } else if (event.code === 'ArrowRight') {
+      event.preventDefault();
+      seekRelative(5);
+    } else if (event.code === 'ArrowLeft') {
+      event.preventDefault();
+      seekRelative(-5);
+    } else if (event.code === 'Comma') {
+      event.preventDefault();
+      seekPreviousSegment();
+    } else if (event.code === 'Period') {
+      event.preventDefault();
+      seekNextSegment();
+    } else if (event.code === 'BracketLeft') {
+      event.preventDefault();
+      seekPreviousSpeakerSegment();
+    } else if (event.code === 'BracketRight') {
+      event.preventDefault();
+      seekNextSpeakerSegment();
+    } else if (event.code === 'KeyK') {
+      event.preventDefault();
+      seekToTime(0);
+    } else if (event.code === 'KeyM' && mediaEl) {
+      event.preventDefault();
+      mediaEl.muted = !mediaEl.muted;
+    } else if (event.code === 'KeyV') {
+      event.preventDefault();
+      speakerProgressBar?.centerOnTime(currentTime);
+    } else if (event.code === 'KeyW') {
+      event.preventDefault();
+      speakerProgressBar?.zoomAtTime(currentTime, 0.88);
+    } else if (event.code === 'KeyS') {
+      event.preventDefault();
+      speakerProgressBar?.zoomAtTime(currentTime, 1.12);
+    } else if (event.code === 'KeyA') {
+      event.preventDefault();
+      speakerProgressBar?.panByWindow(-0.12);
+    } else if (event.code === 'KeyD') {
+      event.preventDefault();
+      speakerProgressBar?.panByWindow(0.12);
+    }
+  }
+
+  function shouldIgnorePlaybackKey(target: HTMLElement | null) {
+    if (!target) return false;
+    const tagName = target.tagName;
+    if (target.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
+    if (tagName === 'BUTTON' && !target.closest('.transcript')) return true;
+    return tagName === 'A' || tagName === 'SUMMARY';
   }
 
   function progressText(asset: AssetDetail) {
@@ -293,6 +424,28 @@
     return activeIndex;
   }
 
+  function activeTranscriptSegmentIndex(segments: TranscriptSegment[], time: number) {
+    return segments.findIndex((segment) => time >= segment.start && time < segment.end);
+  }
+
+  function scrollActiveTranscriptIntoView(index: number) {
+    if (!transcriptEl || index < 0 || index === lastScrolledTranscriptIndex) return;
+    lastScrolledTranscriptIndex = index;
+    requestAnimationFrame(() => {
+      const item = transcriptEl?.querySelector<HTMLElement>(`[data-segment-index="${index}"]`);
+      if (!transcriptEl || !item) return;
+      const itemTop = item.offsetTop;
+      const itemBottom = itemTop + item.offsetHeight;
+      const viewTop = transcriptEl.scrollTop;
+      const viewBottom = viewTop + transcriptEl.clientHeight;
+      if (itemTop >= viewTop + 24 && itemBottom <= viewBottom - 24) return;
+      transcriptEl.scrollTo({
+        top: Math.max(0, itemTop - transcriptEl.clientHeight * 0.35),
+        behavior: 'smooth'
+      });
+    });
+  }
+
   function scrollActiveSlideIntoView(index: number) {
     if (!stripEl || thumbDragging || index < 0 || index === lastScrolledSlideIndex) return;
     lastScrolledSlideIndex = index;
@@ -358,20 +511,34 @@
           />
         </video>
 
-        {#if audioTracks.length > 1}
-          <label class="audio-track-picker">
-            <span>Audio</span>
-            <select bind:value={selectedAudioTrack} on:change={changeAudioTrack}>
-              <option value="default">Original playback</option>
-              <option value="all">All tracks mixed</option>
-              {#each audioTracks as track}
-                <option value={`${track.audio_index}`}>{audioTrackLabel(track)}</option>
-              {/each}
+        <div class="playback-controls">
+          {#if audioTracks.length > 1}
+            <label>
+              <span>Audio</span>
+              <select bind:value={selectedAudioTrack} on:change={changeAudioTrack}>
+                <option value="default">Original playback</option>
+                <option value="all">All tracks mixed</option>
+                {#each audioTracks as track}
+                  <option value={`${track.audio_index}`}>{audioTrackLabel(track)}</option>
+                {/each}
+              </select>
+            </label>
+          {/if}
+
+          <label>
+            <span>Speed</span>
+            <select bind:value={playbackRate} on:change={changePlaybackRate}>
+              <option value={0.75}>0.75x</option>
+              <option value={1}>1x</option>
+              <option value={1.25}>1.25x</option>
+              <option value={1.5}>1.5x</option>
+              <option value={2}>2x</option>
             </select>
           </label>
-        {/if}
+        </div>
 
         <SpeakerProgressBar
+          bind:this={speakerProgressBar}
           segments={asset.transcript_segments ?? []}
           duration={asset.duration}
           {currentTime}
@@ -499,10 +666,11 @@
         </div>
       </div>
 
-      <article class="transcript">
+      <article class="transcript" bind:this={transcriptEl}>
         {#if asset.transcript_segments?.length}
-          {#each asset.transcript_segments as segment}
+          {#each asset.transcript_segments as segment, index}
             <button
+              data-segment-index={index}
               class:active={isActive(segment)}
               on:click={() => seek(segment)}
               on:contextmenu={(event) => openSpeakerEditor(event, segment)}
@@ -618,16 +786,24 @@
     border-radius: 8px;
   }
 
-  .audio-track-picker {
+  .playback-controls {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-wrap: wrap;
     margin-top: 6px;
     color: #666052;
     font-size: 12px;
   }
 
-  .audio-track-picker select {
+  .playback-controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .playback-controls select {
     min-width: 0;
     max-width: 100%;
     border: 1px solid #c7c1b4;

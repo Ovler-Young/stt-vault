@@ -123,6 +123,22 @@
     setZoomWindow(zoomStart + delta, zoomEnd + delta);
   }
 
+  export function centerOnTime(time: number) {
+    if (!effectiveDuration) return;
+    const currentSize = zoomEnd - zoomStart;
+    const center = Math.min(1, Math.max(0, time / effectiveDuration));
+    setZoomWindow(center - currentSize * 0.1, center + currentSize * 0.9);
+  }
+
+  export function zoomAtTime(time: number, scale: number) {
+    if (!effectiveDuration) return;
+    zoomAround(time / effectiveDuration, scale);
+  }
+
+  export function panByWindow(delta: number) {
+    panWindow(delta * zoomSize);
+  }
+
   function handleClick(event: MouseEvent) {
     if (dragMoved) {
       dragMoved = false;

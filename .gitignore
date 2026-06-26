@@ -8,5 +8,6 @@ __pycache__/
 data/
 web/node_modules/
 web/build/
+web/.svelte-kit/
 src/stt_vault/static/
 

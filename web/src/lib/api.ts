@@ -25,7 +25,7 @@ export type AssetDetail = AssetSummary & {
   original_path: string;
   transcript_segments?: TranscriptSegment[];
   exports?: Record<string, string>;
-  diarization_stats?: Record<string, number>;
+  diarization_stats?: Record<string, unknown>;
   speaker_centroids?: Record<string, number[]>;
   job?: Job;
   events?: JobEvent[];

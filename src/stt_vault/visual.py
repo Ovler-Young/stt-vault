@@ -5,6 +5,8 @@ from pathlib import Path
 FRAME_WIDTH = 32
 FRAME_HEIGHT = 18
 FRAME_BYTES = FRAME_WIDTH * FRAME_HEIGHT
+THUMB_WIDTH = 160
+THUMB_HEIGHT = 90
 
 
 def detect_slide_changes(
@@ -88,3 +90,46 @@ def write_visual_events_export(
     path = target / "visual_events.json"
     path.write_text(json.dumps(events, indent=2), encoding="utf-8")
     return str(path)
+
+
+def visual_event_thumbnail_path(export_dir: Path, asset_id: str, event_index: int) -> Path:
+    return export_dir / asset_id / "visual-thumbnails" / f"event-{event_index:04d}.jpg"
+
+
+def write_visual_event_thumbnails(
+    media_path: Path,
+    export_dir: Path,
+    asset_id: str,
+    events: list[dict],
+) -> None:
+    target = export_dir / asset_id / "visual-thumbnails"
+    target.mkdir(parents=True, exist_ok=True)
+    for index, event in enumerate(events):
+        extract_thumbnail(media_path, target / f"event-{index:04d}.jpg", float(event["timestamp"]))
+
+
+def extract_thumbnail(media_path: Path, output_path: Path, timestamp: float) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{max(0.0, timestamp):.3f}",
+            "-i",
+            str(media_path),
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={THUMB_WIDTH}:{THUMB_HEIGHT}:force_original_aspect_ratio=decrease,"
+            f"pad={THUMB_WIDTH}:{THUMB_HEIGHT}:(ow-iw)/2:(oh-ih)/2",
+            "-q:v",
+            "4",
+            str(output_path),
+        ],
+        check=True,
+    )
+    return output_path

@@ -9,7 +9,7 @@ from .exports import write_exports
 from .media import ffprobe_duration, to_wav_16k_mono
 from .settings import Settings
 from .transcription import Transcriber, build_chunks
-from .visual import detect_slide_changes, write_visual_events_export
+from .visual import detect_slide_changes, write_visual_event_thumbnails, write_visual_events_export
 
 
 class Worker:
@@ -268,6 +268,12 @@ class Worker:
                 min_gap_seconds=self.settings.visual_min_gap_seconds,
             )
             db.replace_visual_events(self.settings.stt_db_path, asset_id, visual_events)
+            write_visual_event_thumbnails(
+                original_path,
+                self.settings.exports_dir,
+                asset_id,
+                visual_events,
+            )
             return {
                 "visual_events": write_visual_events_export(
                     self.settings.exports_dir,

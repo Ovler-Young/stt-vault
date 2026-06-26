@@ -15,7 +15,13 @@ from .diarization import match_speakers
 from .exports import write_exports
 from .media import store_upload
 from .settings import Settings, get_settings
-from .visual import detect_slide_changes, write_visual_events_export
+from .visual import (
+    detect_slide_changes,
+    extract_thumbnail,
+    visual_event_thumbnail_path,
+    write_visual_event_thumbnails,
+    write_visual_events_export,
+)
 from .worker import Worker
 
 
@@ -234,6 +240,24 @@ def create_app() -> FastAPI:
         events = detect_asset_visual_events(settings, asset)
         return {"events": len(events)}
 
+    @app.get("/api/assets/{asset_id}/visual-events/{event_index}/thumbnail")
+    def get_visual_event_thumbnail(
+        asset_id: str,
+        event_index: int,
+        _: Annotated[None, Depends(require_admin)],
+    ) -> FileResponse:
+        asset = db.get_asset(settings.stt_db_path, asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        events = db.list_visual_events(settings.stt_db_path, asset_id)
+        if event_index < 0 or event_index >= len(events):
+            raise HTTPException(status_code=404, detail="Visual event not found")
+
+        path = visual_event_thumbnail_path(settings.exports_dir, asset_id, event_index)
+        if not path.exists():
+            extract_thumbnail(Path(asset["original_path"]), path, float(events[event_index]["timestamp"]))
+        return FileResponse(path)
+
     @app.post("/api/assets/{asset_id}/retry", dependencies=[Depends(require_admin)])
     def retry_asset(asset_id: str) -> dict[str, str]:
         try:
@@ -285,7 +309,9 @@ def create_app() -> FastAPI:
             if candidate.is_file() and candidate.is_relative_to(static_root):
                 return FileResponse(candidate)
 
-            index_path = static_root / "index.html"
+            index_path = static_root / "200.html"
+            if not index_path.exists():
+                index_path = static_root / "index.html"
             if not index_path.exists():
                 raise HTTPException(status_code=404, detail="Frontend not built")
             return FileResponse(index_path)
@@ -362,6 +388,12 @@ def detect_asset_visual_events(settings: Settings, asset: dict) -> list[dict]:
         min_gap_seconds=settings.visual_min_gap_seconds,
     )
     db.replace_visual_events(settings.stt_db_path, asset["id"], events)
+    write_visual_event_thumbnails(
+        Path(asset["original_path"]),
+        settings.exports_dir,
+        asset["id"],
+        events,
+    )
     exports = dict(asset.get("exports") or {})
     exports["visual_events"] = write_visual_events_export(
         settings.exports_dir,

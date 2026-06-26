@@ -5,9 +5,11 @@ const config = {
   kit: {
     adapter: adapter({
       fallback: '200.html'
-    })
+    }),
+    prerender: {
+      handleUnseenRoutes: 'ignore'
+    }
   }
 };
 
 export default config;
-

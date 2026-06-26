@@ -40,6 +40,11 @@ def write_exports(
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         outputs["whisper_json"] = str(path)
 
+    if "ai_text" in formats:
+        path = target / "transcript.ai.txt"
+        path.write_text(to_ai_text(transcript_segments), encoding="utf-8")
+        outputs["ai_text"] = str(path)
+
     if "srt" in formats:
         path = target / "transcript.srt"
         path.write_text(to_srt(transcript_segments), encoding="utf-8")
@@ -76,6 +81,30 @@ def to_srt(segments: list[dict[str, Any]]) -> str:
                 ]
             )
         )
+    return "\n\n".join(blocks) + "\n"
+
+
+def to_ai_text(segments: list[dict[str, Any]]) -> str:
+    blocks = []
+    current_speaker = None
+    current_lines = []
+
+    for segment in segments:
+        speaker = segment.get("speaker_name") or segment["speaker"]
+        text = segment["text"].strip()
+        if not text:
+            continue
+        if current_speaker is None:
+            current_speaker = speaker
+        if speaker != current_speaker:
+            blocks.append(f"{current_speaker}:\n" + " ".join(current_lines))
+            current_speaker = speaker
+            current_lines = []
+        current_lines.append(text)
+
+    if current_speaker is not None and current_lines:
+        blocks.append(f"{current_speaker}:\n" + " ".join(current_lines))
+
     return "\n\n".join(blocks) + "\n"
 
 
@@ -142,4 +171,3 @@ def format_srt_time(seconds: float) -> str:
 
 def format_vtt_time(seconds: float) -> str:
     return format_srt_time(seconds).replace(",", ".")
-

@@ -3,7 +3,7 @@ export type AssetSummary = {
   filename: string;
   media_type: 'audio' | 'video';
   duration: number | null;
-  status: 'queued' | 'processing' | 'success' | 'failed';
+  status: 'queued' | 'processing' | 'success' | 'partial' | 'failed';
   error?: unknown;
   created_at: number;
   updated_at: number;
@@ -26,6 +26,35 @@ export type AssetDetail = AssetSummary & {
   transcript_segments?: TranscriptSegment[];
   exports?: Record<string, string>;
   diarization_stats?: Record<string, number>;
+  job?: Job;
+  events?: JobEvent[];
+};
+
+export type Job = {
+  id: string;
+  asset_id: string;
+  filename: string;
+  media_type: 'audio' | 'video';
+  duration: number | null;
+  status: 'queued' | 'processing' | 'success' | 'partial' | 'failed';
+  stage: string | null;
+  error?: unknown;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  progress_total_chunks: number;
+  progress_done_chunks: number;
+  progress_failed_chunks: number;
+  next_retry_at: number | null;
+};
+
+export type JobEvent = {
+  id: number;
+  level: 'info' | 'warning' | 'error';
+  stage: string | null;
+  message: string;
+  payload?: unknown;
+  created_at: number;
 };
 
 const passwordKey = 'stt-vault-admin-password';
@@ -59,6 +88,10 @@ export async function fetchAssets(): Promise<AssetSummary[]> {
   return request('/api/assets');
 }
 
+export async function fetchJobs(): Promise<Job[]> {
+  return request('/api/jobs');
+}
+
 export async function fetchAsset(id: string): Promise<AssetDetail> {
   return request(`/api/assets/${id}`);
 }
@@ -76,3 +109,6 @@ export async function deleteAsset(id: string): Promise<void> {
   await request(`/api/assets/${id}`, { method: 'DELETE' });
 }
 
+export async function retryAsset(id: string): Promise<void> {
+  await request(`/api/assets/${id}/retry`, { method: 'POST' });
+}

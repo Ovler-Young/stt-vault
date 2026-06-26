@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     openai_transcribe_model: str = Field(default="gpt-4o-transcribe", alias="OPENAI_TRANSCRIBE_MODEL")
     openai_transcribe_prompt: str = Field(default="", alias="OPENAI_TRANSCRIBE_PROMPT")
     openai_concurrency: int = Field(default=2, alias="OPENAI_CONCURRENCY")
+    openai_retry_seconds: int = Field(default=60, alias="OPENAI_RETRY_SECONDS")
+    openai_max_retries: int = Field(default=5, alias="OPENAI_MAX_RETRIES")
+    openai_retry_backoff_seconds: str = Field(default="60,300", alias="OPENAI_RETRY_BACKOFF_SECONDS")
 
     diarization_concurrency: int = Field(default=1, alias="DIARIZATION_CONCURRENCY")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
@@ -31,7 +34,7 @@ class Settings(BaseSettings):
     transcribe_chunk_overlap_seconds: float = Field(default=1.0, alias="TRANSCRIBE_CHUNK_OVERLAP_SECONDS")
     speaker_similarity_threshold: float = Field(default=0.875, alias="SPEAKER_SIMILARITY_THRESHOLD")
     export_formats: str = Field(
-        default="json,whisper_json,srt,vtt,hyperaudio_html,rttm",
+        default="json,whisper_json,ai_text,srt,vtt,hyperaudio_html,rttm",
         alias="EXPORT_FORMATS",
     )
 
@@ -51,8 +54,16 @@ class Settings(BaseSettings):
     def parsed_export_formats(self) -> list[str]:
         return [item.strip() for item in self.export_formats.split(",") if item.strip()]
 
+    @property
+    def parsed_openai_retry_backoff_seconds(self) -> list[int]:
+        values = []
+        for item in self.openai_retry_backoff_seconds.split(","):
+            item = item.strip()
+            if item:
+                values.append(max(1, int(item)))
+        return values or [self.openai_retry_seconds]
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

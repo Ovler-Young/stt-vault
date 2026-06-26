@@ -79,22 +79,116 @@ class Worker:
         )
 
         db.update_stage(self.settings.stt_db_path, asset_id, "transcribing speech")
+        db.reset_transcript_chunks(self.settings.stt_db_path, asset_id)
+        chunk_progress = {"done": 0, "failed": 0}
+
+        def on_chunk_done(index: int, result: dict[str, Any]) -> None:
+            enriched = apply_speaker_names([result], speaker_matches)[0]
+            chunk_progress["done"] += 1
+            db.upsert_transcript_chunk(
+                self.settings.stt_db_path,
+                asset_id,
+                index,
+                enriched,
+                attempts=1,
+            )
+            db.update_progress(
+                self.settings.stt_db_path,
+                asset_id,
+                done_chunks=chunk_progress["done"],
+                failed_chunks=chunk_progress["failed"],
+                next_retry_at=None,
+            )
+            db.add_event(
+                self.settings.stt_db_path,
+                asset_id,
+                "info",
+                "transcribing speech",
+                f"Chunk {index + 1} transcribed",
+                {"chunk_index": index, "done_chunks": chunk_progress["done"]},
+            )
+
+        def on_chunk_retry(index: int, attempt: int, exc: Exception, retry_at: int) -> None:
+            chunk_progress["failed"] += 1
+            db.update_progress(
+                self.settings.stt_db_path,
+                asset_id,
+                failed_chunks=chunk_progress["failed"],
+                next_retry_at=retry_at,
+            )
+            db.add_event(
+                self.settings.stt_db_path,
+                asset_id,
+                "warning",
+                "transcribing speech",
+                (
+                    f"Chunk {index + 1} failed on attempt {attempt}; "
+                    f"pausing all transcription until retry"
+                ),
+                {
+                    "chunk_index": index,
+                    "attempt": attempt,
+                    "retry_at": retry_at,
+                    "error_type": exc.__class__.__name__,
+                    "error": str(exc),
+                },
+            )
+
         transcriber = Transcriber(
             api_key=self.settings.openai_api_key,
             base_url=self.settings.openai_base_url,
             model=self.settings.openai_transcribe_model,
             prompt=self.settings.openai_transcribe_prompt,
             concurrency=self.settings.openai_concurrency,
+            retry_seconds=self.settings.openai_retry_seconds,
+            max_retries=self.settings.openai_max_retries,
+            retry_backoff_seconds=self.settings.parsed_openai_retry_backoff_seconds,
+            on_chunk_done=on_chunk_done,
+            on_chunk_retry=on_chunk_retry,
         )
         chunks = build_chunks(
             diarization["merged_segments"],
             max_seconds=self.settings.transcribe_chunk_seconds,
             overlap_seconds=self.settings.transcribe_chunk_overlap_seconds,
         )
-        transcript_segments = transcriber.transcribe_chunks(wav_path, chunks, work_dir)
-        transcript_segments = apply_speaker_names(transcript_segments, speaker_matches)
+        db.update_progress(self.settings.stt_db_path, asset_id, total_chunks=len(chunks))
+        transcript_segments = []
+        try:
+            transcript_segments = transcriber.transcribe_chunks(original_path, chunks, work_dir)
+            transcript_segments = apply_speaker_names(transcript_segments, speaker_matches)
+        except Exception as exc:
+            transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+            db.update_stage(self.settings.stt_db_path, asset_id, "writing partial exports")
+            exports = write_exports(
+                self.settings.exports_dir,
+                asset_id,
+                asset["filename"],
+                transcript_segments,
+                diarization["raw_segments"],
+                self.settings.parsed_export_formats,
+            )
+            db.mark_success(
+                self.settings.stt_db_path,
+                asset_id,
+                wav_path=wav_path,
+                duration=duration,
+                diarization_stats=diarization["timing_stats"],
+                raw_segments=diarization["raw_segments"],
+                merged_segments=diarization["merged_segments"],
+                speaker_centroids=centroids,
+                transcript_segments=transcript_segments,
+                exports=exports,
+            )
+            db.mark_partial(
+                self.settings.stt_db_path,
+                asset_id,
+                {"type": exc.__class__.__name__, "message": str(exc)},
+            )
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return
 
         db.update_stage(self.settings.stt_db_path, asset_id, "writing exports")
+        transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id) or transcript_segments
         exports = write_exports(
             self.settings.exports_dir,
             asset_id,
@@ -135,4 +229,3 @@ def apply_speaker_names(
             }
         )
     return enriched
-

@@ -91,12 +91,30 @@ def create_app() -> FastAPI:
     def list_assets(_: Annotated[None, Depends(require_admin)]) -> list[dict]:
         return db.list_assets(settings.stt_db_path)
 
+    @app.get("/api/jobs")
+    def list_jobs(_: Annotated[None, Depends(require_admin)]) -> list[dict]:
+        return db.list_jobs(settings.stt_db_path)
+
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> dict:
         asset = db.get_asset(settings.stt_db_path, asset_id)
         if asset is None:
             raise HTTPException(status_code=404, detail="Asset not found")
         return asset
+
+    @app.get("/api/assets/{asset_id}/events")
+    def get_asset_events(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
+        if db.get_asset(settings.stt_db_path, asset_id) is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return db.list_events(settings.stt_db_path, asset_id)
+
+    @app.post("/api/assets/{asset_id}/retry", dependencies=[Depends(require_admin)])
+    def retry_asset(asset_id: str) -> dict[str, str]:
+        try:
+            db.retry_asset(settings.stt_db_path, asset_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Asset not found") from None
+        return {"status": "queued"}
 
     @app.get("/api/assets/{asset_id}/media")
     def get_media(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> FileResponse:
@@ -141,4 +159,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-

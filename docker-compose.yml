@@ -5,8 +5,9 @@ services:
       - "${APP_PORT:-8080}:8080"
     volumes:
       - "${STT_HOST_DATA_DIR:-./data}:/data"
-    env_file:
-      - .env
+    configs:
+      - source: stt_vault_environment
+        target: /app/.env
     environment:
       STT_DATA_DIR: /data
       STT_DB_PATH: /data/app.sqlite3
@@ -19,3 +20,33 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+
+configs:
+  stt_vault_environment:
+    content: |
+      STT_DATA_DIR=/data
+      STT_DB_PATH=/data/app.sqlite3
+      OPENAI_API_KEY=
+      OPENAI_BASE_URL=https://api.openai.com/v1
+      OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe
+      OPENAI_TRANSCRIBE_PROMPT=
+      OPENAI_CONCURRENCY=2
+      OPENAI_RETRY_SECONDS=60
+      OPENAI_MAX_RETRIES=5
+      OPENAI_RETRY_BACKOFF_SECONDS=60,300
+      DIARIZATION_CONCURRENCY=1
+      DIARIZER_IDLE_TIMEOUT_SECONDS=900
+      APP_HOST=0.0.0.0
+      APP_PORT=8080
+      ADMIN_PASSWORD=
+      SENKO_DEVICE=auto
+      SENKO_BATCHED_EMBEDDINGS=true
+      SENKO_FBANK_BATCH_SEGMENTS=256
+      MAX_UPLOAD_MB=4096
+      TRANSCRIBE_CHUNK_SECONDS=45
+      TRANSCRIBE_CHUNK_OVERLAP_SECONDS=1.0
+      SPEAKER_SIMILARITY_THRESHOLD=0.875
+      VISUAL_SAMPLE_INTERVAL_SECONDS=2.0
+      VISUAL_CHANGE_THRESHOLD=18.0
+      VISUAL_MIN_GAP_SECONDS=6.0
+      EXPORT_FORMATS=json,whisper_json,ai_text,srt,vtt,hyperaudio_html,rttm

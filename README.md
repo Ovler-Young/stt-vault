@@ -15,7 +15,6 @@ STT Vault combines:
 Use the published GHCR image for normal deployment:
 
 ```sh
-cp .env.example .env
 mkdir -p ./data
 docker compose pull
 docker compose up -d
@@ -29,7 +28,7 @@ For a private GitHub package, log in to GHCR before pulling:
 gh auth token | docker login ghcr.io -u USERNAME --password-stdin
 ```
 
-Set `STT_HOST_DATA_DIR` to choose the host data directory and `APP_PORT` to choose the published port:
+The compose file mounts an inline Docker Compose `config` as `/app/.env`; no host `.env` or separate config file is required. Edit the `stt_vault_environment` config content in `docker-compose.yml` for deployment. `OPENAI_API_KEY` is required for transcription. Set `STT_HOST_DATA_DIR` to choose the host data directory and `APP_PORT` to choose the published port:
 
 ```sh
 STT_HOST_DATA_DIR=/srv/stt-vault APP_PORT=8080 docker compose up -d

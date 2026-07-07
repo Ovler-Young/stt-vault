@@ -15,6 +15,8 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "openai>=2.14.0",
     "numpy>=2.0.0",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
     "senko @ git+https://github.com/narcotic-sh/senko.git",
 ]
 
@@ -29,7 +31,7 @@ stt-vault = "stt_vault.app:run"
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

@@ -29,7 +29,9 @@
     '#8f7ac0'
   ];
 
-  let hovered: { x: number; time: number; speaker: string | null } | null = null;
+  type TimelineRow = 'zoom' | 'full';
+
+  let hovered: { row: TimelineRow; x: number; time: number; speaker: string | null } | null = null;
   let zoomStart = 0;
   let zoomEnd = 1;
   let dragStartX = 0;
@@ -43,13 +45,16 @@
       ? duration
       : Math.max(0, ...segments.map((segment) => segment.end));
   $: zoomSize = Math.max(0.001, zoomEnd - zoomStart);
-  $: progressPercent = effectiveDuration
-    ? Math.min(100, Math.max(0, ((currentTime / effectiveDuration - zoomStart) / zoomSize) * 100))
-    : 0;
-  $: progressInWindow = effectiveDuration
-    ? currentTime / effectiveDuration >= zoomStart && currentTime / effectiveDuration <= zoomEnd
-    : false;
+  $: currentRatio = effectiveDuration ? Math.min(1, Math.max(0, currentTime / effectiveDuration)) : 0;
+  $: zoomProgressPercent = Math.min(100, Math.max(0, ((currentRatio - zoomStart) / zoomSize) * 100));
+  $: fullProgressPercent = currentRatio * 100;
+  $: zoomProgressInWindow = currentRatio >= zoomStart && currentRatio <= zoomEnd;
   $: isZoomed = zoomStart > 0.0001 || zoomEnd < 0.9999;
+  $: zoomWindowLeft = zoomStart * 100;
+  $: zoomWindowWidth = zoomSize * 100;
+  $: zoomWindowLabel = `${formatTime(zoomStart * effectiveDuration)} - ${formatTime(
+    zoomEnd * effectiveDuration
+  )}`;
 
   onDestroy(() => {
     stopDrag();
@@ -67,27 +72,29 @@
     return speakerColors[hashSpeaker(speaker) % speakerColors.length];
   }
 
-  function eventTime(event: MouseEvent) {
+  function eventTime(event: MouseEvent, windowStart: number, windowEnd: number) {
     if (!effectiveDuration) return 0;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    return (zoomStart + ratio * zoomSize) * effectiveDuration;
+    const windowSize = Math.max(0.001, windowEnd - windowStart);
+    return (windowStart + ratio * windowSize) * effectiveDuration;
   }
 
   function segmentAt(time: number) {
     return segments.find((segment) => time >= segment.start && time < segment.end) ?? null;
   }
 
-  function segmentPosition(segment: TranscriptSegment) {
+  function segmentPosition(segment: TranscriptSegment, windowStart: number, windowEnd: number) {
     if (!effectiveDuration) return null;
+    const windowSize = Math.max(0.001, windowEnd - windowStart);
     const start = segment.start / effectiveDuration;
     const end = segment.end / effectiveDuration;
-    const visibleStart = Math.max(start, zoomStart);
-    const visibleEnd = Math.min(end, zoomEnd);
+    const visibleStart = Math.max(start, windowStart);
+    const visibleEnd = Math.min(end, windowEnd);
     if (visibleStart >= visibleEnd) return null;
     return {
-      x: ((visibleStart - zoomStart) / zoomSize) * 100,
-      width: Math.max(0.15, ((visibleEnd - visibleStart) / zoomSize) * 100)
+      x: ((visibleStart - windowStart) / windowSize) * 100,
+      width: Math.max(0.15, ((visibleEnd - visibleStart) / windowSize) * 100)
     };
   }
 
@@ -139,23 +146,24 @@
     panWindow(delta * zoomSize);
   }
 
-  function handleClick(event: MouseEvent) {
+  function handleClick(event: MouseEvent, windowStart: number, windowEnd: number) {
     if (dragMoved) {
       dragMoved = false;
       return;
     }
-    const time = eventTime(event);
+    const time = eventTime(event, windowStart, windowEnd);
     const segment = segmentAt(time);
     dispatch('seek', { time: segment?.start ?? time });
   }
 
-  function handleContextMenu(event: MouseEvent) {
+  function handleContextMenu(event: MouseEvent, windowStart: number, windowEnd: number) {
     event.preventDefault();
-    dispatch('seek', { time: eventTime(event) });
+    dispatch('seek', { time: eventTime(event, windowStart, windowEnd) });
   }
 
   function handleDoubleClick(event: MouseEvent) {
-    const time = eventTime(event);
+    if (!effectiveDuration) return;
+    const time = eventTime(event, 0, 1);
     const segment = segmentAt(time);
     const fullStart = segment ? segment.start / effectiveDuration : time / effectiveDuration;
     const fullEnd = segment ? segment.end / effectiveDuration : fullStart;
@@ -174,7 +182,7 @@
       panWindow(event.deltaX * wheelPanSensitivity * zoomSize);
       return;
     }
-    zoomAround(zoomStart + ratio * zoomSize, 1 + event.deltaY * wheelZoomSensitivity);
+    zoomAround(ratio, 1 + event.deltaY * wheelZoomSensitivity);
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -241,11 +249,12 @@
     }
   }
 
-  function handleMouseMove(event: MouseEvent) {
-    const time = eventTime(event);
+  function handleMouseMove(event: MouseEvent, row: TimelineRow, windowStart: number, windowEnd: number) {
+    const time = eventTime(event, windowStart, windowEnd);
     const segment = segmentAt(time);
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     hovered = {
+      row,
       x: Math.min(rect.width - 44, Math.max(44, event.clientX - rect.left)),
       time,
       speaker: segment?.speaker_name ?? segment?.speaker ?? null
@@ -254,89 +263,151 @@
 </script>
 
 {#if effectiveDuration > 0 && segments.length}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div
-    class="speaker-progress"
-    class:dragging={dragActive}
-    role="slider"
-    tabindex="0"
-    aria-label="Speaker timeline"
-    aria-valuemin="0"
-    aria-valuemax={Math.round(effectiveDuration)}
-    aria-valuenow={Math.round(currentTime)}
-    aria-valuetext={formatTime(currentTime)}
-    on:click={handleClick}
-    on:dblclick={handleDoubleClick}
-    on:contextmenu={handleContextMenu}
-    on:keydown={handleKeydown}
-    on:mousedown={handleMouseDown}
-    on:mousemove={handleMouseMove}
-    on:mouseleave={() => (hovered = null)}
-    on:wheel={handleWheel}
-    title="Click to jump to a speaker segment. Double click to zoom. Right click to seek exactly. Wheel zooms. Drag pans when zoomed."
-  >
-    <svg aria-hidden="true">
-      {#each segments as segment}
-        {@const position = segmentPosition(segment)}
-        {#if segment.end > segment.start && position}
-          <rect
-            x={`${position.x}%`}
-            y="0"
-            width={`${Math.min(100 - position.x, position.width)}%`}
-            height="100%"
-            fill={speakerColor(segment.speaker_name ?? segment.speaker)}
-          />
-        {/if}
-      {/each}
-    </svg>
+  <div class="speaker-progress-stack" class:dragging={dragActive}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="speaker-progress-row zoom-row"
+      role="slider"
+      tabindex="0"
+      aria-label="Selected speaker timeline window"
+      aria-valuemin="0"
+      aria-valuemax={Math.round(effectiveDuration)}
+      aria-valuenow={Math.round(currentTime)}
+      aria-valuetext={formatTime(currentTime)}
+      on:click={(event) => handleClick(event, zoomStart, zoomEnd)}
+      on:contextmenu={(event) => handleContextMenu(event, zoomStart, zoomEnd)}
+      on:keydown={handleKeydown}
+      on:mousedown={handleMouseDown}
+      on:mousemove={(event) => handleMouseMove(event, 'zoom', zoomStart, zoomEnd)}
+      on:mouseleave={() => (hovered = null)}
+      title={zoomWindowLabel}
+    >
+      <svg aria-hidden="true">
+        {#each segments as segment}
+          {@const position = segmentPosition(segment, zoomStart, zoomEnd)}
+          {#if segment.end > segment.start && position}
+            <rect
+              x={`${position.x}%`}
+              y="0"
+              width={`${Math.min(100 - position.x, position.width)}%`}
+              height="100%"
+              fill={speakerColor(segment.speaker_name ?? segment.speaker)}
+            />
+          {/if}
+        {/each}
+      </svg>
 
-    {#if progressInWindow}
-      <div class="progress-mask" style={`width:${progressPercent}%`}></div>
-      <div class="time-marker" style={`left:${progressPercent}%`}></div>
-    {/if}
+      {#if zoomProgressInWindow}
+        <div class="progress-mask" style={`width:${zoomProgressPercent}%`}></div>
+        <div class="time-marker" style={`left:${zoomProgressPercent}%`}></div>
+      {/if}
 
-    {#if hovered}
-      <div class="hover-tip" style={`left:${hovered.x}px`}>
-        <strong>{hovered.speaker ?? 'Silence'}</strong>
-        <span>{formatTime(hovered.time)}</span>
-      </div>
-    {/if}
+      {#if hovered?.row === 'zoom'}
+        <div class="hover-tip" style={`left:${hovered.x}px`}>
+          <strong>{hovered.speaker ?? 'Silence'}</strong>
+          <span>{formatTime(hovered.time)}</span>
+        </div>
+      {/if}
+    </div>
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="speaker-progress-row full-row"
+      role="slider"
+      tabindex="0"
+      aria-label="Full speaker timeline"
+      aria-valuemin="0"
+      aria-valuemax={Math.round(effectiveDuration)}
+      aria-valuenow={Math.round(currentTime)}
+      aria-valuetext={formatTime(currentTime)}
+      on:click={(event) => handleClick(event, 0, 1)}
+      on:dblclick={handleDoubleClick}
+      on:contextmenu={(event) => handleContextMenu(event, 0, 1)}
+      on:keydown={handleKeydown}
+      on:mousedown={handleMouseDown}
+      on:mousemove={(event) => handleMouseMove(event, 'full', 0, 1)}
+      on:mouseleave={() => (hovered = null)}
+      on:wheel={handleWheel}
+    >
+      <svg aria-hidden="true">
+        {#each segments as segment}
+          {@const position = segmentPosition(segment, 0, 1)}
+          {#if segment.end > segment.start && position}
+            <rect
+              x={`${position.x}%`}
+              y="0"
+              width={`${Math.min(100 - position.x, position.width)}%`}
+              height="100%"
+              fill={speakerColor(segment.speaker_name ?? segment.speaker)}
+            />
+          {/if}
+        {/each}
+      </svg>
+
+      <div class="progress-mask" style={`width:${fullProgressPercent}%`}></div>
+      <div class="time-marker" style={`left:${fullProgressPercent}%`}></div>
+
+      {#if isZoomed}
+        <div
+          class="zoom-window"
+          style={`left:${zoomWindowLeft}%; width:${Math.min(100 - zoomWindowLeft, zoomWindowWidth)}%`}
+        ></div>
+      {/if}
+
+      {#if hovered?.row === 'full'}
+        <div class="hover-tip" style={`left:${hovered.x}px`}>
+          <strong>{hovered.speaker ?? 'Silence'}</strong>
+          <span>{formatTime(hovered.time)}</span>
+        </div>
+      {/if}
+    </div>
 
     {#if isZoomed}
-      <button
-        class="zoom-reset"
-        type="button"
-        title={`${formatTime(zoomStart * effectiveDuration)} - ${formatTime(zoomEnd * effectiveDuration)}`}
-        on:click|stopPropagation={resetZoom}
-      >
-        Reset
-      </button>
+      <button class="zoom-reset" type="button" title={zoomWindowLabel} on:click={resetZoom}>Reset</button>
     {/if}
   </div>
 {/if}
 
 <style>
-  .speaker-progress {
+  .speaker-progress-stack {
+    display: grid;
+    gap: 5px;
+    position: relative;
+    width: 100%;
+    margin-top: 6px;
+    overflow: visible;
+    user-select: none;
+  }
+
+  .speaker-progress-row {
     position: relative;
     width: 100%;
     height: 22px;
-    margin-top: 6px;
     overflow: visible;
     border: 1px solid #b9b2a4;
     border-radius: 6px;
     background: #595959;
     cursor: pointer;
-    user-select: none;
   }
 
-  .speaker-progress:focus-visible {
+  .speaker-progress-row:focus-visible {
     outline: 2px solid #3b7dd8;
     outline-offset: 2px;
   }
 
-  .speaker-progress.dragging {
+  .speaker-progress-stack.dragging .speaker-progress-row {
     cursor: grabbing;
+  }
+
+  .zoom-row {
+    height: 28px;
+    background: #4f4f4f;
+  }
+
+  .full-row {
+    height: 16px;
   }
 
   svg {
@@ -352,7 +423,7 @@
     transition: opacity 120ms ease;
   }
 
-  .speaker-progress:hover rect {
+  .speaker-progress-row:hover rect {
     opacity: 0.88;
   }
 
@@ -363,6 +434,18 @@
     background: rgb(255 255 255 / 15%);
     pointer-events: none;
     mix-blend-mode: screen;
+  }
+
+  .zoom-window {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    border: 2px solid #151515;
+    border-radius: 6px;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 72%),
+      inset 0 0 0 1px rgb(255 255 255 / 60%);
+    pointer-events: none;
   }
 
   .time-marker {
@@ -405,10 +488,7 @@
   }
 
   .zoom-reset {
-    position: absolute;
-    top: calc(100% + 5px);
-    right: 0;
-    z-index: 2;
+    justify-self: end;
     border: 1px solid #b9b2a4;
     border-radius: 6px;
     background: #fbfaf7;

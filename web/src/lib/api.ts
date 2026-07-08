@@ -90,22 +90,51 @@ export type AudioTrack = {
 };
 
 const passwordKey = 'stt-vault-admin-password';
+const passwordCookieMaxAgeSeconds = 60 * 60 * 24 * 365;
 
 export function getStoredPassword(): string {
+  if (typeof localStorage === 'undefined') return '';
   return localStorage.getItem(passwordKey) ?? '';
 }
 
 export function setStoredPassword(value: string) {
   if (value) localStorage.setItem(passwordKey, value);
   else localStorage.removeItem(passwordKey);
+  setAdminPasswordCookie(value);
 }
+
+function rehydrateAdminPasswordCookie(): string {
+  const password = getStoredPassword();
+  if (password) setAdminPasswordCookie(password);
+  return password;
+}
+
+function setAdminPasswordCookie(value: string) {
+  if (typeof document === 'undefined') return;
+
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  const cookieAttributes = `Path=/; SameSite=Lax${secure}`;
+  if (value) {
+    document.cookie = `${passwordKey}=${encodeURIComponent(
+      value
+    )}; ${cookieAttributes}; Max-Age=${passwordCookieMaxAgeSeconds}`;
+  } else {
+    document.cookie = `${passwordKey}=; ${cookieAttributes}; Max-Age=0`;
+  }
+}
+
+rehydrateAdminPasswordCookie();
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  const password = getStoredPassword();
+  const password = rehydrateAdminPasswordCookie();
   if (password) headers.set('X-STT-Admin-Password', password);
 
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(path, {
+    ...init,
+    credentials: init.credentials ?? 'include',
+    headers
+  });
   if (!response.ok) {
     throw new Error(`${response.status} ${await response.text()}`);
   }

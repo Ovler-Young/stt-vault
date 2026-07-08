@@ -3,10 +3,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import unquote
 from uuid import uuid4
 
 import uvicorn
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -34,14 +35,38 @@ class SpeakerMergeRequest(BaseModel):
     source_speaker_id: str
 
 
+ADMIN_PASSWORD_COOKIE_NAME = "stt-vault-admin-password"
+COOKIE_AUTH_METHODS = {"GET", "HEAD"}
+
+
 def require_admin(
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     x_stt_admin_password: Annotated[str | None, Header()] = None,
+    stt_vault_admin_password: Annotated[
+        str | None,
+        Cookie(alias=ADMIN_PASSWORD_COOKIE_NAME),
+    ] = None,
 ) -> None:
     if not settings.admin_password:
         return
-    if x_stt_admin_password != settings.admin_password:
-        raise HTTPException(status_code=401, detail="Missing or invalid admin password")
+    if admin_password_matches(x_stt_admin_password, settings.admin_password):
+        return
+    if request.method in COOKIE_AUTH_METHODS and admin_password_matches(
+        stt_vault_admin_password,
+        settings.admin_password,
+        quoted=True,
+    ):
+        return
+    raise HTTPException(status_code=401, detail="Missing or invalid admin password")
+
+
+def admin_password_matches(candidate: str | None, expected: str, *, quoted: bool = False) -> bool:
+    if candidate is None:
+        return False
+    if quoted:
+        return unquote(candidate) == expected
+    return candidate == expected
 
 
 def create_app() -> FastAPI:

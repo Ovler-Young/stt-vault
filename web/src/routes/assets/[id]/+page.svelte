@@ -24,6 +24,11 @@
     y: number;
   };
 
+  const mediaPaneMinWidth = 420;
+  const transcriptPaneMinWidth = 360;
+  const paneDividerWidth = 12;
+  const paneResizeStep = 32;
+
   let asset: AssetDetail | null = null;
   let error = '';
   let mediaEl: HTMLMediaElement | null = null;
@@ -32,6 +37,7 @@
     zoomAtTime: (time: number, scale: number) => void;
     panByWindow: (delta: number) => void;
   } | null = null;
+  let workspaceEl: HTMLElement | null = null;
   let stripEl: HTMLDivElement | null = null;
   let transcriptEl: HTMLElement | null = null;
   let currentTime = 0;
@@ -55,12 +61,16 @@
   let lastScrolledSlideIndex = -1;
   let lastScrolledTranscriptIndex = -1;
   let playbackFrame: number | null = null;
+  let mediaPaneWidth: number | null = null;
+  let resizingPanes = false;
+  let downloadMessage = '';
 
   $: assetId = $page.params.id ?? '';
   $: activeSegmentIndex = activeTranscriptSegmentIndex(asset?.transcript_segments ?? [], currentTime);
   $: currentSlideEventIndex = activeVisualEventIndex(asset?.visual_events ?? [], currentTime);
   $: scrollActiveTranscriptIntoView(activeSegmentIndex);
   $: scrollActiveSlideIntoView(currentSlideEventIndex);
+  $: workspaceStyle = mediaPaneWidth === null ? '' : `--media-pane-width: ${mediaPaneWidth}px;`;
 
   onMount(async () => {
     playbackRate = Number(localStorage.getItem('stt-vault-playback-rate') ?? 1) || 1;
@@ -99,9 +109,19 @@
     location.href = '/';
   }
 
-  function seek(segment: Pick<TranscriptSegment, 'start' | 'end'>) {
+  function segmentMediaStart(segment: Pick<TranscriptSegment, 'start' | 'chunk_start'>) {
+    return typeof segment.chunk_start === 'number' && Number.isFinite(segment.chunk_start)
+      ? segment.chunk_start
+      : segment.start;
+  }
+
+  function segmentMediaEnd(segment: Pick<TranscriptSegment, 'end' | 'chunk_end'>) {
+    return typeof segment.chunk_end === 'number' && Number.isFinite(segment.chunk_end) ? segment.chunk_end : segment.end;
+  }
+
+  function seek(segment: Pick<TranscriptSegment, 'start' | 'end' | 'chunk_start' | 'chunk_end'>) {
     if (!mediaEl) return;
-    mediaEl.currentTime = segment.start;
+    mediaEl.currentTime = segmentMediaStart(segment);
     mediaEl.play().catch(() => {});
   }
 
@@ -110,7 +130,7 @@
   }
 
   function isActive(segment: TranscriptSegment) {
-    return currentTime >= segment.start && currentTime < segment.end;
+    return currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment);
   }
 
   function updateCurrentTime() {
@@ -207,37 +227,45 @@
 
   function seekNextSegment() {
     const segments = asset?.transcript_segments ?? [];
-    const next = segments.find((segment) => segment.start > currentTime + 0.05);
+    const next = segments.find((segment) => segmentMediaStart(segment) > currentTime + 0.05);
     if (next) seek(next);
   }
 
   function seekPreviousSegment() {
     const segments = asset?.transcript_segments ?? [];
-    const current = segments.find((segment) => currentTime >= segment.start && currentTime < segment.end);
-    if (current && currentTime - current.start > 5) {
+    const current = segments.find(
+      (segment) => currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment)
+    );
+    if (current && currentTime - segmentMediaStart(current) > 5) {
       seek(current);
       return;
     }
-    const previous = [...segments].reverse().find((segment) => segment.end < currentTime - 0.05);
+    const previous = [...segments].reverse().find((segment) => segmentMediaEnd(segment) < currentTime - 0.05);
     if (previous) seek(previous);
     else seekToTime(0);
   }
 
   function seekPreviousSpeakerSegment() {
     const segments = asset?.transcript_segments ?? [];
-    const current = segments.find((segment) => currentTime >= segment.start && currentTime < segment.end);
+    const current = segments.find(
+      (segment) => currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment)
+    );
     if (!current) return;
     const previous = [...segments]
       .reverse()
-      .find((segment) => segment.speaker === current.speaker && segment.end < currentTime - 0.05);
+      .find((segment) => segment.speaker === current.speaker && segmentMediaEnd(segment) < currentTime - 0.05);
     if (previous) seek(previous);
   }
 
   function seekNextSpeakerSegment() {
     const segments = asset?.transcript_segments ?? [];
-    const current = segments.find((segment) => currentTime >= segment.start && currentTime < segment.end);
+    const current = segments.find(
+      (segment) => currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment)
+    );
     if (!current) return;
-    const next = segments.find((segment) => segment.speaker === current.speaker && segment.start > currentTime + 0.05);
+    const next = segments.find(
+      (segment) => segment.speaker === current.speaker && segmentMediaStart(segment) > currentTime + 0.05
+    );
     if (next) seek(next);
   }
 
@@ -328,8 +356,8 @@
         speakerId: matched?.speaker_id,
         similarity: matched?.speaker_similarity ?? null,
         count: segments.length,
-        firstStart: segments.length ? Math.min(...segments.map((segment) => segment.start)) : null,
-        lastEnd: segments.length ? Math.max(...segments.map((segment) => segment.end)) : null
+        firstStart: segments.length ? Math.min(...segments.map((segment) => segmentMediaStart(segment))) : null,
+        lastEnd: segments.length ? Math.max(...segments.map((segment) => segmentMediaEnd(segment))) : null
       };
     });
   }
@@ -425,7 +453,7 @@
   }
 
   function activeTranscriptSegmentIndex(segments: TranscriptSegment[], time: number) {
-    return segments.findIndex((segment) => time >= segment.start && time < segment.end);
+    return segments.findIndex((segment) => time >= segmentMediaStart(segment) && time < segmentMediaEnd(segment));
   }
 
   function scrollActiveTranscriptIntoView(index: number) {
@@ -462,6 +490,71 @@
     return `/api/assets/${assetId}/visual-events/${event.event_index}/thumbnail`;
   }
 
+  function exportHref(assetId: string, format: string) {
+    return `/api/assets/${assetId}/exports/${format}`;
+  }
+
+  async function copyExportHref(event: MouseEvent, href: string) {
+    event.preventDefault();
+    try {
+      await navigator.clipboard.writeText(href);
+      downloadMessage = 'Download link copied';
+    } catch (err) {
+      downloadMessage = err instanceof Error ? `Copy failed: ${err.message}` : 'Copy failed';
+    }
+  }
+
+  function startPaneResize(event: PointerEvent) {
+    if (event.button !== 0 || !workspaceEl) return;
+    event.preventDefault();
+    resizingPanes = true;
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement) target.setPointerCapture(event.pointerId);
+    updateMediaPaneWidth(event.clientX);
+  }
+
+  function movePaneResize(event: PointerEvent) {
+    if (!resizingPanes) return;
+    event.preventDefault();
+    updateMediaPaneWidth(event.clientX);
+  }
+
+  function endPaneResize(event: PointerEvent) {
+    if (!resizingPanes) return;
+    resizingPanes = false;
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
+      target.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePaneResizeKeydown(event: KeyboardEvent) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    resizeMediaPaneBy(event.key === 'ArrowLeft' ? -paneResizeStep : paneResizeStep);
+  }
+
+  function resizeMediaPaneBy(delta: number) {
+    if (!workspaceEl) return;
+    const availableWidth = workspaceEl.clientWidth - paneDividerWidth;
+    const defaultWidth = Math.round(workspaceEl.clientWidth * 0.47);
+    const currentWidth = mediaPaneWidth ?? defaultWidth;
+    mediaPaneWidth = clampMediaPaneWidth(currentWidth + delta, availableWidth);
+  }
+
+  function updateMediaPaneWidth(clientX: number) {
+    if (!workspaceEl) return;
+    const rect = workspaceEl.getBoundingClientRect();
+    const availableWidth = rect.width - paneDividerWidth;
+    const requestedWidth = clientX - rect.left - paneDividerWidth / 2;
+    mediaPaneWidth = clampMediaPaneWidth(requestedWidth, availableWidth);
+  }
+
+  function clampMediaPaneWidth(width: number, availableWidth: number) {
+    const maxWidth = Math.max(mediaPaneMinWidth, availableWidth - transcriptPaneMinWidth);
+    return Math.min(maxWidth, Math.max(mediaPaneMinWidth, width));
+  }
+
   function formatStatValue(value: unknown) {
     if (typeof value === 'number') return `${Number(value.toFixed(3))}`;
     if (typeof value === 'boolean') return value ? 'true' : 'false';
@@ -488,7 +581,7 @@
       </div>
     </section>
 
-    <section class="workspace">
+    <section class:resizing={resizingPanes} class="workspace" style={workspaceStyle} bind:this={workspaceEl}>
       <div class="media-pane">
         <video
           bind:this={mediaEl}
@@ -616,8 +709,10 @@
               <summary>Downloads</summary>
               <div class="exports">
                 {#each Object.keys(asset.exports) as format}
-                  <a href={`/api/assets/${asset.id}/exports/${format}`} target="_blank">{format}</a>
+                  {@const href = exportHref(asset.id, format)}
+                  <a href={href} download on:contextmenu={(event) => copyExportHref(event, href)}>{format}</a>
                 {/each}
+                {#if downloadMessage}<span class="download-message" aria-live="polite">{downloadMessage}</span>{/if}
               </div>
             </details>
           {/if}
@@ -666,6 +761,18 @@
         </div>
       </div>
 
+      <button
+        type="button"
+        class:resizing={resizingPanes}
+        class="pane-divider"
+        aria-label="Resize media and transcript panes"
+        on:pointerdown={startPaneResize}
+        on:pointermove={movePaneResize}
+        on:pointerup={endPaneResize}
+        on:pointercancel={endPaneResize}
+        on:keydown={handlePaneResizeKeydown}
+      ></button>
+
       <article class="transcript" bind:this={transcriptEl}>
         {#if asset.transcript_segments?.length}
           {#each asset.transcript_segments as segment, index}
@@ -677,7 +784,7 @@
             >
               <span class="row-head">
                 <strong>{segment.speaker_name ?? segment.speaker}</strong>
-                <small>{formatTime(segment.start)} - {formatTime(segment.end)}</small>
+                <small>{formatTime(segmentMediaStart(segment))} - {formatTime(segmentMediaEnd(segment))}</small>
               </span>
               <span class="text">{segment.text}</span>
             </button>
@@ -761,16 +868,27 @@
   }
 
   .workspace {
+    --media-pane-min: 420px;
+    --transcript-pane-min: 360px;
+    --pane-divider-width: 12px;
+
     display: grid;
-    grid-template-columns: minmax(420px, 47vw) minmax(360px, 1fr);
-    gap: 10px;
-    align-items: start;
+    grid-template-columns:
+      minmax(
+        var(--media-pane-min),
+        min(var(--media-pane-width, 47vw), calc(100% - var(--pane-divider-width) - var(--transcript-pane-min)))
+      )
+      var(--pane-divider-width)
+      minmax(var(--transcript-pane-min), 1fr);
+    gap: 0;
+    align-items: stretch;
     min-height: 0;
     overflow: hidden;
   }
 
   .media-pane,
   .transcript {
+    box-sizing: border-box;
     min-width: 0;
     min-height: 0;
     max-height: 100%;
@@ -778,7 +896,44 @@
   }
 
   .media-pane {
-    padding-right: 2px;
+    padding-right: 8px;
+  }
+
+  .pane-divider {
+    position: relative;
+    align-self: stretch;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .pane-divider::before {
+    content: '';
+    position: absolute;
+    inset: 0 4px;
+    border-radius: 4px;
+    background: #c7c1b4;
+  }
+
+  .pane-divider:hover::before,
+  .pane-divider:focus-visible::before,
+  .pane-divider.resizing::before {
+    background: #2f6f73;
+  }
+
+  .pane-divider:focus-visible {
+    outline: 2px solid #2f6f73;
+    outline-offset: 2px;
+  }
+
+  .workspace.resizing,
+  .workspace.resizing * {
+    cursor: col-resize;
+    user-select: none;
   }
 
   video {
@@ -927,6 +1082,11 @@
     flex-wrap: wrap;
   }
 
+  .download-message {
+    color: #2f6f73;
+    font-size: 12px;
+  }
+
   .stats span {
     max-width: 100%;
     overflow: hidden;
@@ -954,6 +1114,7 @@
     display: grid;
     align-content: start;
     gap: 4px;
+    padding-left: 8px;
     padding-right: 4px;
     overscroll-behavior: contain;
   }
@@ -1082,11 +1243,17 @@
     .media-pane {
       max-height: 52vh;
       overflow-y: auto;
+      padding-right: 0;
+    }
+
+    .pane-divider {
+      display: none;
     }
 
     .transcript {
       max-height: 100%;
       overflow-y: auto;
+      padding-left: 0;
     }
 
     .speaker-row {

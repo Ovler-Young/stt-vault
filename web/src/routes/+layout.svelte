@@ -56,19 +56,28 @@
   }
 
   .shell {
+    --sidebar-width: 71px;
+
     box-sizing: border-box;
     min-height: 100vh;
     display: grid;
-    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    transition: grid-template-columns 140ms ease;
+  }
+
+  .shell:has(nav:hover),
+  .shell:has(nav:focus-within) {
+    --sidebar-width: 181px;
   }
 
   nav {
+    box-sizing: border-box;
     position: fixed;
     top: 0;
     bottom: 0;
     left: 0;
     z-index: 10;
-    width: 54px;
+    width: var(--sidebar-width);
     display: grid;
     align-content: start;
     gap: 6px;
@@ -77,11 +86,6 @@
     background: #fbfaf7;
     overflow: hidden;
     transition: width 140ms ease;
-  }
-
-  nav:hover,
-  nav:focus-within {
-    width: 164px;
   }
 
   nav a {

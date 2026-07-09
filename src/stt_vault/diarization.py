@@ -192,7 +192,9 @@ class DiarizerManager:
         stats["rss_mb_after"] = rss_after
         if rss_before is not None:
             before = stats.get("rss_mb_before")
-            stats["rss_mb_before"] = rss_before if before is None else min(float(before), rss_before)
+            stats["rss_mb_before"] = (
+                rss_before if before is None else min(float(before), rss_before)
+            )
         if rss_after is not None:
             peak = stats.get("rss_mb_peak")
             stats["rss_mb_peak"] = rss_after if peak is None else max(float(peak), rss_after)

@@ -189,7 +189,10 @@ class Worker:
                 chunks_to_transcribe,
                 work_dir,
             )
-            transcript_segments = apply_speaker_names(transcript_segments, current_speaker_matches())
+            transcript_segments = apply_speaker_names(
+                transcript_segments,
+                current_speaker_matches(),
+            )
         except Exception as exc:
             transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
             db.update_stage(self.settings.stt_db_path, asset_id, "writing partial exports")

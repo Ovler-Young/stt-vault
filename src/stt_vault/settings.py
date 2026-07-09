@@ -13,12 +13,18 @@ class Settings(BaseSettings):
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
-    openai_transcribe_model: str = Field(default="gpt-4o-transcribe", alias="OPENAI_TRANSCRIBE_MODEL")
+    openai_transcribe_model: str = Field(
+        default="gpt-4o-transcribe",
+        alias="OPENAI_TRANSCRIBE_MODEL",
+    )
     openai_transcribe_prompt: str = Field(default="", alias="OPENAI_TRANSCRIBE_PROMPT")
     openai_concurrency: int = Field(default=2, alias="OPENAI_CONCURRENCY")
     openai_retry_seconds: int = Field(default=60, alias="OPENAI_RETRY_SECONDS")
     openai_max_retries: int = Field(default=5, alias="OPENAI_MAX_RETRIES")
-    openai_retry_backoff_seconds: str = Field(default="60,300", alias="OPENAI_RETRY_BACKOFF_SECONDS")
+    openai_retry_backoff_seconds: str = Field(
+        default="60,300",
+        alias="OPENAI_RETRY_BACKOFF_SECONDS",
+    )
 
     diarization_concurrency: int = Field(default=1, alias="DIARIZATION_CONCURRENCY")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
@@ -32,9 +38,18 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = Field(default=4096, alias="MAX_UPLOAD_MB")
     transcribe_chunk_seconds: float = Field(default=45.0, alias="TRANSCRIBE_CHUNK_SECONDS")
-    transcribe_chunk_overlap_seconds: float = Field(default=1.0, alias="TRANSCRIBE_CHUNK_OVERLAP_SECONDS")
-    speaker_similarity_threshold: float = Field(default=0.875, alias="SPEAKER_SIMILARITY_THRESHOLD")
-    visual_sample_interval_seconds: float = Field(default=2.0, alias="VISUAL_SAMPLE_INTERVAL_SECONDS")
+    transcribe_chunk_overlap_seconds: float = Field(
+        default=1.0,
+        alias="TRANSCRIBE_CHUNK_OVERLAP_SECONDS",
+    )
+    speaker_similarity_threshold: float = Field(
+        default=0.875,
+        alias="SPEAKER_SIMILARITY_THRESHOLD",
+    )
+    visual_sample_interval_seconds: float = Field(
+        default=2.0,
+        alias="VISUAL_SAMPLE_INTERVAL_SECONDS",
+    )
     visual_change_threshold: float = Field(default=18.0, alias="VISUAL_CHANGE_THRESHOLD")
     visual_min_gap_seconds: float = Field(default=6.0, alias="VISUAL_MIN_GAP_SECONDS")
     export_formats: str = Field(

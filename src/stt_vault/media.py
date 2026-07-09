@@ -199,7 +199,12 @@ def extract_audio_chunk(input_wav: Path, output_path: Path, start: float, end: f
     return output_path
 
 
-def extract_transcription_chunk(input_media: Path, output_path: Path, start: float, end: float) -> Path:
+def extract_transcription_chunk(
+    input_media: Path,
+    output_path: Path,
+    start: float,
+    end: float,
+) -> Path:
     duration = max(0.0, end - start)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     copy_result = subprocess.run(

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { page } from '$app/stores';
-  import SpeakerProgressBar from '$lib/SpeakerProgressBar.svelte';
   import {
     deleteAsset,
     detectAssetVisualEvents,
@@ -12,37 +11,28 @@
     saveAssetSpeaker,
     type AudioTrack,
     type AssetDetail,
-    type TranscriptSegment,
-    type VisualEvent
+    type TranscriptSegment
   } from '$lib/api';
-  import { formatDate, formatTime } from '$lib/format';
-
-  type SpeakerEditor = {
-    localSpeaker: string;
-    displayName: string;
-    x: number;
-    y: number;
-  };
-
-  const mediaPaneMinWidth = 420;
-  const transcriptPaneMinWidth = 360;
-  const paneDividerWidth = 12;
-  const paneResizeStep = 32;
+  import { localSpeakerRows, segmentMediaEnd, segmentMediaStart } from './asset-page.helpers';
+  import type { SpeakerEditor, SpeakerProgressBarHandle } from './asset-page.types';
+  import AssetDetailsFoldout from './components/AssetDetailsFoldout.svelte';
+  import AssetDownloadsFoldout from './components/AssetDownloadsFoldout.svelte';
+  import AssetEventsFoldout from './components/AssetEventsFoldout.svelte';
+  import AssetFoldoutGroup from './components/AssetFoldoutGroup.svelte';
+  import AssetHeader from './components/AssetHeader.svelte';
+  import AssetMediaPane from './components/AssetMediaPane.svelte';
+  import AssetSpeakersFoldout from './components/AssetSpeakersFoldout.svelte';
+  import ResizableAssetWorkspace from './components/ResizableAssetWorkspace.svelte';
+  import SpeakerEditorPopover from './components/SpeakerEditorPopover.svelte';
+  import TranscriptPane from './components/TranscriptPane.svelte';
+  import VisualEventsStrip from './components/VisualEventsStrip.svelte';
 
   let asset: AssetDetail | null = null;
   let error = '';
   let mediaEl: HTMLMediaElement | null = null;
-  let speakerProgressBar: {
-    centerOnTime: (time: number) => void;
-    zoomAtTime: (time: number, scale: number) => void;
-    panByWindow: (delta: number) => void;
-  } | null = null;
-  let workspaceEl: HTMLElement | null = null;
-  let stripEl: HTMLDivElement | null = null;
-  let transcriptEl: HTMLElement | null = null;
+  let speakerProgressBar: SpeakerProgressBarHandle | null = null;
   let currentTime = 0;
   let poll: ReturnType<typeof setInterval> | null = null;
-  let showHistory = false;
   let speakerDrafts: Record<string, string> = {};
   let speakerMessage = '';
   let visualMessage = '';
@@ -53,24 +43,10 @@
   let selectedAudioTrack = 'default';
   let playbackRate = 1;
   let pendingMediaSeek: number | null = null;
-  let dragStartX = 0;
-  let dragScrollLeft = 0;
-  let thumbDragging = false;
-  let thumbMoved = false;
-  let currentSlideEventIndex = -1;
-  let lastScrolledSlideIndex = -1;
-  let lastScrolledTranscriptIndex = -1;
   let playbackFrame: number | null = null;
-  let mediaPaneWidth: number | null = null;
-  let resizingPanes = false;
-  let downloadMessage = '';
 
   $: assetId = $page.params.id ?? '';
-  $: activeSegmentIndex = activeTranscriptSegmentIndex(asset?.transcript_segments ?? [], currentTime);
-  $: currentSlideEventIndex = activeVisualEventIndex(asset?.visual_events ?? [], currentTime);
-  $: scrollActiveTranscriptIntoView(activeSegmentIndex);
-  $: scrollActiveSlideIntoView(currentSlideEventIndex);
-  $: workspaceStyle = mediaPaneWidth === null ? '' : `--media-pane-width: ${mediaPaneWidth}px;`;
+  $: speakerRows = asset ? localSpeakerRows(asset) : [];
 
   onMount(async () => {
     playbackRate = Number(localStorage.getItem('stt-vault-playback-rate') ?? 1) || 1;
@@ -109,16 +85,6 @@
     location.href = '/';
   }
 
-  function segmentMediaStart(segment: Pick<TranscriptSegment, 'start' | 'chunk_start'>) {
-    return typeof segment.chunk_start === 'number' && Number.isFinite(segment.chunk_start)
-      ? segment.chunk_start
-      : segment.start;
-  }
-
-  function segmentMediaEnd(segment: Pick<TranscriptSegment, 'end' | 'chunk_end'>) {
-    return typeof segment.chunk_end === 'number' && Number.isFinite(segment.chunk_end) ? segment.chunk_end : segment.end;
-  }
-
   function seek(segment: Pick<TranscriptSegment, 'start' | 'end' | 'chunk_start' | 'chunk_end'>) {
     if (!mediaEl) return;
     mediaEl.currentTime = segmentMediaStart(segment);
@@ -127,10 +93,6 @@
 
   function seekToTime(time: number) {
     seek({ start: time, end: time + 1 });
-  }
-
-  function isActive(segment: TranscriptSegment) {
-    return currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment);
   }
 
   function updateCurrentTime() {
@@ -142,7 +104,8 @@
     mediaEl.playbackRate = playbackRate;
   }
 
-  function changePlaybackRate() {
+  function changePlaybackRate(nextPlaybackRate: number) {
+    playbackRate = nextPlaybackRate;
     localStorage.setItem('stt-vault-playback-rate', String(playbackRate));
     applyPlaybackRate();
   }
@@ -160,16 +123,8 @@
     }
   }
 
-  function mediaUrl(assetId: string) {
-    const params = new URLSearchParams();
-    if (selectedAudioTrack !== 'default') {
-      params.set('audio_track', selectedAudioTrack);
-    }
-    const query = params.toString();
-    return `/api/assets/${assetId}/media${query ? `?${query}` : ''}`;
-  }
-
-  async function changeAudioTrack() {
+  async function changeAudioTrack(nextAudioTrack: string) {
+    selectedAudioTrack = nextAudioTrack;
     pendingMediaSeek = mediaEl?.currentTime ?? currentTime;
     await tick();
     mediaEl?.load();
@@ -182,25 +137,15 @@
     pendingMediaSeek = null;
   }
 
-  function audioTrackLabel(track: AudioTrack) {
-    const parts = [`Track ${track.audio_index + 1}`];
-    if (track.title) parts.push(track.title);
-    if (track.language) parts.push(track.language);
-    if (track.channel_layout) parts.push(track.channel_layout);
-    else if (track.channels) parts.push(`${track.channels}ch`);
-    if (track.codec_name) parts.push(track.codec_name);
-    return parts.join(' · ');
-  }
-
   function startPlaybackClock() {
     stopPlaybackClock();
-    const tick = () => {
+    const tickClock = () => {
       updateCurrentTime();
       if (mediaEl && !mediaEl.paused) {
-        playbackFrame = requestAnimationFrame(tick);
+        playbackFrame = requestAnimationFrame(tickClock);
       }
     };
-    tick();
+    tickClock();
   }
 
   function stopPlaybackClock() {
@@ -326,12 +271,6 @@
     return tagName === 'A' || tagName === 'SUMMARY';
   }
 
-  function progressText(asset: AssetDetail) {
-    const job = asset.job;
-    if (!job || !job.progress_total_chunks) return '';
-    return `${job.progress_done_chunks}/${job.progress_total_chunks}`;
-  }
-
   function syncSpeakerDrafts() {
     if (!asset) return;
     for (const row of localSpeakerRows(asset)) {
@@ -339,27 +278,6 @@
         speakerDrafts[row.localSpeaker] = row.displayName;
       }
     }
-  }
-
-  function localSpeakerRows(asset: AssetDetail) {
-    const speakers = new Set<string>();
-    for (const speaker of Object.keys(asset.speaker_centroids ?? {})) speakers.add(speaker);
-    for (const segment of asset.transcript_segments ?? []) speakers.add(segment.speaker);
-
-    return [...speakers].sort().map((localSpeaker) => {
-      const segments = asset.transcript_segments?.filter((segment) => segment.speaker === localSpeaker) ?? [];
-      const named = segments.find((segment) => segment.speaker_name && segment.speaker_name !== localSpeaker);
-      const matched = segments.find((segment) => segment.speaker_id && segment.speaker_id !== localSpeaker);
-      return {
-        localSpeaker,
-        displayName: named?.speaker_name ?? localSpeaker,
-        speakerId: matched?.speaker_id,
-        similarity: matched?.speaker_similarity ?? null,
-        count: segments.length,
-        firstStart: segments.length ? Math.min(...segments.map((segment) => segmentMediaStart(segment))) : null,
-        lastEnd: segments.length ? Math.max(...segments.map((segment) => segmentMediaEnd(segment))) : null
-      };
-    });
   }
 
   async function saveSpeakerName(localSpeaker: string, displayName?: string) {
@@ -414,400 +332,78 @@
       y: Math.min(event.clientY, window.innerHeight - 150)
     };
   }
-
-  function startThumbDrag(event: MouseEvent) {
-    if (!stripEl) return;
-    thumbDragging = true;
-    thumbMoved = false;
-    dragStartX = event.pageX;
-    dragScrollLeft = stripEl.scrollLeft;
-  }
-
-  function moveThumbDrag(event: MouseEvent) {
-    if (!stripEl || !thumbDragging) return;
-    const delta = event.pageX - dragStartX;
-    if (Math.abs(delta) > 3) thumbMoved = true;
-    stripEl.scrollLeft = dragScrollLeft - delta;
-  }
-
-  function endThumbDrag() {
-    thumbDragging = false;
-  }
-
-  function seekVisualEvent(event: MouseEvent, marker: VisualEvent) {
-    if (thumbMoved) {
-      event.preventDefault();
-      thumbMoved = false;
-      return;
-    }
-    seek({ start: marker.timestamp, end: marker.timestamp + 1 });
-  }
-
-  function activeVisualEventIndex(markers: VisualEvent[], time: number) {
-    let activeIndex = -1;
-    for (let index = 0; index < markers.length; index += 1) {
-      if (markers[index].timestamp > time + 0.25) break;
-      activeIndex = markers[index].event_index;
-    }
-    return activeIndex;
-  }
-
-  function activeTranscriptSegmentIndex(segments: TranscriptSegment[], time: number) {
-    return segments.findIndex((segment) => time >= segmentMediaStart(segment) && time < segmentMediaEnd(segment));
-  }
-
-  function scrollActiveTranscriptIntoView(index: number) {
-    if (!transcriptEl || index < 0 || index === lastScrolledTranscriptIndex) return;
-    lastScrolledTranscriptIndex = index;
-    requestAnimationFrame(() => {
-      const item = transcriptEl?.querySelector<HTMLElement>(`[data-segment-index="${index}"]`);
-      if (!transcriptEl || !item) return;
-      const itemTop = item.offsetTop;
-      const itemBottom = itemTop + item.offsetHeight;
-      const viewTop = transcriptEl.scrollTop;
-      const viewBottom = viewTop + transcriptEl.clientHeight;
-      if (itemTop >= viewTop + 24 && itemBottom <= viewBottom - 24) return;
-      transcriptEl.scrollTo({
-        top: Math.max(0, itemTop - transcriptEl.clientHeight * 0.35),
-        behavior: 'smooth'
-      });
-    });
-  }
-
-  function scrollActiveSlideIntoView(index: number) {
-    if (!stripEl || thumbDragging || index < 0 || index === lastScrolledSlideIndex) return;
-    lastScrolledSlideIndex = index;
-    requestAnimationFrame(() => {
-      const item = stripEl?.querySelector<HTMLElement>(`[data-slide-index="${index}"]`);
-      if (!stripEl || !item) return;
-      const target =
-        item.offsetLeft - stripEl.clientWidth / 2 + item.clientWidth / 2;
-      stripEl.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
-    });
-  }
-
-  function thumbnailUrl(event: VisualEvent) {
-    return `/api/assets/${assetId}/visual-events/${event.event_index}/thumbnail`;
-  }
-
-  function exportHref(assetId: string, format: string) {
-    return `/api/assets/${assetId}/exports/${format}`;
-  }
-
-  async function copyExportHref(event: MouseEvent, href: string) {
-    event.preventDefault();
-    try {
-      await navigator.clipboard.writeText(href);
-      downloadMessage = 'Download link copied';
-    } catch (err) {
-      downloadMessage = err instanceof Error ? `Copy failed: ${err.message}` : 'Copy failed';
-    }
-  }
-
-  function startPaneResize(event: PointerEvent) {
-    if (event.button !== 0 || !workspaceEl) return;
-    event.preventDefault();
-    resizingPanes = true;
-    const target = event.currentTarget;
-    if (target instanceof HTMLElement) target.setPointerCapture(event.pointerId);
-    updateMediaPaneWidth(event.clientX);
-  }
-
-  function movePaneResize(event: PointerEvent) {
-    if (!resizingPanes) return;
-    event.preventDefault();
-    updateMediaPaneWidth(event.clientX);
-  }
-
-  function endPaneResize(event: PointerEvent) {
-    if (!resizingPanes) return;
-    resizingPanes = false;
-    const target = event.currentTarget;
-    if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
-      target.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  function handlePaneResizeKeydown(event: KeyboardEvent) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    resizeMediaPaneBy(event.key === 'ArrowLeft' ? -paneResizeStep : paneResizeStep);
-  }
-
-  function resizeMediaPaneBy(delta: number) {
-    if (!workspaceEl) return;
-    const availableWidth = workspaceEl.clientWidth - paneDividerWidth;
-    const defaultWidth = Math.round(workspaceEl.clientWidth * 0.47);
-    const currentWidth = mediaPaneWidth ?? defaultWidth;
-    mediaPaneWidth = clampMediaPaneWidth(currentWidth + delta, availableWidth);
-  }
-
-  function updateMediaPaneWidth(clientX: number) {
-    if (!workspaceEl) return;
-    const rect = workspaceEl.getBoundingClientRect();
-    const availableWidth = rect.width - paneDividerWidth;
-    const requestedWidth = clientX - rect.left - paneDividerWidth / 2;
-    mediaPaneWidth = clampMediaPaneWidth(requestedWidth, availableWidth);
-  }
-
-  function clampMediaPaneWidth(width: number, availableWidth: number) {
-    const maxWidth = Math.max(mediaPaneMinWidth, availableWidth - transcriptPaneMinWidth);
-    return Math.min(maxWidth, Math.max(mediaPaneMinWidth, width));
-  }
-
-  function formatStatValue(value: unknown) {
-    if (typeof value === 'number') return `${Number(value.toFixed(3))}`;
-    if (typeof value === 'boolean') return value ? 'true' : 'false';
-    if (value === null || value === undefined) return '';
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-  }
 </script>
 
 <main>
   {#if error}<p class="error">{error}</p>{/if}
 
   {#if asset}
-    <section class="asset-head">
-      <div class="title">
-        <h1>{asset.filename}</h1>
-        <p>{asset.status} · {formatTime(asset.duration)} {#if progressText(asset)}· {progressText(asset)} chunks{/if}</p>
-      </div>
-      <div class="actions">
-        {#if asset.status === 'failed' || asset.status === 'partial'}
-          <button on:click={retry}>Retry</button>
-        {/if}
-        <button class="danger" on:click={remove}>Delete</button>
-      </div>
-    </section>
+    <AssetHeader {asset} onRetry={retry} onRemove={remove} />
 
-    <section class:resizing={resizingPanes} class="workspace" style={workspaceStyle} bind:this={workspaceEl}>
-      <div class="media-pane">
-        <video
-          bind:this={mediaEl}
-          controls
-          src={mediaUrl(asset.id)}
-          on:timeupdate={updateCurrentTime}
-          on:seeked={updateCurrentTime}
-          on:play={updateCurrentTime}
-          on:playing={startPlaybackClock}
-          on:pause={stopPlaybackClock}
-          on:ended={stopPlaybackClock}
-          on:loadedmetadata={restoreMediaSeek}
-        >
-          <track
-            kind="captions"
-            src={asset.exports?.vtt ? `/api/assets/${asset.id}/exports/vtt` : ''}
-            srclang="en"
-            label="Transcript"
-            default
-          />
-        </video>
-
-        <div class="playback-controls">
-          {#if audioTracks.length > 1}
-            <label>
-              <span>Audio</span>
-              <select bind:value={selectedAudioTrack} on:change={changeAudioTrack}>
-                <option value="default">Original playback</option>
-                <option value="all">All tracks mixed</option>
-                {#each audioTracks as track}
-                  <option value={`${track.audio_index}`}>{audioTrackLabel(track)}</option>
-                {/each}
-              </select>
-            </label>
-          {/if}
-
-          <label>
-            <span>Speed</span>
-            <select bind:value={playbackRate} on:change={changePlaybackRate}>
-              <option value={0.75}>0.75x</option>
-              <option value={1}>1x</option>
-              <option value={1.25}>1.25x</option>
-              <option value={1.5}>1.5x</option>
-              <option value={2}>2x</option>
-            </select>
-          </label>
-        </div>
-
-        <SpeakerProgressBar
-          bind:this={speakerProgressBar}
-          segments={asset.transcript_segments ?? []}
-          duration={asset.duration}
+    <ResizableAssetWorkspace>
+      <svelte:fragment slot="media">
+        <AssetMediaPane
+          {asset}
+          {audioTracks}
+          {selectedAudioTrack}
+          {playbackRate}
           {currentTime}
-          on:seek={(event) => seekToTime(event.detail.time)}
+          bind:mediaElement={mediaEl}
+          bind:progressBar={speakerProgressBar}
+          onTimeUpdate={updateCurrentTime}
+          onStartClock={startPlaybackClock}
+          onStopClock={stopPlaybackClock}
+          onRestoreMediaSeek={restoreMediaSeek}
+          onAudioTrackChange={changeAudioTrack}
+          onPlaybackRateChange={changePlaybackRate}
+          onTimelineSeek={seekToTime}
         />
 
         {#if asset.media_type === 'video'}
-          <div class="visual-bar">
-            <div class="visual-actions">
-              <strong>Slides</strong>
-              <button on:click={detectVisualEvents}>Detect</button>
-              {#if visualMessage}<span>{visualMessage}</span>{/if}
-            </div>
-            {#if asset.visual_events?.length}
-              <div
-                class:dragging={thumbDragging}
-                class="thumb-strip"
-                role="listbox"
-                aria-label="Slide thumbnails"
-                tabindex="0"
-                bind:this={stripEl}
-                on:mousedown={startThumbDrag}
-                on:mousemove={moveThumbDrag}
-                on:mouseup={endThumbDrag}
-                on:mouseleave={endThumbDrag}
-              >
-                {#each asset.visual_events as event}
-                  <button
-                    role="option"
-                    data-slide-index={event.event_index}
-                    aria-selected={currentSlideEventIndex === event.event_index}
-                    class:active={currentSlideEventIndex === event.event_index}
-                    on:click={(clickEvent) => seekVisualEvent(clickEvent, event)}
-                    title={`${formatTime(event.timestamp)} · ${event.score.toFixed(1)}`}
-                  >
-                    <img draggable="false" src={thumbnailUrl(event)} alt={formatTime(event.timestamp)} />
-                    <span>{formatTime(event.timestamp)}</span>
-                  </button>
-                {/each}
-              </div>
-            {:else}
-              <p class="muted">No slide frames detected yet.</p>
-            {/if}
-          </div>
+          <VisualEventsStrip
+            assetId={asset.id}
+            events={asset.visual_events ?? []}
+            {currentTime}
+            message={visualMessage}
+            onDetect={detectVisualEvents}
+            onSeek={seekToTime}
+          />
         {/if}
 
-        <div class="foldouts">
-          <details>
-            <summary>Details</summary>
-            {#if asset.job}
-              <div class="kv">
-                <span>Stage</span><strong>{asset.job.stage ?? asset.status}</strong>
-                <span>Done</span><strong>{asset.job.progress_done_chunks}</strong>
-                <span>Total</span><strong>{asset.job.progress_total_chunks}</strong>
-                <span>Retries</span><strong>{asset.job.progress_failed_chunks}</strong>
-                {#if asset.job.next_retry_at}
-                  <span>Retry after</span><strong>{formatDate(asset.job.next_retry_at)}</strong>
-                {/if}
-              </div>
-            {/if}
-            {#if asset.diarization_stats}
-              <div class="stats">
-                {#each Object.entries(asset.diarization_stats) as [key, value]}
-                  <span>{key}: {formatStatValue(value)}</span>
-                {/each}
-              </div>
-            {/if}
-            {#if asset.error}
-              <pre class="error-box">{JSON.stringify(asset.error, null, 2)}</pre>
-            {/if}
-          </details>
-
+        <AssetFoldoutGroup>
+          <AssetDetailsFoldout {asset} />
           {#if asset.exports}
-            <details>
-              <summary>Downloads</summary>
-              <div class="exports">
-                {#each Object.keys(asset.exports) as format}
-                  {@const href = exportHref(asset.id, format)}
-                  <a href={href} download on:contextmenu={(event) => copyExportHref(event, href)}>{format}</a>
-                {/each}
-                {#if downloadMessage}<span class="download-message" aria-live="polite">{downloadMessage}</span>{/if}
-              </div>
-            </details>
+            <AssetDownloadsFoldout assetId={asset.id} assetExports={asset.exports} />
           {/if}
-
           {#if Object.keys(asset.speaker_centroids ?? {}).length}
-            <details>
-              <summary>Speakers</summary>
-              <div class="speaker-controls">
-                <button on:click={recomputeSpeakers}>Recompute matches</button>
-                {#each localSpeakerRows(asset) as speaker}
-                  <div class="speaker-row">
-                    <strong>{speaker.localSpeaker}</strong>
-                    <input bind:value={speakerDrafts[speaker.localSpeaker]} />
-                    <small>
-                      {speaker.count} chunks
-                      {#if speaker.firstStart !== null && speaker.lastEnd !== null}
-                        · {formatTime(speaker.firstStart)} - {formatTime(speaker.lastEnd)}
-                      {/if}
-                      {#if speaker.speakerId} · {speaker.speakerId}{/if}
-                      {#if speaker.similarity !== null} · match {speaker.similarity.toFixed(3)}{/if}
-                    </small>
-                    <button on:click={() => saveSpeakerName(speaker.localSpeaker)}>Save</button>
-                  </div>
-                {/each}
-                {#if speakerMessage}<p class="message">{speakerMessage}</p>{/if}
-              </div>
-            </details>
+            <AssetSpeakersFoldout
+              rows={speakerRows}
+              bind:speakerDrafts
+              {speakerMessage}
+              onRecompute={recomputeSpeakers}
+              onSave={saveSpeakerName}
+            />
           {/if}
+          <AssetEventsFoldout events={asset.events ?? []} eventHistory={asset.event_history ?? []} />
+        </AssetFoldoutGroup>
+      </svelte:fragment>
 
-          <details>
-            <summary>{showHistory ? 'Full Log' : 'Current Run Log'}</summary>
-            <button class="log-toggle" on:click={() => (showHistory = !showHistory)}>
-              {showHistory ? 'Current run' : 'All history'}
-            </button>
-            <div class="events">
-              {#each (showHistory ? asset.event_history : asset.events) ?? [] as event}
-                <div class={`event ${event.level}`}>
-                  <small>
-                    {formatDate(event.created_at)} · run {event.run_attempt ?? 0} · {event.stage ?? event.level}
-                  </small>
-                  <p>{event.message}</p>
-                </div>
-              {/each}
-            </div>
-          </details>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        class:resizing={resizingPanes}
-        class="pane-divider"
-        aria-label="Resize media and transcript panes"
-        on:pointerdown={startPaneResize}
-        on:pointermove={movePaneResize}
-        on:pointerup={endPaneResize}
-        on:pointercancel={endPaneResize}
-        on:keydown={handlePaneResizeKeydown}
-      ></button>
-
-      <article class="transcript" bind:this={transcriptEl}>
-        {#if asset.transcript_segments?.length}
-          {#each asset.transcript_segments as segment, index}
-            <button
-              data-segment-index={index}
-              class:active={isActive(segment)}
-              on:click={() => seek(segment)}
-              on:contextmenu={(event) => openSpeakerEditor(event, segment)}
-            >
-              <span class="row-head">
-                <strong>{segment.speaker_name ?? segment.speaker}</strong>
-                <small>{formatTime(segmentMediaStart(segment))} - {formatTime(segmentMediaEnd(segment))}</small>
-              </span>
-              <span class="text">{segment.text}</span>
-            </button>
-          {/each}
-        {:else}
-          <p class="muted">Completed chunks will appear here during processing.</p>
-        {/if}
-      </article>
-    </section>
+      <TranscriptPane
+        slot="transcript"
+        segments={asset.transcript_segments ?? []}
+        {currentTime}
+        onSeek={seek}
+        onEditSpeaker={openSpeakerEditor}
+      />
+    </ResizableAssetWorkspace>
 
     {#if speakerEditor}
-      <form
-        class="speaker-editor"
-        style={`left:${speakerEditor.x}px; top:${speakerEditor.y}px;`}
-        on:submit|preventDefault={() => saveSpeakerName(speakerEditor?.localSpeaker ?? '', editorName)}
-      >
-        <small>{speakerEditor.localSpeaker}</small>
-        <input bind:value={editorName} />
-        <div>
-          <button type="submit">Save</button>
-          <button type="button" on:click={() => (speakerEditor = null)}>Cancel</button>
-        </div>
-      </form>
+      <SpeakerEditorPopover
+        editor={speakerEditor}
+        bind:editorName
+        onSave={saveSpeakerName}
+        onCancel={() => (speakerEditor = null)}
+      />
     {/if}
   {/if}
 </main>
@@ -823,406 +419,9 @@
     padding: 10px;
   }
 
-  .asset-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    min-width: 0;
-    border: 1px solid #d2cec4;
-    border-radius: 8px;
-    background: #fbfaf7;
-    padding: 8px 10px;
-  }
-
-  .title {
-    min-width: 0;
-  }
-
-  h1,
-  p {
-    margin: 0;
-  }
-
-  h1 {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 16px;
-  }
-
-  .title p,
-  small,
-  .muted {
-    color: #666052;
-    font-size: 11px;
-  }
-
-  .actions,
-  .exports,
-  .visual-actions {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .workspace {
-    --media-pane-min: 420px;
-    --transcript-pane-min: 360px;
-    --pane-divider-width: 12px;
-
-    display: grid;
-    grid-template-columns:
-      minmax(
-        var(--media-pane-min),
-        min(var(--media-pane-width, 47vw), calc(100% - var(--pane-divider-width) - var(--transcript-pane-min)))
-      )
-      var(--pane-divider-width)
-      minmax(var(--transcript-pane-min), 1fr);
-    gap: 0;
-    align-items: stretch;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .media-pane,
-  .transcript {
-    box-sizing: border-box;
-    min-width: 0;
-    min-height: 0;
-    max-height: 100%;
-    overflow-y: auto;
-  }
-
-  .media-pane {
-    padding-right: 8px;
-  }
-
-  .pane-divider {
-    position: relative;
-    align-self: stretch;
-    min-height: 100%;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    cursor: col-resize;
-    touch-action: none;
-  }
-
-  .pane-divider::before {
-    content: '';
-    position: absolute;
-    inset: 0 4px;
-    border-radius: 4px;
-    background: #c7c1b4;
-  }
-
-  .pane-divider:hover::before,
-  .pane-divider:focus-visible::before,
-  .pane-divider.resizing::before {
-    background: #2f6f73;
-  }
-
-  .pane-divider:focus-visible {
-    outline: 2px solid #2f6f73;
-    outline-offset: 2px;
-  }
-
-  .workspace.resizing,
-  .workspace.resizing * {
-    cursor: col-resize;
-    user-select: none;
-  }
-
-  video {
-    width: 100%;
-    max-height: 58vh;
-    background: #111;
-    border-radius: 8px;
-  }
-
-  .playback-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 6px;
-    color: #666052;
-    font-size: 12px;
-  }
-
-  .playback-controls label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-  }
-
-  .playback-controls select {
-    min-width: 0;
-    max-width: 100%;
-    border: 1px solid #c7c1b4;
-    border-radius: 6px;
-    background: white;
-    color: #151515;
-    font: inherit;
-    padding: 5px 8px;
-  }
-
-  .visual-bar {
-    display: grid;
-    gap: 6px;
-    margin-top: 6px;
-    border: 1px solid #d2cec4;
-    border-radius: 8px;
-    background: #fbfaf7;
-    padding: 8px;
-  }
-
-  .visual-actions strong {
-    font-size: 13px;
-  }
-
-  .visual-actions span {
-    color: #2f6f73;
-    font-size: 12px;
-  }
-
-  .thumb-strip {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    padding-bottom: 4px;
-    cursor: grab;
-    user-select: none;
-  }
-
-  .thumb-strip.dragging {
-    cursor: grabbing;
-  }
-
-  .thumb-strip button {
-    position: relative;
-    flex: 0 0 144px;
-    height: 81px;
-    overflow: hidden;
-    padding: 0;
-    border-color: #c7c1b4;
-    background: #111;
-  }
-
-  .thumb-strip button.active {
-    border-color: #2f6f73;
-    box-shadow: 0 0 0 2px #2f6f7333;
-  }
-
-  .thumb-strip img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    pointer-events: none;
-  }
-
-  .thumb-strip span {
-    position: absolute;
-    right: 4px;
-    bottom: 4px;
-    border-radius: 4px;
-    background: rgb(0 0 0 / 68%);
-    color: white;
-    font-size: 11px;
-    padding: 2px 4px;
-  }
-
-  .foldouts {
-    display: grid;
-    gap: 6px;
-    margin-top: 8px;
-  }
-
-  details {
-    border: 1px solid #d2cec4;
-    border-radius: 8px;
-    background: #fbfaf7;
-    padding: 6px 8px;
-  }
-
-  summary {
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 13px;
-  }
-
-  .kv {
-    display: grid;
-    grid-template-columns: 88px minmax(0, 1fr);
-    gap: 4px 8px;
-    margin-top: 8px;
-    font-size: 12px;
-  }
-
-  .kv span {
-    color: #666052;
-  }
-
-  .stats,
-  .exports,
-  .speaker-controls,
-  .events {
-    margin-top: 8px;
-  }
-
-  .stats {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-
-  .download-message {
-    color: #2f6f73;
-    font-size: 12px;
-  }
-
-  .stats span {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border: 1px solid #d2cec4;
-    border-radius: 6px;
-    padding: 4px 6px;
-    background: white;
-    font-size: 11px;
-  }
-
-  .speaker-controls {
-    display: grid;
-    gap: 6px;
-  }
-
-  .speaker-row {
-    display: grid;
-    grid-template-columns: 92px minmax(140px, 1fr) minmax(180px, 1.3fr) auto;
-    gap: 6px;
-    align-items: center;
-  }
-
-  .transcript {
-    display: grid;
-    align-content: start;
-    gap: 4px;
-    padding-left: 8px;
-    padding-right: 4px;
-    overscroll-behavior: contain;
-  }
-
-  .transcript button {
-    display: grid;
-    gap: 3px;
-    width: 100%;
-    padding: 6px 8px;
-    text-align: left;
-    border-radius: 6px;
-    background: #fffdfa;
-  }
-
-  .transcript button.active {
-    border-color: #2f6f73;
-    background: #e4f0ed;
-  }
-
-  .row-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    align-items: baseline;
-    min-width: 0;
-  }
-
-  .row-head strong {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-  }
-
-  .row-head small {
-    white-space: nowrap;
-  }
-
-  .text {
-    line-height: 1.35;
-    font-size: 13px;
-  }
-
-  .events {
-    display: grid;
-    gap: 4px;
-    max-height: 280px;
-    overflow: auto;
-  }
-
-  .event {
-    border-left: 3px solid #b9b2a4;
-    padding: 4px 6px;
-    background: white;
-  }
-
-  .event p {
-    font-size: 12px;
-  }
-
-  .event.warning {
-    border-left-color: #a66b00;
-  }
-
-  .event.error {
-    border-left-color: #9b1c1c;
-  }
-
-  .log-toggle {
-    margin-top: 8px;
-  }
-
-  .speaker-editor {
-    position: fixed;
-    z-index: 30;
-    display: grid;
-    gap: 6px;
-    width: 260px;
-    border: 1px solid #c7c1b4;
-    border-radius: 8px;
-    background: #fbfaf7;
-    padding: 8px;
-    box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
-  }
-
-  .speaker-editor div {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-  }
-
-  .error,
-  .danger {
+  .error {
     color: #9b1c1c;
-  }
-
-  .message {
-    color: #2f6f73;
-  }
-
-  .error-box {
-    margin-top: 8px;
-    white-space: pre-wrap;
-    background: #fff1f1;
-    border: 1px solid #efb4b4;
-    border-radius: 6px;
-    padding: 8px;
+    margin: 0;
   }
 
   @media (max-width: 980px) {
@@ -1231,33 +430,6 @@
       min-height: 0;
       overflow: hidden;
       padding: 8px;
-    }
-
-    .workspace {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto minmax(0, 1fr);
-      align-items: stretch;
-      overflow: hidden;
-    }
-
-    .media-pane {
-      max-height: 52vh;
-      overflow-y: auto;
-      padding-right: 0;
-    }
-
-    .pane-divider {
-      display: none;
-    }
-
-    .transcript {
-      max-height: 100%;
-      overflow-y: auto;
-      padding-left: 0;
-    }
-
-    .speaker-row {
-      grid-template-columns: 1fr;
     }
   }
 

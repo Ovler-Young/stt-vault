@@ -14,17 +14,28 @@ def create_asset(
     filename: str,
     media_type: str,
     original_path: Path,
+    *,
+    parent_folder_id: str | None = None,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
         conn.execute(
             """
             INSERT INTO assets (
-                id, filename, media_type, original_path, status, created_at, updated_at
+                id, filename, media_type, parent_folder_id, original_path, status, created_at,
+                updated_at
             )
-            VALUES (?, ?, ?, ?, 'queued', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)
             """,
-            (asset_id, filename, media_type, str(original_path), timestamp, timestamp),
+            (
+                asset_id,
+                filename,
+                media_type,
+                parent_folder_id,
+                str(original_path),
+                timestamp,
+                timestamp,
+            ),
         )
         conn.execute(
             """
@@ -39,7 +50,8 @@ def list_assets(db_path: Path) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT id, filename, media_type, duration, status, error, created_at, updated_at
+            SELECT id, filename, media_type, duration, status, error, parent_folder_id,
+                   created_at, updated_at
             FROM assets
             ORDER BY created_at DESC
             """

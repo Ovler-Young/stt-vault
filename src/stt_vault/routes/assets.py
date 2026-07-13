@@ -9,6 +9,7 @@ from openai import OpenAI
 from .. import db
 from ..auth import require_admin
 from ..media import store_upload
+from ..requests import AssetMoveRequest
 from ..settings import Settings
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "register_asset_delete_route",
     "register_asset_detail_routes",
     "register_asset_event_routes",
+    "register_asset_move_route",
     "register_asset_retry_route",
 ]
 
@@ -201,6 +203,20 @@ def register_asset_retry_route(app: FastAPI, settings: Settings) -> None:
         except KeyError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
         return {"status": "queued"}
+
+    app.include_router(router)
+
+
+def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
+    router = APIRouter()
+
+    @router.post("/api/assets/{asset_id}/move", dependencies=[Depends(require_admin)])
+    def move_asset(asset_id: str, payload: AssetMoveRequest) -> dict:
+        try:
+            return db.move_asset(settings.stt_db_path, asset_id, payload.parent_folder_id)
+        except KeyError as exc:
+            detail = "Asset not found" if exc.args[0] == asset_id else "Folder not found"
+            raise HTTPException(status_code=404, detail=detail) from None
 
     app.include_router(router)
 

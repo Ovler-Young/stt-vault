@@ -12,6 +12,14 @@ from .db_assets import (
     update_diarization_metadata,
 )
 from .db_connection import connect, now, row_to_dict, transaction
+from .db_folders import (
+    create_folder,
+    get_folder,
+    list_folder_tree,
+    list_folders,
+    move_asset,
+    move_folder,
+)
 from .db_jobs import (
     add_event,
     claim_next_job,
@@ -56,12 +64,14 @@ __all__ = [
     "claim_next_job",
     "connect",
     "create_asset",
+    "create_folder",
     "clear_cleanup_task",
     "get_cleanup_task",
     "delete_speaker",
     "delete_asset_with_cleanup_task",
     "find_speaker_by_display_name",
     "get_asset",
+    "get_folder",
     "get_job",
     "get_speaker",
     "initialize",
@@ -70,6 +80,8 @@ __all__ = [
     "list_assets",
     "list_current_run_events",
     "list_events",
+    "list_folder_tree",
+    "list_folders",
     "list_jobs",
     "list_speakers",
     "list_transcript_chunks",
@@ -81,6 +93,8 @@ __all__ = [
     "recover_expired_jobs",
     "renew_job_claim",
     "merge_speakers",
+    "move_asset",
+    "move_folder",
     "now",
     "refresh_asset_transcripts_for_speaker_from_conn",
     "relabel_asset_speaker",

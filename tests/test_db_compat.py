@@ -17,6 +17,8 @@ PUBLIC_DB_FUNCTIONS = {
     "get_job",
     "get_asset",
     "claim_next_job",
+    "recover_expired_jobs",
+    "renew_job_claim",
     "update_stage",
     "update_progress",
     "add_event",
@@ -27,6 +29,7 @@ PUBLIC_DB_FUNCTIONS = {
     "mark_success",
     "update_diarization_metadata",
     "update_asset_exports",
+    "update_asset_summary",
     "retry_asset",
     "replace_visual_events",
     "list_visual_events",
@@ -447,3 +450,41 @@ def test_visual_events_replace_rows_and_appear_in_asset_aggregate(tmp_path: Path
     assert replaced_events[0]["kind"] == "slide_change"
     assert asset is not None
     assert asset["visual_events"] == replaced_events
+
+
+def test_job_claim_recovery_preserves_valid_lease_and_requeues_expired_claim(
+    tmp_path: Path,
+) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+    assert db.claim_next_job(db_path, "worker-a", 60) == "asset-1"
+
+    assert db.recover_expired_jobs(db_path) == []
+    assert db.renew_job_claim(db_path, "asset-1", "worker-a", 60) is True
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE jobs SET claim_expires_at = 0 WHERE asset_id = 'asset-1'")
+
+    assert db.recover_expired_jobs(db_path) == ["asset-1"]
+    assert db.get_job(db_path, "asset-1")["status"] == "queued"
+
+
+def test_cleanup_task_and_summary_state_are_persisted(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+    db.record_cleanup_task(db_path, "asset-1", tmp_path / "media", tmp_path / "exports")
+    assert db.get_cleanup_task(db_path, "asset-1") == {
+        "asset_id": "asset-1",
+        "media_path": str(tmp_path / "media"),
+        "exports_path": str(tmp_path / "exports"),
+    }
+    db.clear_cleanup_task(db_path, "asset-1")
+    assert db.get_cleanup_task(db_path, "asset-1") is None
+
+    db.update_asset_summary(
+        db_path, "asset-1", status="success", text="Summary", model="test-model"
+    )
+    asset = db.get_asset(db_path, "asset-1")
+    assert asset is not None
+    assert asset["summary_status"] == "success"
+    assert asset["summary_text"] == "Summary"

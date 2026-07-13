@@ -124,3 +124,28 @@ def test_mutating_routes_reject_cookie_only_admin(client: TestClient) -> None:
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Missing or invalid admin password"}
+
+
+def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient) -> None:
+    response = client.post(
+        "/api/assets/batch",
+        headers=ADMIN_HEADER,
+        data={"relative_paths": ["recordings/clip.wav", "../escape.wav"]},
+        files=[
+            ("files", ("clip.wav", b"audio", "audio/wav")),
+            ("files", ("escape.wav", b"x", "audio/wav")),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["status"] == "queued"
+    assert response.json()["results"][1] == {
+        "path": "../escape.wav",
+        "status": "failed",
+        "detail": "Relative path is invalid",
+    }
+
+
+def test_summary_requires_completed_transcript(client: TestClient) -> None:
+    response = client.post("/api/assets/missing/summary", headers=ADMIN_HEADER)
+    assert response.status_code == 404

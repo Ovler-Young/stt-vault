@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")
     admin_password: str = Field(default="", alias="ADMIN_PASSWORD")
+    jwt_secret: str = Field(default="", alias="JWT_SECRET")
+    jwt_issuer: str = Field(default="stt-vault", alias="JWT_ISSUER")
+    jwt_audience: str = Field(default="stt-vault-api", alias="JWT_AUDIENCE")
+    jwt_access_token_minutes: int = Field(default=60, alias="JWT_ACCESS_TOKEN_MINUTES")
 
     max_upload_mb: int = Field(default=4096, alias="MAX_UPLOAD_MB")
     transcribe_chunk_seconds: float = Field(default=45.0, alias="TRANSCRIBE_CHUNK_SECONDS")

@@ -1,46 +1,60 @@
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
-from urllib.parse import unquote
 
-from fastapi import Cookie, Depends, Header, HTTPException, Request
+import jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .settings import Settings, get_settings
 
-ADMIN_PASSWORD_COOKIE_NAME = "stt-vault-admin-password"
-COOKIE_AUTH_METHODS = {"GET", "HEAD"}
+bearer_scheme = HTTPBearer(auto_error=False)
 
 __all__ = [
-    "ADMIN_PASSWORD_COOKIE_NAME",
-    "COOKIE_AUTH_METHODS",
     "admin_password_matches",
+    "issue_access_token",
     "require_admin",
 ]
 
 
 def require_admin(
-    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
-    x_stt_admin_password: Annotated[str | None, Header()] = None,
-    stt_vault_admin_password: Annotated[
-        str | None,
-        Cookie(alias=ADMIN_PASSWORD_COOKIE_NAME),
-    ] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> None:
-    if not settings.admin_password:
-        return
-    if admin_password_matches(x_stt_admin_password, settings.admin_password):
-        return
-    if request.method in COOKIE_AUTH_METHODS and admin_password_matches(
-        stt_vault_admin_password,
-        settings.admin_password,
-        quoted=True,
-    ):
-        return
-    raise HTTPException(status_code=401, detail="Missing or invalid admin password")
+    if not settings.jwt_secret:
+        raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    try:
+        claims = jwt.decode(
+            credentials.credentials,
+            settings.jwt_secret,
+            algorithms=["HS256"],
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid bearer token") from exc
+    if claims.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Administrator token required")
 
 
-def admin_password_matches(candidate: str | None, expected: str, *, quoted: bool = False) -> bool:
-    if candidate is None:
-        return False
-    if quoted:
-        return unquote(candidate) == expected
-    return candidate == expected
+def issue_access_token(settings: Settings) -> str:
+    if not settings.jwt_secret:
+        raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
+    now = datetime.now(UTC)
+    return jwt.encode(
+        {
+            "sub": "single-user-admin",
+            "role": "admin",
+            "iss": settings.jwt_issuer,
+            "aud": settings.jwt_audience,
+            "iat": now,
+            "exp": now + timedelta(minutes=max(1, settings.jwt_access_token_minutes)),
+        },
+        settings.jwt_secret,
+        algorithm="HS256",
+    )
+
+
+def admin_password_matches(candidate: str | None, expected: str) -> bool:
+    return candidate is not None and bool(expected) and candidate == expected

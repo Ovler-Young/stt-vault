@@ -1,6 +1,10 @@
 from pydantic import BaseModel
 
-__all__ = ["SpeakerMergeRequest", "SpeakerNameRequest"]
+__all__ = ["LoginRequest", "SpeakerMergeRequest", "SpeakerNameRequest"]
+
+
+class LoginRequest(BaseModel):
+    password: str
 
 
 class SpeakerNameRequest(BaseModel):

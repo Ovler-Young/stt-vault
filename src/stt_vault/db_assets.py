@@ -189,6 +189,26 @@ def record_cleanup_task(
         )
 
 
+def delete_asset_with_cleanup_task(
+    db_path: Path, asset_id: str, media_path: Path, exports_path: Path
+) -> None:
+    with transaction(db_path) as conn:
+        row = conn.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        if row is None:
+            raise KeyError(asset_id)
+        conn.execute(
+            """
+            INSERT INTO asset_cleanup_tasks (asset_id, media_path, exports_path, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                media_path = excluded.media_path,
+                exports_path = excluded.exports_path
+            """,
+            (asset_id, str(media_path), str(exports_path), now()),
+        )
+        conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+
+
 def get_cleanup_task(db_path: Path, asset_id: str) -> dict[str, Any] | None:
     with connect(db_path) as conn:
         row = conn.execute(

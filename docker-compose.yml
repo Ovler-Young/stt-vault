@@ -12,6 +12,7 @@ services:
       STT_DATA_DIR: /data
       STT_DB_PATH: /data/app.sqlite3
       XDG_CACHE_HOME: /data/cache
+      HOME: /data
       APP_HOST: 0.0.0.0
       APP_PORT: 8080
     healthcheck:

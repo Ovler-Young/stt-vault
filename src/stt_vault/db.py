@@ -1,6 +1,7 @@
 from .db_assets import (
     clear_cleanup_task,
     create_asset,
+    delete_asset_with_cleanup_task,
     get_asset,
     get_cleanup_task,
     list_assets,
@@ -58,6 +59,7 @@ __all__ = [
     "clear_cleanup_task",
     "get_cleanup_task",
     "delete_speaker",
+    "delete_asset_with_cleanup_task",
     "find_speaker_by_display_name",
     "get_asset",
     "get_job",

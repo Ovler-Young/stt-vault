@@ -12,6 +12,7 @@ PUBLIC_DB_FUNCTIONS = {
     "now",
     "row_to_dict",
     "create_asset",
+    "delete_asset_with_cleanup_task",
     "list_assets",
     "list_jobs",
     "get_job",
@@ -488,3 +489,15 @@ def test_cleanup_task_and_summary_state_are_persisted(tmp_path: Path) -> None:
     assert asset is not None
     assert asset["summary_status"] == "success"
     assert asset["summary_text"] == "Summary"
+
+
+def test_asset_deletion_and_cleanup_task_share_one_transaction(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+
+    db.delete_asset_with_cleanup_task(
+        db_path, "asset-1", tmp_path / "media", tmp_path / "exports"
+    )
+
+    assert db.get_asset(db_path, "asset-1") is None
+    assert db.get_cleanup_task(db_path, "asset-1") is not None

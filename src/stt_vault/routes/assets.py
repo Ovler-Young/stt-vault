@@ -215,9 +215,7 @@ def register_asset_delete_route(app: FastAPI, settings: Settings) -> None:
             raise HTTPException(status_code=404, detail="Asset not found")
         media_path = settings.media_dir / asset_id
         exports_path = settings.exports_dir / asset_id
-        db.record_cleanup_task(settings.stt_db_path, asset_id, media_path, exports_path)
-        with db.transaction(settings.stt_db_path) as conn:
-            conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+        db.delete_asset_with_cleanup_task(settings.stt_db_path, asset_id, media_path, exports_path)
         _retry_cleanup(settings.stt_db_path, asset_id)
         return {"status": "deleted"}
 

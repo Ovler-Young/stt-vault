@@ -7,12 +7,15 @@
     getStoredPassword,
     setStoredPassword,
     uploadAsset,
+    uploadAssetBatch,
     type AssetSummary
   } from '$lib/api';
   import { formatDate, formatTime } from '$lib/format';
 
   let assets: AssetSummary[] = [];
   let uploadFile: File | null = null;
+  let uploadEntries: Array<{ file: File; path: string }> = [];
+  let batchResults: Array<{ path: string; status: string; detail?: string }> = [];
   let busy = false;
   let error = '';
   let adminPassword = '';
@@ -41,10 +44,21 @@
   }
 
   async function submitUpload() {
-    if (!uploadFile) return;
+    if (!uploadFile && uploadEntries.length === 0) return;
     busy = true;
+    batchResults = [];
     try {
-      const result = await uploadAsset(uploadFile);
+      if (uploadEntries.length > 0) {
+        const result = await uploadAssetBatch(uploadEntries);
+        batchResults = result.results;
+        uploadEntries = [];
+        uploadFile = null;
+        await loadAssets();
+        return;
+      }
+      const selectedFile = uploadFile;
+      if (!selectedFile) return;
+      const result = await uploadAsset(selectedFile);
       uploadFile = null;
       await goto(`/assets/${result.id}`);
     } catch (err) {
@@ -52,6 +66,14 @@
     } finally {
       busy = false;
     }
+  }
+
+  function selectDirectory(files: FileList | null) {
+    uploadEntries = Array.from(files ?? []).map((file) => ({
+      file,
+      path: file.webkitRelativePath || file.name
+    }));
+    uploadFile = null;
   }
 
   function savePassword() {
@@ -93,13 +115,31 @@
           uploadFile = event.currentTarget.files?.[0] ?? null;
         }}
       />
-      <button disabled={!uploadFile || busy} on:click={submitUpload}>
-        {busy ? 'Uploading' : 'Upload'}
+      <input
+        type="file"
+        accept="audio/*,video/*"
+        multiple
+        webkitdirectory
+        aria-label="Choose a folder to import"
+        on:change={(event) => selectDirectory(event.currentTarget.files)}
+      />
+      <button disabled={(!uploadFile && uploadEntries.length === 0) || busy} on:click={submitUpload}>
+        {busy ? 'Uploading' : uploadEntries.length > 0 ? `Import ${uploadEntries.length} files` : 'Upload'}
       </button>
       {#if uploadFile}<p>{uploadFile.name}</p>{/if}
+      {#if uploadEntries.length > 0}<p>{uploadEntries.length} files selected</p>{/if}
+      {#if batchResults.length > 0}
+        <ul class="batch-results">
+          {#each batchResults as result}
+            <li class:failed={result.status === 'failed'}>{result.path}: {result.status}{result.detail ? ` (${result.detail})` : ''}</li>
+          {/each}
+        </ul>
+      {/if}
     </div>
 
-    {#if error}<p class="error">{error}</p>{/if}
+    <p class="upload-status" aria-live="polite" aria-atomic="true">
+      {#if error}{error}{:else if busy}Uploading {uploadFile?.name}{/if}
+    </p>
   </section>
 
   <section class="panel">
@@ -178,8 +218,17 @@
     font-size: 13px;
   }
 
-  .error {
+  .upload-status {
     margin-top: 12px;
     color: #9b1c1c;
+  }
+
+  .batch-results {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .failed {
+    color: #a12a22;
   }
 </style>

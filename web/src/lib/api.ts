@@ -31,6 +31,10 @@ export type AssetDetail = AssetSummary & {
   events?: JobEvent[];
   event_history?: JobEvent[];
   visual_events?: VisualEvent[];
+  summary_status?: 'running' | 'success' | 'failed';
+  summary_text?: string;
+  summary_error?: string;
+  summary_model?: string;
 };
 
 export type Job = {
@@ -198,12 +202,29 @@ export async function uploadAsset(file: File): Promise<{ id: string; status: str
   });
 }
 
+export type BatchUploadResult = { path: string; status: 'queued' | 'failed'; id?: string; detail?: string };
+
+export async function uploadAssetBatch(
+  entries: Array<{ file: File; path: string }>
+): Promise<{ results: BatchUploadResult[] }> {
+  const body = new FormData();
+  for (const entry of entries) {
+    body.append('files', entry.file);
+    body.append('relative_paths', entry.path);
+  }
+  return request('/api/assets/batch', { method: 'POST', body });
+}
+
 export async function deleteAsset(id: string): Promise<void> {
   await request(`/api/assets/${id}`, { method: 'DELETE' });
 }
 
 export async function retryAsset(id: string): Promise<void> {
   await request(`/api/assets/${id}/retry`, { method: 'POST' });
+}
+
+export async function summarizeAsset(id: string): Promise<{ status: string; summary: string }> {
+  return request(`/api/assets/${id}/summary`, { method: 'POST' });
 }
 
 export async function recomputeAssetSpeakers(id: string): Promise<{ assets: number }> {

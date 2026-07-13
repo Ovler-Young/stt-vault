@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     settings.exports_dir.mkdir(parents=True, exist_ok=True)
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     db.initialize(settings.stt_db_path)
+    db.recover_expired_jobs(settings.stt_db_path)
 
     app = FastAPI(title="STT Vault")
     worker = Worker(settings)

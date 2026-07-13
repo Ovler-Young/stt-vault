@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         alias="OPENAI_TRANSCRIBE_MODEL",
     )
     openai_transcribe_prompt: str = Field(default="", alias="OPENAI_TRANSCRIBE_PROMPT")
+    openai_summary_model: str = Field(default="gpt-4o-mini", alias="OPENAI_SUMMARY_MODEL")
     openai_concurrency: int = Field(default=2, alias="OPENAI_CONCURRENCY")
     openai_retry_seconds: int = Field(default=60, alias="OPENAI_RETRY_SECONDS")
     openai_max_retries: int = Field(default=5, alias="OPENAI_MAX_RETRIES")
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
     )
 
     diarization_concurrency: int = Field(default=1, alias="DIARIZATION_CONCURRENCY")
+    job_lease_seconds: int = Field(default=120, alias="JOB_LEASE_SECONDS")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
     senko_device: str = Field(default="auto", alias="SENKO_DEVICE")
     senko_batched_embeddings: bool = Field(default=True, alias="SENKO_BATCHED_EMBEDDINGS")

@@ -109,6 +109,28 @@ def update_asset_exports(db_path: Path, asset_id: str, exports: dict[str, str]) 
         )
 
 
+def update_asset_summary(
+    db_path: Path,
+    asset_id: str,
+    *,
+    status: str,
+    text: str | None = None,
+    error: str | None = None,
+    model: str | None = None,
+) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE assets
+            SET summary_status = ?, summary_text = ?, summary_error = ?, summary_model = ?,
+                summary_updated_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, text, error, model, timestamp, timestamp, asset_id),
+        )
+
+
 def retry_asset(db_path: Path, asset_id: str) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -133,15 +155,10 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
         conn.execute(
             """
             UPDATE jobs
-            SET status = 'queued',
-                stage = NULL,
-                error = NULL,
-                started_at = NULL,
-                finished_at = NULL,
-                progress_total_chunks = 0,
-                progress_done_chunks = 0,
-                progress_failed_chunks = 0,
-                next_retry_at = NULL
+            SET status = 'queued', stage = NULL, error = NULL, started_at = NULL,
+                finished_at = NULL, progress_total_chunks = 0, progress_done_chunks = 0,
+                progress_failed_chunks = 0, next_retry_at = NULL, claim_owner = NULL,
+                claim_expires_at = NULL
             WHERE asset_id = ?
             """,
             (asset_id,),
@@ -150,8 +167,37 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
             """
             INSERT INTO job_events (
                 job_id, asset_id, level, stage, message, payload, run_attempt, created_at
-            )
-            VALUES (?, ?, 'info', 'queued', 'Job queued for retry', NULL, ?, ?)
+            ) VALUES (?, ?, 'info', 'queued', 'Job queued for retry', NULL, ?, ?)
             """,
             (job["id"], asset_id, next_run_attempt, timestamp),
         )
+
+
+def record_cleanup_task(
+    db_path: Path, asset_id: str, media_path: Path, exports_path: Path
+) -> None:
+    with transaction(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO asset_cleanup_tasks (asset_id, media_path, exports_path, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                media_path = excluded.media_path,
+                exports_path = excluded.exports_path
+            """,
+            (asset_id, str(media_path), str(exports_path), now()),
+        )
+
+
+def get_cleanup_task(db_path: Path, asset_id: str) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT asset_id, media_path, exports_path FROM asset_cleanup_tasks WHERE asset_id = ?",
+            (asset_id,),
+        ).fetchone()
+    return row_to_dict(row)
+
+
+def clear_cleanup_task(db_path: Path, asset_id: str) -> None:
+    with transaction(db_path) as conn:
+        conn.execute("DELETE FROM asset_cleanup_tasks WHERE asset_id = ?", (asset_id,))

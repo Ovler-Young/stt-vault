@@ -37,6 +37,7 @@ PUBLIC_DB_FUNCTIONS = {
     "update_diarization_metadata",
     "update_asset_exports",
     "update_asset_summary",
+    "apply_ai_speaker_names",
     "retry_asset",
     "replace_visual_events",
     "list_visual_events",
@@ -565,6 +566,38 @@ def test_cleanup_task_and_summary_state_are_persisted(tmp_path: Path) -> None:
     assert asset is not None
     assert asset["summary_status"] == "success"
     assert asset["summary_text"] == "Summary"
+
+
+def test_ai_speaker_names_only_replace_unassigned_local_labels(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        0,
+        chunk(0.0, 3.0, "SPEAKER_00", "Welcome"),
+        attempts=1,
+    )
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        1,
+        chunk(3.0, 6.0, "SPEAKER_01", "Thanks", speaker_name="Alice"),
+        attempts=1,
+    )
+
+    applied = db.apply_ai_speaker_names(
+        db_path,
+        "asset-1",
+        {"SPEAKER_00": "Maya Chen", "SPEAKER_01": "Different Name"},
+    )
+    chunks = db.list_transcript_chunks(db_path, "asset-1")
+    asset = db.get_asset(db_path, "asset-1")
+
+    assert applied == {"SPEAKER_00": "Maya Chen"}
+    assert [chunk["speaker_name"] for chunk in chunks] == ["Maya Chen", "Alice"]
+    assert asset is not None
+    assert asset["transcript_segments"] == chunks
 
 
 def test_asset_deletion_and_cleanup_task_share_one_transaction(tmp_path: Path) -> None:

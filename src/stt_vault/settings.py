@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     )
     openai_transcribe_prompt: str = Field(default="", alias="OPENAI_TRANSCRIBE_PROMPT")
     openai_summary_model: str = Field(default="gpt-4o-mini", alias="OPENAI_SUMMARY_MODEL")
+    openai_speaker_name_confidence: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        alias="OPENAI_SPEAKER_NAME_CONFIDENCE",
+    )
     openai_concurrency: int = Field(default=2, alias="OPENAI_CONCURRENCY")
     openai_retry_seconds: int = Field(default=60, alias="OPENAI_RETRY_SECONDS")
     openai_max_retries: int = Field(default=5, alias="OPENAI_MAX_RETRIES")

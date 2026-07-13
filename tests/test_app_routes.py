@@ -1,10 +1,12 @@
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+from stt_vault import db
 from stt_vault.app import create_app
 from stt_vault.settings import get_settings
 
@@ -153,3 +155,81 @@ def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient
 def test_summary_requires_completed_transcript(client: TestClient) -> None:
     response = client.post("/api/assets/missing/summary", headers=auth_headers(client))
     assert response.status_code == 404
+
+
+def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=(
+                                '{"content_summary":"The team approved a Friday release.",'
+                                '"themes":["release planning"],"conclusions":[],"decisions":[],'
+                                '"action_items":[],"open_questions":[],'
+                                '"speaker_candidates":['
+                                '{"speaker":"SPEAKER_00","name":"Maya Chen",'
+                                '"confidence":0.97},'
+                                '{"speaker":"SPEAKER_01","name":"Jordan Lee",'
+                                '"confidence":0.90}]}'
+                            )
+                        )
+                    )
+                ]
+            )
+
+    completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs) -> None:
+            self.chat = SimpleNamespace(completions=completions)
+
+    monkeypatch.setattr("stt_vault.routes.assets.OpenAI", FakeOpenAI)
+    db_path = get_settings().stt_db_path
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", db_path.parent / "clip.mp4")
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        0,
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00", "text": "Ship Friday."},
+        attempts=1,
+    )
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        1,
+        {
+            "start": 2.0,
+            "end": 4.0,
+            "speaker": "SPEAKER_01",
+            "speaker_name": "Alice",
+            "text": "I approve.",
+        },
+        attempts=1,
+    )
+    with db.transaction(db_path) as conn:
+        conn.execute("UPDATE assets SET status = 'success' WHERE id = 'asset-1'")
+
+    response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
+    asset = db.get_asset(db_path, "asset-1")
+
+    assert response.status_code == 200
+    assert response.json()["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
+    assert "[SPEAKER_00 00:00-00:02] Ship Friday." in completions.calls[0]["messages"][1]["content"]
+    assert "[SPEAKER_01 (Alice) 00:02-00:04] I approve." in completions.calls[0][
+        "messages"
+    ][1]["content"]
+    assert asset is not None
+    assert asset["summary_text"].startswith("The team approved a Friday release.")
+    assert [segment["speaker_name"] for segment in asset["transcript_segments"]] == [
+        "Maya Chen",
+        "Alice",
+    ]

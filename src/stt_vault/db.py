@@ -1,4 +1,5 @@
 from .db_assets import (
+    apply_ai_speaker_names,
     clear_cleanup_task,
     create_asset,
     delete_asset_with_cleanup_task,
@@ -60,6 +61,7 @@ from .db_visual_events import list_visual_events, replace_visual_events
 
 __all__ = [
     "add_event",
+    "apply_ai_speaker_names",
     "add_missing_columns",
     "claim_next_job",
     "connect",

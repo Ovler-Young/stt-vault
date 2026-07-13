@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .ai_content import is_local_speaker_label, is_usable_speaker_name
 from .db_connection import connect, now, row_to_dict, transaction
 from .db_jobs import get_job, list_current_run_events, list_events
-from .db_transcripts import list_transcript_chunks
+from .db_transcripts import list_transcript_chunks, list_transcript_chunks_from_conn
 from .db_visual_events import list_visual_events
 
 
@@ -141,6 +142,40 @@ def update_asset_summary(
             """,
             (status, text, error, model, timestamp, timestamp, asset_id),
         )
+
+
+def apply_ai_speaker_names(
+    db_path: Path,
+    asset_id: str,
+    speaker_names: dict[str, str],
+) -> dict[str, str]:
+    timestamp = now()
+    applied = {}
+    with transaction(db_path) as conn:
+        for local_speaker, display_name in speaker_names.items():
+            if not (
+                is_local_speaker_label(local_speaker)
+                and is_usable_speaker_name(display_name)
+            ):
+                continue
+            result = conn.execute(
+                """
+                UPDATE transcript_chunks
+                SET speaker_name = ?, updated_at = ?
+                WHERE asset_id = ?
+                  AND speaker = ?
+                  AND (speaker_name IS NULL OR trim(speaker_name) = '' OR speaker_name = speaker)
+                """,
+                (display_name.strip(), timestamp, asset_id, local_speaker),
+            )
+            if result.rowcount:
+                applied[local_speaker] = display_name.strip()
+        if applied:
+            conn.execute(
+                "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+            )
+    return applied
 
 
 def retry_asset(db_path: Path, asset_id: str) -> None:

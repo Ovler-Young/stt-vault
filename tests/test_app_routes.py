@@ -8,12 +8,12 @@ from fastapi.testclient import TestClient
 from stt_vault.app import create_app
 from stt_vault.settings import get_settings
 
-ADMIN_COOKIE_NAME = "stt-vault-admin-password"
-ADMIN_HEADER = {"X-STT-Admin-Password": "secret"}
+JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
 EXPECTED_API_ROUTES = [
     ("GET", "/api/health"),
     ("GET", "/api/config"),
+    ("POST", "/api/auth/token"),
     ("POST", "/api/assets"),
     ("POST", "/api/assets/batch"),
     ("GET", "/api/assets"),
@@ -45,6 +45,7 @@ def create_test_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("STT_DATA_DIR", str(data_dir))
     monkeypatch.setenv("STT_DB_PATH", str(data_dir / "app.sqlite3"))
     monkeypatch.setenv("ADMIN_PASSWORD", "secret")
+    monkeypatch.setenv("JWT_SECRET", JWT_SECRET)
     get_settings.cache_clear()
     return create_app()
 
@@ -57,6 +58,12 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
     finally:
         test_client.close()
         get_settings.cache_clear()
+
+
+def auth_headers(client: TestClient) -> dict[str, str]:
+    response = client.post("/api/auth/token", json={"password": "secret"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def api_route_pairs(app) -> list[tuple[str, str]]:
@@ -94,42 +101,35 @@ def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> Non
     assert config_response.json()["auth_required"] is True
 
 
-def test_cookie_auth_allows_protected_media_gets(client: TestClient) -> None:
-    client.cookies.set(ADMIN_COOKIE_NAME, "secret")
+def test_protected_media_gets_require_bearer_token(client: TestClient) -> None:
+    missing_response = client.get("/api/assets/missing/media")
+    authenticated_response = client.get(
+        "/api/assets/missing/media",
+        headers=auth_headers(client),
+    )
 
-    response = client.get("/api/assets/missing/media")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Asset not found"}
-
-
-def test_protected_media_gets_reject_missing_admin(client: TestClient) -> None:
-    response = client.get("/api/assets/missing/media")
-
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Missing or invalid admin password"}
+    assert missing_response.status_code == 401
+    assert missing_response.json() == {"detail": "Missing bearer token"}
+    assert authenticated_response.status_code == 404
+    assert authenticated_response.json() == {"detail": "Asset not found"}
 
 
-def test_mutating_routes_accept_header_admin(client: TestClient) -> None:
-    response = client.post("/api/speakers/recompute", headers=ADMIN_HEADER)
+def test_mutating_routes_require_bearer_auth(client: TestClient) -> None:
+    missing_response = client.post("/api/speakers/recompute")
+    authenticated_response = client.post(
+        "/api/speakers/recompute",
+        headers=auth_headers(client),
+    )
 
-    assert response.status_code == 200
-    assert response.json() == {"assets": 0}
-
-
-def test_mutating_routes_reject_cookie_only_admin(client: TestClient) -> None:
-    client.cookies.set(ADMIN_COOKIE_NAME, "secret")
-
-    response = client.post("/api/speakers/recompute")
-
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Missing or invalid admin password"}
+    assert missing_response.status_code == 401
+    assert authenticated_response.status_code == 200
+    assert authenticated_response.json() == {"assets": 0}
 
 
 def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient) -> None:
     response = client.post(
         "/api/assets/batch",
-        headers=ADMIN_HEADER,
+        headers=auth_headers(client),
         data={"relative_paths": ["recordings/clip.wav", "../escape.wav"]},
         files=[
             ("files", ("clip.wav", b"audio", "audio/wav")),
@@ -147,5 +147,5 @@ def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient
 
 
 def test_summary_requires_completed_transcript(client: TestClient) -> None:
-    response = client.post("/api/assets/missing/summary", headers=ADMIN_HEADER)
+    response = client.post("/api/assets/missing/summary", headers=auth_headers(client))
     assert response.status_code == 404

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from secrets import compare_digest
 from typing import Annotated
 
 import jwt
@@ -31,6 +32,7 @@ def require_admin(
             algorithms=["HS256"],
             issuer=settings.jwt_issuer,
             audience=settings.jwt_audience,
+            options={"require": ["aud", "exp", "iat", "iss", "role", "sub"]},
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid bearer token") from exc
@@ -57,4 +59,4 @@ def issue_access_token(settings: Settings) -> str:
 
 
 def admin_password_matches(candidate: str | None, expected: str) -> bool:
-    return candidate is not None and bool(expected) and candidate == expected
+    return candidate is not None and bool(expected) and compare_digest(candidate, expected)

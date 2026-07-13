@@ -41,6 +41,10 @@ configs:
       APP_HOST=0.0.0.0
       APP_PORT=8080
       ADMIN_PASSWORD=
+      JWT_SECRET=
+      JWT_ISSUER=stt-vault
+      JWT_AUDIENCE=stt-vault-api
+      JWT_ACCESS_TOKEN_MINUTES=60
       SENKO_DEVICE=cpu
       SENKO_BATCHED_EMBEDDINGS=true
       SENKO_FBANK_BATCH_SEGMENTS=256

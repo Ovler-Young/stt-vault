@@ -2,10 +2,12 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import {
+    ApiError,
     fetchAssets,
     fetchConfig,
-    getStoredPassword,
-    setStoredPassword,
+    getStoredAccessToken,
+    login,
+    setStoredAccessToken,
     uploadAsset,
     uploadAssetBatch,
     type AssetSummary
@@ -20,12 +22,13 @@
   let error = '';
   let adminPassword = '';
   let authRequired = false;
+  let authenticated = false;
   let poll: ReturnType<typeof setInterval> | null = null;
 
   onMount(async () => {
-    adminPassword = getStoredPassword();
     const config = await fetchConfig();
     authRequired = config.auth_required;
+    authenticated = Boolean(getStoredAccessToken());
     await loadAssets();
     poll = setInterval(loadAssets, 3000);
   });
@@ -35,11 +38,15 @@
   });
 
   async function loadAssets() {
+    if (authRequired && !authenticated) {
+      assets = [];
+      return;
+    }
     try {
       assets = await fetchAssets();
       error = '';
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      reportRequestError(err);
     }
   }
 
@@ -62,7 +69,7 @@
       uploadFile = null;
       await goto(`/assets/${result.id}`);
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      reportRequestError(err);
     } finally {
       busy = false;
     }
@@ -76,9 +83,37 @@
     uploadFile = null;
   }
 
-  function savePassword() {
-    setStoredPassword(adminPassword);
-    loadAssets();
+  async function submitLogin() {
+    busy = true;
+    error = '';
+    try {
+      await login(adminPassword);
+      adminPassword = '';
+      authenticated = true;
+      await loadAssets();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function reportRequestError(err: unknown) {
+    if (err instanceof ApiError && err.status === 401) {
+      setStoredAccessToken('');
+      authenticated = false;
+      assets = [];
+      error = 'Session expired. Sign in again.';
+      return;
+    }
+    error = err instanceof Error ? err.message : String(err);
+  }
+
+  function signOut() {
+    setStoredAccessToken('');
+    authenticated = false;
+    assets = [];
+    error = '';
   }
 </script>
 
@@ -89,13 +124,21 @@
         <h1>STT Vault</h1>
         <p>Upload media, track processing, and open completed transcripts.</p>
       </div>
-      <button on:click={loadAssets}>Refresh</button>
+      <div class="actions">
+        <button on:click={loadAssets}>Refresh</button>
+        {#if authenticated}<button on:click={signOut}>Sign out</button>{/if}
+      </div>
     </header>
 
-    {#if authRequired}
+    {#if authRequired && !authenticated}
       <div class="auth">
-        <input bind:value={adminPassword} type="password" placeholder="Admin password" />
-        <button on:click={savePassword}>Save</button>
+        <input
+          bind:value={adminPassword}
+          type="password"
+          placeholder="Admin password"
+          on:keydown={(event) => event.key === 'Enter' && submitLogin()}
+        />
+        <button disabled={!adminPassword || busy} on:click={submitLogin}>Sign in</button>
       </div>
     {/if}
 
@@ -123,7 +166,7 @@
         aria-label="Choose a folder to import"
         on:change={(event) => selectDirectory(event.currentTarget.files)}
       />
-      <button disabled={(!uploadFile && uploadEntries.length === 0) || busy} on:click={submitUpload}>
+      <button disabled={!authenticated || (!uploadFile && uploadEntries.length === 0) || busy} on:click={submitUpload}>
         {busy ? 'Uploading' : uploadEntries.length > 0 ? `Import ${uploadEntries.length} files` : 'Upload'}
       </button>
       {#if uploadFile}<p>{uploadFile.name}</p>{/if}
@@ -170,6 +213,7 @@
   }
 
   header,
+  .actions,
   .auth {
     display: flex;
     gap: 8px;

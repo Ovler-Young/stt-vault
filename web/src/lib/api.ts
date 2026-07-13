@@ -93,56 +93,58 @@ export type AudioTrack = {
   title: string | null;
 };
 
-const passwordKey = 'stt-vault-admin-password';
-const passwordCookieMaxAgeSeconds = 60 * 60 * 24 * 365;
+const accessTokenKey = 'stt-vault-access-token';
 
-export function getStoredPassword(): string {
-  if (typeof localStorage === 'undefined') return '';
-  return localStorage.getItem(passwordKey) ?? '';
-}
+export type AccessToken = {
+  access_token: string;
+  token_type: 'bearer';
+  expires_in: number;
+};
 
-export function setStoredPassword(value: string) {
-  if (value) localStorage.setItem(passwordKey, value);
-  else localStorage.removeItem(passwordKey);
-  setAdminPasswordCookie(value);
-}
-
-function rehydrateAdminPasswordCookie(): string {
-  const password = getStoredPassword();
-  if (password) setAdminPasswordCookie(password);
-  return password;
-}
-
-function setAdminPasswordCookie(value: string) {
-  if (typeof document === 'undefined') return;
-
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  const cookieAttributes = `Path=/; SameSite=Lax${secure}`;
-  if (value) {
-    document.cookie = `${passwordKey}=${encodeURIComponent(
-      value
-    )}; ${cookieAttributes}; Max-Age=${passwordCookieMaxAgeSeconds}`;
-  } else {
-    document.cookie = `${passwordKey}=; ${cookieAttributes}; Max-Age=0`;
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
 }
 
-rehydrateAdminPasswordCookie();
+export function getStoredAccessToken(): string {
+  if (typeof sessionStorage === 'undefined') return '';
+  return sessionStorage.getItem(accessTokenKey) ?? '';
+}
+
+export function setStoredAccessToken(value: string) {
+  if (typeof sessionStorage === 'undefined') return;
+  if (value) sessionStorage.setItem(accessTokenKey, value);
+  else sessionStorage.removeItem(accessTokenKey);
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  const password = rehydrateAdminPasswordCookie();
-  if (password) headers.set('X-STT-Admin-Password', password);
+  const token = getStoredAccessToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
 
   const response = await fetch(path, {
     ...init,
-    credentials: init.credentials ?? 'include',
     headers
   });
   if (!response.ok) {
-    throw new Error(`${response.status} ${await response.text()}`);
+    throw new ApiError(response.status, `${response.status} ${await response.text()}`);
   }
   return response.json() as Promise<T>;
+}
+
+export async function login(password: string): Promise<AccessToken> {
+  const token = await request<AccessToken>('/api/auth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+  });
+  setStoredAccessToken(token.access_token);
+  return token;
 }
 
 export async function fetchConfig(): Promise<{ auth_required: boolean; transcribe_model: string; senko_device: string }> {

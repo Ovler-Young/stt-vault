@@ -9,7 +9,6 @@
 
   onMount(async () => {
     await load();
-    poll = setInterval(load, 3000);
   });
 
   onDestroy(() => {
@@ -19,9 +18,20 @@
   async function load() {
     try {
       jobs = await fetchJobs();
+      updatePolling();
       error = '';
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  function updatePolling() {
+    const shouldPoll = jobs.some((job) => job.status === 'queued' || job.status === 'processing');
+    if (shouldPoll && !poll) {
+      poll = setInterval(load, 3000);
+    } else if (!shouldPoll && poll) {
+      clearInterval(poll);
+      poll = null;
     }
   }
 </script>

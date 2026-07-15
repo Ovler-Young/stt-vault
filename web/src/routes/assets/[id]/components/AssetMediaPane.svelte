@@ -1,7 +1,7 @@
 <script lang="ts">
   import SpeakerProgressBar from '$lib/SpeakerProgressBar.svelte';
   import type { AudioTrack, AssetDetail } from '$lib/api';
-  import { audioTrackLabel, mediaUrl } from '../asset-page.helpers';
+  import { audioTrackLabel, exportHref, mediaUrl } from '../asset-page.helpers';
   import type { MaybePromise, SpeakerProgressBarHandle } from '../asset-page.types';
 
   export let asset: AssetDetail;
@@ -46,7 +46,7 @@
 >
   <track
     kind="captions"
-    src={asset.exports?.vtt ? `/api/assets/${asset.id}/exports/vtt` : ''}
+    src={asset.exports?.vtt ? exportHref(asset.id, 'vtt') : ''}
     srclang="en"
     label="Transcript"
     default

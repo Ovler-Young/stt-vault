@@ -59,7 +59,9 @@ Important optional settings:
 - `SENKO_BATCHED_EMBEDDINGS`: process Senko fbank and embeddings in batches before global clustering
 - `SENKO_FBANK_BATCH_SEGMENTS`: number of Senko subsegments per fbank/embedding batch
 - `SPEAKER_SIMILARITY_THRESHOLD`: centroid similarity threshold for speaker identity matching
-- `ADMIN_PASSWORD`: optional API write protection password
+- `ADMIN_PASSWORD`: password exchanged for an administrator JWT
+- `JWT_SECRET`: required HS256 signing secret for administrator tokens
+- `JWT_ACCESS_TOKEN_MINUTES`: access-token lifetime, default `60`
 
 ## Runtime Checks
 

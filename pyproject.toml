@@ -18,6 +18,7 @@ dependencies = [
     "torch==2.8.0",
     "torchaudio==2.8.0",
     "senko @ git+https://github.com/narcotic-sh/senko.git",
+    "pyjwt>=2.10,<3",
 ]
 
 [project.optional-dependencies]

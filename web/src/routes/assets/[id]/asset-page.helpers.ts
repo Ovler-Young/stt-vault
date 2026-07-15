@@ -1,4 +1,4 @@
-import type { AudioTrack, AssetDetail, TranscriptSegment, VisualEvent } from '$lib/api';
+import { authenticatedResourceUrl, type AudioTrack, type AssetDetail, type TranscriptSegment, type VisualEvent } from '$lib/api';
 import type { LocalSpeakerRow } from './asset-page.types';
 
 export const MEDIA_PANE_MIN_WIDTH = 420;
@@ -70,16 +70,15 @@ export function mediaUrl(assetId: string, selectedAudioTrack: string) {
   if (selectedAudioTrack !== 'default') {
     params.set('audio_track', selectedAudioTrack);
   }
-  const query = params.toString();
-  return `/api/assets/${assetId}/media${query ? `?${query}` : ''}`;
+  return authenticatedResourceUrl(`/api/assets/${assetId}/media`, params);
 }
 
 export function thumbnailUrl(assetId: string, event: VisualEvent) {
-  return `/api/assets/${assetId}/visual-events/${event.event_index}/thumbnail`;
+  return authenticatedResourceUrl(`/api/assets/${assetId}/visual-events/${event.event_index}/thumbnail`);
 }
 
 export function exportHref(assetId: string, format: string) {
-  return `/api/assets/${assetId}/exports/${format}`;
+  return authenticatedResourceUrl(`/api/assets/${assetId}/exports/${format}`);
 }
 
 export function clampMediaPaneWidth(width: number, availableWidth: number) {

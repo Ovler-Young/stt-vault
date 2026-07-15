@@ -52,7 +52,6 @@
     playbackRate = Number(localStorage.getItem('stt-vault-playback-rate') ?? 1) || 1;
     document.addEventListener('keydown', handleGlobalKeydown);
     await load();
-    poll = setInterval(load, 3000);
   });
 
   onDestroy(() => {
@@ -67,9 +66,20 @@
       asset = await fetchAsset(assetId);
       await loadAudioTracks(asset.id);
       syncSpeakerDrafts();
+      updatePolling();
       error = '';
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  function updatePolling() {
+    const shouldPoll = asset?.status === 'queued' || asset?.status === 'processing';
+    if (shouldPoll && !poll) {
+      poll = setInterval(load, 3000);
+    } else if (!shouldPoll && poll) {
+      clearInterval(poll);
+      poll = null;
     }
   }
 

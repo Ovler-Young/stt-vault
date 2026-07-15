@@ -2,10 +2,12 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import {
+    ApiError,
     fetchAssets,
     fetchConfig,
-    getStoredPassword,
-    setStoredPassword,
+    getStoredAccessToken,
+    login,
+    setStoredAccessToken,
     uploadAsset,
     type AssetSummary
   } from '$lib/api';
@@ -17,14 +19,14 @@
   let error = '';
   let adminPassword = '';
   let authRequired = false;
+  let authenticated = false;
   let poll: ReturnType<typeof setInterval> | null = null;
 
   onMount(async () => {
-    adminPassword = getStoredPassword();
     const config = await fetchConfig();
     authRequired = config.auth_required;
+    authenticated = Boolean(getStoredAccessToken());
     await loadAssets();
-    poll = setInterval(loadAssets, 3000);
   });
 
   onDestroy(() => {
@@ -32,11 +34,17 @@
   });
 
   async function loadAssets() {
+    if (authRequired && !authenticated) {
+      assets = [];
+      updatePolling();
+      return;
+    }
     try {
       assets = await fetchAssets();
+      updatePolling();
       error = '';
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      reportRequestError(err);
     }
   }
 
@@ -54,9 +62,49 @@
     }
   }
 
-  function savePassword() {
-    setStoredPassword(adminPassword);
-    loadAssets();
+  function updatePolling() {
+    const shouldPoll = assets.some((asset) => asset.status === 'queued' || asset.status === 'processing');
+    if (shouldPoll && !poll) {
+      poll = setInterval(loadAssets, 3000);
+    } else if (!shouldPoll && poll) {
+      clearInterval(poll);
+      poll = null;
+    }
+  }
+
+  async function submitLogin() {
+    busy = true;
+    error = '';
+    try {
+      await login(adminPassword);
+      adminPassword = '';
+      authenticated = true;
+      await loadAssets();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function reportRequestError(err: unknown) {
+    if (err instanceof ApiError && err.status === 401) {
+      setStoredAccessToken('');
+      authenticated = false;
+      assets = [];
+      updatePolling();
+      error = 'Session expired. Sign in again.';
+      return;
+    }
+    error = err instanceof Error ? err.message : String(err);
+  }
+
+  function signOut() {
+    setStoredAccessToken('');
+    authenticated = false;
+    assets = [];
+    updatePolling();
+    error = '';
   }
 </script>
 
@@ -67,13 +115,21 @@
         <h1>STT Vault</h1>
         <p>Upload media, track processing, and open completed transcripts.</p>
       </div>
-      <button on:click={loadAssets}>Refresh</button>
+      <div class="actions">
+        <button on:click={loadAssets}>Refresh</button>
+        {#if authenticated}<button on:click={signOut}>Sign out</button>{/if}
+      </div>
     </header>
 
-    {#if authRequired}
+    {#if authRequired && !authenticated}
       <div class="auth">
-        <input bind:value={adminPassword} type="password" placeholder="Admin password" />
-        <button on:click={savePassword}>Save</button>
+        <input
+          bind:value={adminPassword}
+          type="password"
+          placeholder="Admin password"
+          on:keydown={(event) => event.key === 'Enter' && submitLogin()}
+        />
+        <button disabled={!adminPassword || busy} on:click={submitLogin}>Sign in</button>
       </div>
     {/if}
 
@@ -93,7 +149,7 @@
           uploadFile = event.currentTarget.files?.[0] ?? null;
         }}
       />
-      <button disabled={!uploadFile || busy} on:click={submitUpload}>
+      <button disabled={!authenticated || !uploadFile || busy} on:click={submitUpload}>
         {busy ? 'Uploading' : 'Upload'}
       </button>
       {#if uploadFile}<p>{uploadFile.name}</p>{/if}
@@ -135,6 +191,11 @@
     gap: 8px;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
   }
 
   h1,

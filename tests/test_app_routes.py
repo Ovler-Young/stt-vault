@@ -8,12 +8,10 @@ from fastapi.testclient import TestClient
 from stt_vault.app import create_app
 from stt_vault.settings import get_settings
 
-ADMIN_COOKIE_NAME = "stt-vault-admin-password"
-ADMIN_HEADER = {"X-STT-Admin-Password": "secret"}
-
 EXPECTED_API_ROUTES = [
     ("GET", "/api/health"),
     ("GET", "/api/config"),
+    ("POST", "/api/auth/token"),
     ("POST", "/api/assets"),
     ("GET", "/api/assets"),
     ("GET", "/api/jobs"),
@@ -42,6 +40,7 @@ def create_test_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("STT_DATA_DIR", str(data_dir))
     monkeypatch.setenv("STT_DB_PATH", str(data_dir / "app.sqlite3"))
     monkeypatch.setenv("ADMIN_PASSWORD", "secret")
+    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-that-is-long-enough-for-hs256-signing")
     get_settings.cache_clear()
     return create_app()
 
@@ -91,33 +90,8 @@ def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> Non
     assert config_response.json()["auth_required"] is True
 
 
-def test_cookie_auth_allows_protected_media_gets(client: TestClient) -> None:
-    client.cookies.set(ADMIN_COOKIE_NAME, "secret")
-
-    response = client.get("/api/assets/missing/media")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Asset not found"}
-
-
-def test_protected_media_gets_reject_missing_admin(client: TestClient) -> None:
+def test_protected_media_gets_reject_missing_bearer_token(client: TestClient) -> None:
     response = client.get("/api/assets/missing/media")
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Missing or invalid admin password"}
-
-
-def test_mutating_routes_accept_header_admin(client: TestClient) -> None:
-    response = client.post("/api/speakers/recompute", headers=ADMIN_HEADER)
-
-    assert response.status_code == 200
-    assert response.json() == {"assets": 0}
-
-
-def test_mutating_routes_reject_cookie_only_admin(client: TestClient) -> None:
-    client.cookies.set(ADMIN_COOKIE_NAME, "secret")
-
-    response = client.post("/api/speakers/recompute")
-
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Missing or invalid admin password"}
+    assert response.json() == {"detail": "Missing bearer token"}

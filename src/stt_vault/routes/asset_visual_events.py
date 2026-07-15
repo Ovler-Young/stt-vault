@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 from .. import db
 from ..app_services import detect_asset_visual_events
-from ..auth import require_admin
+from ..auth import require_admin, require_resource_access
 from ..settings import Settings
 from ..visual import extract_thumbnail, visual_event_thumbnail_path
 
@@ -34,7 +34,7 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
     def get_visual_event_thumbnail(
         asset_id: str,
         event_index: int,
-        _: Annotated[None, Depends(require_admin)],
+        _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
         asset = db.get_asset(settings.stt_db_path, asset_id)
         if asset is None:

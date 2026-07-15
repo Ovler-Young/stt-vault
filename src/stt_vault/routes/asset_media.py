@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .. import db
 from ..app_services import stream_process_stdout
-from ..auth import require_admin
+from ..auth import require_admin, require_resource_access
 from ..media import ffprobe_audio_streams, playback_media_stream_command
 from ..settings import Settings
 
@@ -30,7 +30,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
     @router.get("/api/assets/{asset_id}/media", response_model=None)
     def get_media(
         asset_id: str,
-        _: Annotated[None, Depends(require_admin)],
+        _: Annotated[None, Depends(require_resource_access)],
         audio_track: str | None = None,
     ) -> FileResponse | StreamingResponse:
         asset = db.get_asset(settings.stt_db_path, asset_id)
@@ -52,7 +52,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
     def get_export(
         asset_id: str,
         format_name: str,
-        _: Annotated[None, Depends(require_admin)],
+        _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
         asset = db.get_asset(settings.stt_db_path, asset_id)
         if asset is None or not asset.get("exports") or format_name not in asset["exports"]:

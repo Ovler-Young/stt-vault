@@ -1,28 +1,35 @@
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+from stt_vault import db
 from stt_vault.app import create_app
 from stt_vault.settings import get_settings
 
-ADMIN_COOKIE_NAME = "stt-vault-admin-password"
-ADMIN_HEADER = {"X-STT-Admin-Password": "secret"}
+JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
 EXPECTED_API_ROUTES = [
     ("GET", "/api/health"),
     ("GET", "/api/config"),
+    ("POST", "/api/auth/token"),
     ("POST", "/api/assets"),
+    ("POST", "/api/assets/batch"),
     ("GET", "/api/assets"),
     ("GET", "/api/jobs"),
+    ("GET", "/api/folders"),
+    ("POST", "/api/folders"),
+    ("POST", "/api/folders/{folder_id}/move"),
     ("GET", "/api/speakers"),
     ("PUT", "/api/speakers/{speaker_id}"),
     ("DELETE", "/api/speakers/{speaker_id}"),
     ("POST", "/api/speakers/{target_speaker_id}/merge"),
     ("POST", "/api/speakers/recompute"),
     ("GET", "/api/assets/{asset_id}"),
+    ("POST", "/api/assets/{asset_id}/summary"),
     ("POST", "/api/assets/{asset_id}/speakers/{local_speaker}"),
     ("POST", "/api/assets/{asset_id}/speaker-matches/recompute"),
     ("GET", "/api/assets/{asset_id}/events"),
@@ -30,6 +37,8 @@ EXPECTED_API_ROUTES = [
     ("POST", "/api/assets/{asset_id}/visual-events"),
     ("GET", "/api/assets/{asset_id}/visual-events/{event_index}/thumbnail"),
     ("POST", "/api/assets/{asset_id}/retry"),
+    ("POST", "/api/assets/{asset_id}/move"),
+    ("POST", "/api/assets/{asset_id}/cleanup"),
     ("GET", "/api/assets/{asset_id}/audio-tracks"),
     ("GET", "/api/assets/{asset_id}/media"),
     ("GET", "/api/assets/{asset_id}/exports/{format_name}"),
@@ -42,6 +51,7 @@ def create_test_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("STT_DATA_DIR", str(data_dir))
     monkeypatch.setenv("STT_DB_PATH", str(data_dir / "app.sqlite3"))
     monkeypatch.setenv("ADMIN_PASSWORD", "secret")
+    monkeypatch.setenv("JWT_SECRET", JWT_SECRET)
     get_settings.cache_clear()
     return create_app()
 
@@ -54,6 +64,12 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
     finally:
         test_client.close()
         get_settings.cache_clear()
+
+
+def auth_headers(client: TestClient) -> dict[str, str]:
+    response = client.post("/api/auth/token", json={"password": "secret"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def api_route_pairs(app) -> list[tuple[str, str]]:
@@ -91,33 +107,129 @@ def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> Non
     assert config_response.json()["auth_required"] is True
 
 
-def test_cookie_auth_allows_protected_media_gets(client: TestClient) -> None:
-    client.cookies.set(ADMIN_COOKIE_NAME, "secret")
+def test_protected_media_gets_require_bearer_token(client: TestClient) -> None:
+    missing_response = client.get("/api/assets/missing/media")
+    authenticated_response = client.get(
+        "/api/assets/missing/media",
+        headers=auth_headers(client),
+    )
 
-    response = client.get("/api/assets/missing/media")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Asset not found"}
-
-
-def test_protected_media_gets_reject_missing_admin(client: TestClient) -> None:
-    response = client.get("/api/assets/missing/media")
-
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Missing or invalid admin password"}
+    assert missing_response.status_code == 401
+    assert missing_response.json() == {"detail": "Missing bearer token"}
+    assert authenticated_response.status_code == 404
+    assert authenticated_response.json() == {"detail": "Asset not found"}
 
 
-def test_mutating_routes_accept_header_admin(client: TestClient) -> None:
-    response = client.post("/api/speakers/recompute", headers=ADMIN_HEADER)
+def test_mutating_routes_require_bearer_auth(client: TestClient) -> None:
+    missing_response = client.post("/api/speakers/recompute")
+    authenticated_response = client.post(
+        "/api/speakers/recompute",
+        headers=auth_headers(client),
+    )
+
+    assert missing_response.status_code == 401
+    assert authenticated_response.status_code == 200
+    assert authenticated_response.json() == {"assets": 0}
+
+
+def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient) -> None:
+    response = client.post(
+        "/api/assets/batch",
+        headers=auth_headers(client),
+        data={"relative_paths": ["recordings/clip.wav", "../escape.wav"]},
+        files=[
+            ("files", ("clip.wav", b"audio", "audio/wav")),
+            ("files", ("escape.wav", b"x", "audio/wav")),
+        ],
+    )
 
     assert response.status_code == 200
-    assert response.json() == {"assets": 0}
+    assert response.json()["results"][0]["status"] == "queued"
+    assert response.json()["results"][1] == {
+        "path": "../escape.wav",
+        "status": "failed",
+        "detail": "Relative path is invalid",
+    }
 
 
-def test_mutating_routes_reject_cookie_only_admin(client: TestClient) -> None:
-    client.cookies.set(ADMIN_COOKIE_NAME, "secret")
+def test_summary_requires_completed_transcript(client: TestClient) -> None:
+    response = client.post("/api/assets/missing/summary", headers=auth_headers(client))
+    assert response.status_code == 404
 
-    response = client.post("/api/speakers/recompute")
 
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Missing or invalid admin password"}
+def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=(
+                                '{"content_summary":"The team approved a Friday release.",'
+                                '"themes":["release planning"],"conclusions":[],"decisions":[],'
+                                '"action_items":[],"open_questions":[],'
+                                '"speaker_candidates":['
+                                '{"speaker":"SPEAKER_00","name":"Maya Chen",'
+                                '"confidence":0.97},'
+                                '{"speaker":"SPEAKER_01","name":"Jordan Lee",'
+                                '"confidence":0.90}]}'
+                            )
+                        )
+                    )
+                ]
+            )
+
+    completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs) -> None:
+            self.chat = SimpleNamespace(completions=completions)
+
+    monkeypatch.setattr("stt_vault.routes.assets.OpenAI", FakeOpenAI)
+    db_path = get_settings().stt_db_path
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", db_path.parent / "clip.mp4")
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        0,
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00", "text": "Ship Friday."},
+        attempts=1,
+    )
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        1,
+        {
+            "start": 2.0,
+            "end": 4.0,
+            "speaker": "SPEAKER_01",
+            "speaker_name": "Alice",
+            "text": "I approve.",
+        },
+        attempts=1,
+    )
+    with db.transaction(db_path) as conn:
+        conn.execute("UPDATE assets SET status = 'success' WHERE id = 'asset-1'")
+
+    response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
+    asset = db.get_asset(db_path, "asset-1")
+
+    assert response.status_code == 200
+    assert response.json()["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
+    assert "[SPEAKER_00 00:00-00:02] Ship Friday." in completions.calls[0]["messages"][1]["content"]
+    assert "[SPEAKER_01 (Alice) 00:02-00:04] I approve." in completions.calls[0][
+        "messages"
+    ][1]["content"]
+    assert asset is not None
+    assert asset["summary_text"].startswith("The team approved a Friday release.")
+    assert [segment["speaker_name"] for segment in asset["transcript_segments"]] == [
+        "Maya Chen",
+        "Alice",
+    ]

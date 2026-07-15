@@ -30,9 +30,13 @@ def get_job(db_path: Path, asset_id: str) -> dict[str, Any] | None:
     return _decode_job(row)
 
 
-def claim_next_job(db_path: Path) -> str | None:
-    timestamp = now()
+def claim_next_job(
+    db_path: Path, claim_owner: str = "worker", lease_seconds: int = 120
+) -> str | None:
+    if lease_seconds < 1:
+        raise ValueError("lease_seconds must be positive")
     with transaction(db_path) as conn:
+        timestamp = _database_now(conn)
         row = conn.execute(
             """
             SELECT id, asset_id FROM jobs
@@ -46,19 +50,85 @@ def claim_next_job(db_path: Path) -> str | None:
         conn.execute(
             """
             UPDATE jobs
-            SET status = 'processing',
+                SET status = 'processing',
                 started_at = ?,
                 stage = ?,
-                run_attempt = run_attempt + 1
+                run_attempt = run_attempt + 1,
+                claim_owner = ?,
+                claim_expires_at = ?
             WHERE id = ?
             """,
-            (timestamp, "starting", row["id"]),
+            (timestamp, "starting", claim_owner, timestamp + lease_seconds, row["id"]),
         )
         conn.execute(
             "UPDATE assets SET status = 'processing', updated_at = ? WHERE id = ?",
             (timestamp, row["asset_id"]),
         )
         return row["asset_id"]
+
+
+def renew_job_claim(
+    db_path: Path,
+    asset_id: str,
+    claim_owner: str,
+    lease_seconds: int,
+) -> bool:
+    if lease_seconds < 1:
+        raise ValueError("lease_seconds must be positive")
+    with transaction(db_path) as conn:
+        timestamp = _database_now(conn)
+        result = conn.execute(
+            """
+            UPDATE jobs
+            SET claim_expires_at = ?
+            WHERE asset_id = ?
+              AND status = 'processing'
+              AND claim_owner = ?
+              AND claim_expires_at > ?
+            """,
+            (timestamp + lease_seconds, asset_id, claim_owner, timestamp),
+        )
+    return result.rowcount == 1
+
+
+def recover_expired_jobs(db_path: Path) -> list[str]:
+    with transaction(db_path) as conn:
+        timestamp = _database_now(conn)
+        rows = conn.execute(
+            """
+            SELECT id, asset_id, claim_owner, claim_expires_at, run_attempt
+            FROM jobs WHERE status = 'processing'
+            """
+        ).fetchall()
+        recovered = []
+        for row in rows:
+            expires_at = _parse_lease_expiration(row["claim_expires_at"])
+            if row["claim_owner"] and expires_at is not None and expires_at > timestamp:
+                continue
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'queued', stage = NULL, started_at = NULL,
+                    claim_owner = NULL, claim_expires_at = NULL
+                WHERE id = ?
+                """,
+                (row["id"],),
+            )
+            conn.execute(
+                "UPDATE assets SET status = 'queued', updated_at = ? WHERE id = ?",
+                (timestamp, row["asset_id"]),
+            )
+            conn.execute(
+                """
+                INSERT INTO job_events (
+                    job_id, asset_id, level, stage, message, payload, run_attempt, created_at
+                )
+                VALUES (?, ?, 'warning', 'queued', 'Recovered interrupted job', NULL, ?, ?)
+                """,
+                (row["id"], row["asset_id"], row["run_attempt"], timestamp),
+            )
+            recovered.append(row["asset_id"])
+    return recovered
 
 
 def update_stage(db_path: Path, asset_id: str, stage: str) -> None:
@@ -173,7 +243,12 @@ def mark_failed(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
         conn.execute(
-            "UPDATE jobs SET status = 'failed', error = ?, finished_at = ? WHERE asset_id = ?",
+            """
+            UPDATE jobs
+            SET status = 'failed', error = ?, finished_at = ?, claim_owner = NULL,
+                claim_expires_at = NULL
+            WHERE asset_id = ?
+            """,
             (payload, timestamp, asset_id),
         )
         conn.execute(
@@ -188,7 +263,12 @@ def mark_partial(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
         conn.execute(
-            "UPDATE jobs SET status = 'partial', error = ?, finished_at = ? WHERE asset_id = ?",
+            """
+            UPDATE jobs
+            SET status = 'partial', error = ?, finished_at = ?, claim_owner = NULL,
+                claim_expires_at = NULL
+            WHERE asset_id = ?
+            """,
             (payload, timestamp, asset_id),
         )
         conn.execute(
@@ -251,7 +331,8 @@ def mark_success(
         conn.execute(
             """
             UPDATE jobs
-            SET status = 'success', stage = 'done', finished_at = ?
+            SET status = 'success', stage = 'done', finished_at = ?, claim_owner = NULL,
+                claim_expires_at = NULL
             WHERE asset_id = ?
             """,
             (timestamp, asset_id),
@@ -274,3 +355,14 @@ def _decode_events(rows: list[Any]) -> list[dict[str, Any]]:
             item["payload"] = json.loads(item["payload"])
         events.append(item)
     return events
+
+
+def _database_now(conn: Any) -> int:
+    return int(conn.execute("SELECT unixepoch()").fetchone()[0])
+
+
+def _parse_lease_expiration(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

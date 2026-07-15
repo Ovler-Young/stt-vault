@@ -18,6 +18,13 @@ class Settings(BaseSettings):
         alias="OPENAI_TRANSCRIBE_MODEL",
     )
     openai_transcribe_prompt: str = Field(default="", alias="OPENAI_TRANSCRIBE_PROMPT")
+    openai_summary_model: str = Field(default="gpt-4o-mini", alias="OPENAI_SUMMARY_MODEL")
+    openai_speaker_name_confidence: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        alias="OPENAI_SPEAKER_NAME_CONFIDENCE",
+    )
     openai_concurrency: int = Field(default=2, alias="OPENAI_CONCURRENCY")
     openai_retry_seconds: int = Field(default=60, alias="OPENAI_RETRY_SECONDS")
     openai_max_retries: int = Field(default=5, alias="OPENAI_MAX_RETRIES")
@@ -27,6 +34,7 @@ class Settings(BaseSettings):
     )
 
     diarization_concurrency: int = Field(default=1, alias="DIARIZATION_CONCURRENCY")
+    job_lease_seconds: int = Field(default=120, alias="JOB_LEASE_SECONDS")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
     senko_device: str = Field(default="auto", alias="SENKO_DEVICE")
     senko_batched_embeddings: bool = Field(default=True, alias="SENKO_BATCHED_EMBEDDINGS")
@@ -35,6 +43,10 @@ class Settings(BaseSettings):
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")
     admin_password: str = Field(default="", alias="ADMIN_PASSWORD")
+    jwt_secret: str = Field(default="", alias="JWT_SECRET")
+    jwt_issuer: str = Field(default="stt-vault", alias="JWT_ISSUER")
+    jwt_audience: str = Field(default="stt-vault-api", alias="JWT_AUDIENCE")
+    jwt_access_token_minutes: int = Field(default=60, ge=1, alias="JWT_ACCESS_TOKEN_MINUTES")
 
     max_upload_mb: int = Field(default=4096, alias="MAX_UPLOAD_MB")
     transcribe_chunk_seconds: float = Field(default=45.0, alias="TRANSCRIBE_CHUNK_SECONDS")

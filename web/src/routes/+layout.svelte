@@ -89,12 +89,13 @@
   }
 
   nav a {
+    box-sizing: border-box;
     display: grid;
     grid-template-columns: 32px 96px;
     gap: 8px;
     align-items: center;
     padding: 6px;
-    min-height: 34px;
+    min-height: 44px;
     white-space: nowrap;
   }
 
@@ -131,18 +132,18 @@
   @media (max-width: 760px) {
     .shell {
       display: block;
-      padding-bottom: 54px;
+      padding-bottom: 64px;
     }
 
     nav {
       top: auto;
       right: 0;
       width: auto;
-      height: 54px;
+      height: 64px;
       grid-auto-flow: column;
       grid-auto-columns: 1fr;
       align-content: center;
-      padding: 7px;
+      padding: 8px;
       border-right: 0;
       border-top: 1px solid #d2cec4;
     }

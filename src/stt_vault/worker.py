@@ -1,5 +1,6 @@
 import shutil
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ class Worker:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.stop_event = threading.Event()
+        self.claim_owner = uuid.uuid4().hex
         self.thread = threading.Thread(target=self.run, name="stt-vault-worker", daemon=True)
         self.diarizer = DiarizerManager(
             device=settings.senko_device,
@@ -33,12 +35,24 @@ class Worker:
 
     def run(self) -> None:
         while not self.stop_event.is_set():
-            asset_id = db.claim_next_job(self.settings.stt_db_path)
+            asset_id = db.claim_next_job(
+                self.settings.stt_db_path,
+                self.claim_owner,
+                self.settings.job_lease_seconds,
+            )
             if asset_id is None:
                 self.diarizer.maybe_unload()
                 self.stop_event.wait(2)
                 continue
 
+            claim_stop_event = threading.Event()
+            claim_renewer = threading.Thread(
+                target=self._renew_claim_until_complete,
+                args=(asset_id, claim_stop_event),
+                name=f"stt-vault-claim-{asset_id}",
+                daemon=True,
+            )
+            claim_renewer.start()
             try:
                 self.process(asset_id)
             except Exception as exc:
@@ -47,6 +61,20 @@ class Worker:
                     asset_id,
                     {"type": exc.__class__.__name__, "message": str(exc)},
                 )
+            finally:
+                claim_stop_event.set()
+                claim_renewer.join()
+
+    def _renew_claim_until_complete(self, asset_id: str, stop_event: threading.Event) -> None:
+        interval_seconds = max(1, self.settings.job_lease_seconds // 3)
+        while not stop_event.wait(interval_seconds):
+            if not db.renew_job_claim(
+                self.settings.stt_db_path,
+                asset_id,
+                self.claim_owner,
+                self.settings.job_lease_seconds,
+            ):
+                return
 
     def process(self, asset_id: str) -> None:
         asset = db.get_asset(self.settings.stt_db_path, asset_id)

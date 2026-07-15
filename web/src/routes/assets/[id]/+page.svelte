@@ -8,6 +8,7 @@
     fetchAssetAudioTracks,
     recomputeAssetSpeakers,
     retryAsset,
+    summarizeAsset,
     saveAssetSpeaker,
     type AudioTrack,
     type AssetDetail,
@@ -36,6 +37,7 @@
   let speakerDrafts: Record<string, string> = {};
   let speakerMessage = '';
   let visualMessage = '';
+  let summaryMessage = '';
   let speakerEditor: SpeakerEditor | null = null;
   let editorName = '';
   let audioTracks: AudioTrack[] = [];
@@ -93,6 +95,18 @@
     if (!asset) return;
     await deleteAsset(asset.id);
     location.href = '/';
+  }
+
+  async function summarize() {
+    if (!asset) return;
+    summaryMessage = 'Generating summary';
+    try {
+      await summarizeAsset(asset.id);
+      await load();
+      summaryMessage = '';
+    } catch (err) {
+      summaryMessage = err instanceof Error ? err.message : String(err);
+    }
   }
 
   function seek(segment: Pick<TranscriptSegment, 'start' | 'end' | 'chunk_start' | 'chunk_end'>) {
@@ -381,6 +395,14 @@
         {/if}
 
         <AssetFoldoutGroup>
+          {#if asset.status === 'success'}
+            <section class="summary">
+              <button on:click={summarize}>Generate summary</button>
+              {#if summaryMessage}<p aria-live="polite">{summaryMessage}</p>{/if}
+              {#if asset.summary_text}<p>{asset.summary_text}</p>{/if}
+              {#if asset.summary_error}<p class="error">{asset.summary_error}</p>{/if}
+            </section>
+          {/if}
           <AssetDetailsFoldout {asset} />
           {#if asset.exports}
             <AssetDownloadsFoldout assetId={asset.id} assetExports={asset.exports} />

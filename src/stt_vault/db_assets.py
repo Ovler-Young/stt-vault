@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .ai_content import is_local_speaker_label, is_usable_speaker_name
 from .db_connection import connect, now, row_to_dict, transaction
 from .db_jobs import get_job, list_current_run_events, list_events
-from .db_transcripts import list_transcript_chunks
+from .db_transcripts import list_transcript_chunks, list_transcript_chunks_from_conn
 from .db_visual_events import list_visual_events
 
 
@@ -14,17 +15,28 @@ def create_asset(
     filename: str,
     media_type: str,
     original_path: Path,
+    *,
+    parent_folder_id: str | None = None,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
         conn.execute(
             """
             INSERT INTO assets (
-                id, filename, media_type, original_path, status, created_at, updated_at
+                id, filename, media_type, parent_folder_id, original_path, status, created_at,
+                updated_at
             )
-            VALUES (?, ?, ?, ?, 'queued', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)
             """,
-            (asset_id, filename, media_type, str(original_path), timestamp, timestamp),
+            (
+                asset_id,
+                filename,
+                media_type,
+                parent_folder_id,
+                str(original_path),
+                timestamp,
+                timestamp,
+            ),
         )
         conn.execute(
             """
@@ -39,7 +51,8 @@ def list_assets(db_path: Path) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT id, filename, media_type, duration, status, error, created_at, updated_at
+            SELECT id, filename, media_type, duration, status, error, parent_folder_id,
+                   created_at, updated_at
             FROM assets
             ORDER BY created_at DESC
             """
@@ -109,6 +122,62 @@ def update_asset_exports(db_path: Path, asset_id: str, exports: dict[str, str]) 
         )
 
 
+def update_asset_summary(
+    db_path: Path,
+    asset_id: str,
+    *,
+    status: str,
+    text: str | None = None,
+    error: str | None = None,
+    model: str | None = None,
+) -> None:
+    timestamp = now()
+    with transaction(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE assets
+            SET summary_status = ?, summary_text = ?, summary_error = ?, summary_model = ?,
+                summary_updated_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, text, error, model, timestamp, timestamp, asset_id),
+        )
+
+
+def apply_ai_speaker_names(
+    db_path: Path,
+    asset_id: str,
+    speaker_names: dict[str, str],
+) -> dict[str, str]:
+    timestamp = now()
+    applied = {}
+    with transaction(db_path) as conn:
+        for local_speaker, display_name in speaker_names.items():
+            if not (
+                is_local_speaker_label(local_speaker)
+                and is_usable_speaker_name(display_name)
+            ):
+                continue
+            result = conn.execute(
+                """
+                UPDATE transcript_chunks
+                SET speaker_name = ?, updated_at = ?
+                WHERE asset_id = ?
+                  AND speaker = ?
+                  AND (speaker_name IS NULL OR trim(speaker_name) = '' OR speaker_name = speaker)
+                """,
+                (display_name.strip(), timestamp, asset_id, local_speaker),
+            )
+            if result.rowcount:
+                applied[local_speaker] = display_name.strip()
+        if applied:
+            conn.execute(
+                "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+            )
+    return applied
+
+
 def retry_asset(db_path: Path, asset_id: str) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -133,15 +202,10 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
         conn.execute(
             """
             UPDATE jobs
-            SET status = 'queued',
-                stage = NULL,
-                error = NULL,
-                started_at = NULL,
-                finished_at = NULL,
-                progress_total_chunks = 0,
-                progress_done_chunks = 0,
-                progress_failed_chunks = 0,
-                next_retry_at = NULL
+            SET status = 'queued', stage = NULL, error = NULL, started_at = NULL,
+                finished_at = NULL, progress_total_chunks = 0, progress_done_chunks = 0,
+                progress_failed_chunks = 0, next_retry_at = NULL, claim_owner = NULL,
+                claim_expires_at = NULL
             WHERE asset_id = ?
             """,
             (asset_id,),
@@ -150,8 +214,57 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
             """
             INSERT INTO job_events (
                 job_id, asset_id, level, stage, message, payload, run_attempt, created_at
-            )
-            VALUES (?, ?, 'info', 'queued', 'Job queued for retry', NULL, ?, ?)
+            ) VALUES (?, ?, 'info', 'queued', 'Job queued for retry', NULL, ?, ?)
             """,
             (job["id"], asset_id, next_run_attempt, timestamp),
         )
+
+
+def record_cleanup_task(
+    db_path: Path, asset_id: str, media_path: Path, exports_path: Path
+) -> None:
+    with transaction(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO asset_cleanup_tasks (asset_id, media_path, exports_path, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                media_path = excluded.media_path,
+                exports_path = excluded.exports_path
+            """,
+            (asset_id, str(media_path), str(exports_path), now()),
+        )
+
+
+def delete_asset_with_cleanup_task(
+    db_path: Path, asset_id: str, media_path: Path, exports_path: Path
+) -> None:
+    with transaction(db_path) as conn:
+        row = conn.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        if row is None:
+            raise KeyError(asset_id)
+        conn.execute(
+            """
+            INSERT INTO asset_cleanup_tasks (asset_id, media_path, exports_path, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                media_path = excluded.media_path,
+                exports_path = excluded.exports_path
+            """,
+            (asset_id, str(media_path), str(exports_path), now()),
+        )
+        conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+
+
+def get_cleanup_task(db_path: Path, asset_id: str) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT asset_id, media_path, exports_path FROM asset_cleanup_tasks WHERE asset_id = ?",
+            (asset_id,),
+        ).fetchone()
+    return row_to_dict(row)
+
+
+def clear_cleanup_task(db_path: Path, asset_id: str) -> None:
+    with transaction(db_path) as conn:
+        conn.execute("DELETE FROM asset_cleanup_tasks WHERE asset_id = ?", (asset_id,))

@@ -2,6 +2,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from stt_vault import db
 
 PUBLIC_DB_FUNCTIONS = {
@@ -12,11 +14,18 @@ PUBLIC_DB_FUNCTIONS = {
     "now",
     "row_to_dict",
     "create_asset",
+    "create_folder",
+    "delete_asset_with_cleanup_task",
     "list_assets",
+    "list_folder_tree",
+    "list_folders",
     "list_jobs",
     "get_job",
     "get_asset",
+    "get_folder",
     "claim_next_job",
+    "recover_expired_jobs",
+    "renew_job_claim",
     "update_stage",
     "update_progress",
     "add_event",
@@ -27,6 +36,8 @@ PUBLIC_DB_FUNCTIONS = {
     "mark_success",
     "update_diarization_metadata",
     "update_asset_exports",
+    "update_asset_summary",
+    "apply_ai_speaker_names",
     "retry_asset",
     "replace_visual_events",
     "list_visual_events",
@@ -41,6 +52,8 @@ PUBLIC_DB_FUNCTIONS = {
     "upsert_speaker",
     "rename_speaker",
     "merge_speakers",
+    "move_asset",
+    "move_folder",
     "delete_speaker",
     "relabel_asset_speaker",
     "relabel_asset_speakers",
@@ -107,6 +120,7 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
             ).fetchall()
         }
         assets_columns = {row["name"] for row in conn.execute("PRAGMA table_info(assets)")}
+        folders_columns = {row["name"] for row in conn.execute("PRAGMA table_info(folders)")}
         jobs_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
         events_columns = {row["name"] for row in conn.execute("PRAGMA table_info(job_events)")}
         chunk_columns = {
@@ -120,6 +134,7 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "job_events",
         "transcript_chunks",
         "asset_visual_events",
+        "folders",
     }.issubset(tables)
     assert {
         "idx_assets_created_at",
@@ -127,6 +142,8 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "idx_job_events_asset_created_at",
         "idx_transcript_chunks_asset_index",
         "idx_visual_events_asset_index",
+        "idx_assets_parent_folder_id",
+        "idx_folders_parent_id",
     }.issubset(indexes)
     assert {
         "diarization_stats",
@@ -135,7 +152,9 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "speaker_centroids",
         "transcript_segments",
         "exports",
+        "parent_folder_id",
     }.issubset(assets_columns)
+    assert {"id", "name", "parent_id", "created_at", "updated_at"}.issubset(folders_columns)
     assert {
         "progress_total_chunks",
         "progress_done_chunks",
@@ -186,6 +205,68 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "run_attempt",
     }.issubset(legacy_jobs_columns)
     assert "run_attempt" in legacy_events_columns
+
+
+def test_folder_tree_and_asset_moves_preserve_a_single_hierarchy(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    root = db.create_folder(db_path, "Meetings")
+    child = db.create_folder(db_path, "Planning", parent_id=root["id"])
+    db.create_asset(
+        db_path,
+        "asset-1",
+        "roadmap.wav",
+        "audio",
+        tmp_path / "roadmap.wav",
+        parent_folder_id=child["id"],
+    )
+    db.create_asset(
+        db_path,
+        "asset-2",
+        "inbox.wav",
+        "audio",
+        tmp_path / "inbox.wav",
+    )
+
+    tree = db.list_folder_tree(db_path)
+
+    assert [asset["id"] for asset in tree["assets"]] == ["asset-2"]
+    [tree_root] = tree["folders"]
+    assert tree_root["id"] == root["id"]
+    assert tree_root["assets"] == []
+    [tree_child] = tree_root["children"]
+    assert tree_child["id"] == child["id"]
+    assert [asset["id"] for asset in tree_child["assets"]] == ["asset-1"]
+
+    moved_asset = db.move_asset(db_path, "asset-2", child["id"])
+    moved_folder = db.move_folder(db_path, child["id"], None)
+
+    assert moved_asset["parent_folder_id"] == child["id"]
+    assert moved_folder["parent_id"] is None
+    assert db.get_asset(db_path, "asset-2")["parent_folder_id"] == child["id"]
+    assert db.get_folder(db_path, child["id"])["parent_id"] is None
+
+
+def test_folder_moves_reject_missing_parents_and_descendant_cycles(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    root = db.create_folder(db_path, "Root")
+    child = db.create_folder(db_path, "Child", parent_id=root["id"])
+    grandchild = db.create_folder(db_path, "Grandchild", parent_id=child["id"])
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
+
+    with pytest.raises(KeyError):
+        db.create_folder(db_path, "Missing parent", parent_id="missing")
+    with pytest.raises(KeyError):
+        db.move_folder(db_path, child["id"], "missing")
+    with pytest.raises(KeyError):
+        db.move_asset(db_path, "asset-1", "missing")
+    with pytest.raises(ValueError, match="descendant"):
+        db.move_folder(db_path, root["id"], grandchild["id"])
+    with pytest.raises(ValueError, match="itself"):
+        db.move_folder(db_path, child["id"], child["id"])
+
+    assert db.get_folder(db_path, root["id"])["parent_id"] is None
+    assert db.get_folder(db_path, child["id"])["parent_id"] == root["id"]
+    assert db.get_folder(db_path, grandchild["id"])["parent_id"] == child["id"]
 
 
 def test_asset_job_lifecycle_and_get_asset_aggregate(tmp_path: Path) -> None:
@@ -447,3 +528,85 @@ def test_visual_events_replace_rows_and_appear_in_asset_aggregate(tmp_path: Path
     assert replaced_events[0]["kind"] == "slide_change"
     assert asset is not None
     assert asset["visual_events"] == replaced_events
+
+
+def test_job_claim_recovery_preserves_valid_lease_and_requeues_expired_claim(
+    tmp_path: Path,
+) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+    assert db.claim_next_job(db_path, "worker-a", 60) == "asset-1"
+
+    assert db.recover_expired_jobs(db_path) == []
+    assert db.renew_job_claim(db_path, "asset-1", "worker-a", 60) is True
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE jobs SET claim_expires_at = 0 WHERE asset_id = 'asset-1'")
+
+    assert db.recover_expired_jobs(db_path) == ["asset-1"]
+    assert db.get_job(db_path, "asset-1")["status"] == "queued"
+
+
+def test_cleanup_task_and_summary_state_are_persisted(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+    db.record_cleanup_task(db_path, "asset-1", tmp_path / "media", tmp_path / "exports")
+    assert db.get_cleanup_task(db_path, "asset-1") == {
+        "asset_id": "asset-1",
+        "media_path": str(tmp_path / "media"),
+        "exports_path": str(tmp_path / "exports"),
+    }
+    db.clear_cleanup_task(db_path, "asset-1")
+    assert db.get_cleanup_task(db_path, "asset-1") is None
+
+    db.update_asset_summary(
+        db_path, "asset-1", status="success", text="Summary", model="test-model"
+    )
+    asset = db.get_asset(db_path, "asset-1")
+    assert asset is not None
+    assert asset["summary_status"] == "success"
+    assert asset["summary_text"] == "Summary"
+
+
+def test_ai_speaker_names_only_replace_unassigned_local_labels(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        0,
+        chunk(0.0, 3.0, "SPEAKER_00", "Welcome"),
+        attempts=1,
+    )
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        1,
+        chunk(3.0, 6.0, "SPEAKER_01", "Thanks", speaker_name="Alice"),
+        attempts=1,
+    )
+
+    applied = db.apply_ai_speaker_names(
+        db_path,
+        "asset-1",
+        {"SPEAKER_00": "Maya Chen", "SPEAKER_01": "Different Name"},
+    )
+    chunks = db.list_transcript_chunks(db_path, "asset-1")
+    asset = db.get_asset(db_path, "asset-1")
+
+    assert applied == {"SPEAKER_00": "Maya Chen"}
+    assert [chunk["speaker_name"] for chunk in chunks] == ["Maya Chen", "Alice"]
+    assert asset is not None
+    assert asset["transcript_segments"] == chunks
+
+
+def test_asset_deletion_and_cleanup_task_share_one_transaction(tmp_path: Path) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
+
+    db.delete_asset_with_cleanup_task(
+        db_path, "asset-1", tmp_path / "media", tmp_path / "exports"
+    )
+
+    assert db.get_asset(db_path, "asset-1") is None
+    assert db.get_cleanup_task(db_path, "asset-1") is not None

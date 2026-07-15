@@ -12,6 +12,7 @@ def initialize(db_path: Path) -> None:
                 id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
                 media_type TEXT NOT NULL,
+                parent_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
                 original_path TEXT NOT NULL,
                 wav_path TEXT,
                 duration REAL,
@@ -24,7 +25,20 @@ def initialize(db_path: Path) -> None:
                 merged_segments TEXT,
                 speaker_centroids TEXT,
                 transcript_segments TEXT,
-                exports TEXT
+                exports TEXT,
+                summary_status TEXT,
+                summary_text TEXT,
+                summary_error TEXT,
+                summary_model TEXT,
+                summary_updated_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS folders (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id TEXT REFERENCES folders(id) ON DELETE RESTRICT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS speakers (
@@ -49,7 +63,9 @@ def initialize(db_path: Path) -> None:
                 progress_done_chunks INTEGER DEFAULT 0,
                 progress_failed_chunks INTEGER DEFAULT 0,
                 next_retry_at INTEGER,
-                run_attempt INTEGER DEFAULT 0
+                run_attempt INTEGER DEFAULT 0,
+                claim_owner TEXT,
+                claim_expires_at INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS job_events (
@@ -61,6 +77,13 @@ def initialize(db_path: Path) -> None:
                 message TEXT NOT NULL,
                 payload TEXT,
                 run_attempt INTEGER DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS asset_cleanup_tasks (
+                asset_id TEXT PRIMARY KEY,
+                media_path TEXT NOT NULL,
+                exports_path TEXT NOT NULL,
                 created_at INTEGER NOT NULL
             );
 
@@ -94,6 +117,7 @@ def initialize(db_path: Path) -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_assets_created_at ON assets(created_at);
+            CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id);
             CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_job_events_asset_created_at
                 ON job_events(asset_id, created_at);
@@ -105,6 +129,18 @@ def initialize(db_path: Path) -> None:
         )
         add_missing_columns(
             conn,
+            "assets",
+            {
+                "parent_folder_id": "TEXT REFERENCES folders(id) ON DELETE SET NULL",
+                "summary_status": "TEXT",
+                "summary_text": "TEXT",
+                "summary_error": "TEXT",
+                "summary_model": "TEXT",
+                "summary_updated_at": "INTEGER",
+            },
+        )
+        add_missing_columns(
+            conn,
             "jobs",
             {
                 "progress_total_chunks": "INTEGER DEFAULT 0",
@@ -112,7 +148,16 @@ def initialize(db_path: Path) -> None:
                 "progress_failed_chunks": "INTEGER DEFAULT 0",
                 "next_retry_at": "INTEGER",
                 "run_attempt": "INTEGER DEFAULT 0",
+                "claim_owner": "TEXT",
+                "claim_expires_at": "INTEGER",
             },
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assets_parent_folder_id ON assets(parent_folder_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_processing_claim "
+            "ON jobs(status, claim_expires_at)"
         )
         add_missing_columns(
             conn,

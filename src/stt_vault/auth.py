@@ -64,7 +64,7 @@ def issue_access_token(settings: Settings) -> str:
             "iss": settings.jwt_issuer,
             "aud": settings.jwt_audience,
             "iat": now,
-            "exp": now + timedelta(minutes=settings.jwt_access_token_minutes),
+            "exp": now + timedelta(minutes=max(1, settings.jwt_access_token_minutes)),
         },
         settings.jwt_secret,
         algorithm="HS256",

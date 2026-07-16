@@ -29,9 +29,9 @@
     justify-content: space-between;
     gap: 8px;
     min-width: 0;
-    border: 1px solid #d2cec4;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #fbfaf7;
+    background: var(--color-surface);
     padding: 8px 10px;
   }
 
@@ -52,7 +52,7 @@
   }
 
   .title p {
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 11px;
   }
 
@@ -64,6 +64,6 @@
   }
 
   .danger {
-    color: #9b1c1c;
+    color: var(--color-danger);
   }
 </style>

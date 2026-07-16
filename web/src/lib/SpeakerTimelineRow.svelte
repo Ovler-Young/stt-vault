@@ -95,14 +95,14 @@
     width: 100%;
     height: 22px;
     overflow: visible;
-    border: 1px solid #b9b2a4;
+    border: 1px solid var(--color-border-muted);
     border-radius: 6px;
-    background: #595959;
+    background: var(--color-timeline);
     cursor: pointer;
   }
 
   .speaker-progress-row:focus-visible {
-    outline: 2px solid #3b7dd8;
+    outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
 
@@ -112,7 +112,7 @@
 
   .zoom-row {
     height: 28px;
-    background: #4f4f4f;
+    background: var(--color-timeline-active);
   }
 
   .full-row {
@@ -149,7 +149,7 @@
     position: absolute;
     top: -3px;
     bottom: -3px;
-    border: 2px solid #151515;
+    border: 2px solid var(--color-text);
     border-radius: 6px;
     box-shadow:
       0 0 0 1px rgb(255 255 255 / 72%),
@@ -163,7 +163,7 @@
     bottom: -3px;
     width: 2px;
     transform: translateX(-1px);
-    background: #151515;
+    background: var(--color-text);
     box-shadow: 0 0 0 1px rgb(255 255 255 / 72%);
     pointer-events: none;
   }
@@ -176,14 +176,14 @@
     align-items: center;
     max-width: min(280px, 85%);
     transform: translateX(-50%);
-    border: 1px solid #b9b2a4;
+    border: 1px solid var(--color-border-muted);
     border-radius: 6px;
-    background: #fbfaf7;
-    color: #151515;
+    background: var(--color-surface);
+    color: var(--color-text);
     padding: 4px 6px;
     font-size: 11px;
     white-space: nowrap;
-    box-shadow: 0 6px 18px rgb(0 0 0 / 16%);
+    box-shadow: 0 6px 18px var(--shadow-popup);
     pointer-events: none;
   }
 
@@ -193,6 +193,6 @@
   }
 
   .hover-tip span {
-    color: #666052;
+    color: var(--color-text-muted);
   }
 </style>

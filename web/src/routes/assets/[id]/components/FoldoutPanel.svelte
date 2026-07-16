@@ -10,9 +10,9 @@
 
 <style>
   details {
-    border: 1px solid #d2cec4;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #fbfaf7;
+    background: var(--color-surface);
     padding: 6px 8px;
   }
 

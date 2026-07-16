@@ -27,19 +27,58 @@
 </div>
 
 <style>
+  :global(:root) {
+    color-scheme: light dark;
+    --color-page: light-dark(#f5f3ef, #151718);
+    --color-page-subtle: light-dark(#f7f7f5, #181b1c);
+    --color-surface: light-dark(#fbfaf7, #1d2021);
+    --color-surface-strong: light-dark(#ffffff, #25292a);
+    --color-surface-muted: light-dark(#f1eee7, #292e2f);
+    --color-surface-subtle: light-dark(#efefeb, #191c1d);
+    --color-text: light-dark(#151515, #f1f3f2);
+    --color-text-muted: light-dark(#666052, #adb5b3);
+    --color-border: light-dark(#d2cec4, #3a4140);
+    --color-border-muted: light-dark(#b9b2a4, #46504e);
+    --color-border-strong: light-dark(#c7c1b4, #505a58);
+    --color-accent: light-dark(#2f6f73, #74bcba);
+    --color-accent-text: light-dark(#174f52, #a7dcda);
+    --color-accent-surface: light-dark(#e4f0ed, #203b3b);
+    --color-accent-ring: light-dark(#2f6f7333, #74bcba55);
+    --color-danger: light-dark(#9b1c1c, #ff9c9c);
+    --color-danger-surface: light-dark(#fff1f1, #3a2224);
+    --color-danger-border: light-dark(#efb4b4, #744045);
+    --color-warning: light-dark(#a66b00, #e1ad60);
+    --color-focus: light-dark(#3b7dd8, #83b4ff);
+    --color-timeline: light-dark(#595959, #515958);
+    --color-timeline-active: light-dark(#4f4f4f, #46504e);
+    --color-media: #111111;
+    --color-on-media: #ffffff;
+    --shadow-popup: light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 45%));
+  }
+
+  :global(:root[data-theme='light']) {
+    color-scheme: light;
+  }
+
+  :global(:root[data-theme='dark']) {
+    color-scheme: dark;
+  }
+
   :global(body) {
     margin: 0;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #151515;
-    background: #f5f3ef;
+    color: var(--color-text);
+    background: var(--color-page);
   }
 
   :global(button),
   :global(input),
+  :global(select),
+  :global(textarea),
   :global(a) {
-    border: 1px solid #c7c1b4;
+    border: 1px solid var(--color-border-strong);
     border-radius: 6px;
-    background: white;
+    background: var(--color-surface-strong);
     color: inherit;
     font: inherit;
     padding: 8px 10px;
@@ -82,8 +121,8 @@
     align-content: start;
     gap: 6px;
     padding: 10px 8px;
-    border-right: 1px solid #d2cec4;
-    background: #fbfaf7;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
     overflow: hidden;
     transition: width 140ms ease;
   }
@@ -105,7 +144,7 @@
     width: 30px;
     height: 30px;
     border-radius: 6px;
-    background: #f1eee7;
+    background: var(--color-surface-muted);
     font-size: 13px;
   }
 
@@ -120,8 +159,8 @@
   }
 
   nav a.active {
-    border-color: #2f6f73;
-    background: #e4f0ed;
+    border-color: var(--color-accent);
+    background: var(--color-accent-surface);
   }
 
   .content {
@@ -145,7 +184,7 @@
       align-content: center;
       padding: 8px;
       border-right: 0;
-      border-top: 1px solid #d2cec4;
+      border-top: 1px solid var(--color-border);
     }
 
     nav:hover,

@@ -91,7 +91,7 @@
   video {
     width: 100%;
     max-height: 58vh;
-    background: #111;
+    background: var(--color-media);
     border-radius: 8px;
   }
 
@@ -101,7 +101,7 @@
     gap: 6px;
     flex-wrap: wrap;
     margin-top: 6px;
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 12px;
   }
 
@@ -115,10 +115,10 @@
   .playback-controls select {
     min-width: 0;
     max-width: 100%;
-    border: 1px solid #c7c1b4;
+    border: 1px solid var(--color-border-strong);
     border-radius: 6px;
-    background: white;
-    color: #151515;
+    background: var(--color-surface-strong);
+    color: var(--color-text);
     font: inherit;
     padding: 5px 8px;
   }

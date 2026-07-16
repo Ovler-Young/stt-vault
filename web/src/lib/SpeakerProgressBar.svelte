@@ -288,10 +288,10 @@
 
   .zoom-reset {
     justify-self: end;
-    border: 1px solid #b9b2a4;
+    border: 1px solid var(--color-border-muted);
     border-radius: 6px;
-    background: #fbfaf7;
-    color: #151515;
+    background: var(--color-surface);
+    color: var(--color-text);
     padding: 2px 6px;
     font-size: 11px;
     line-height: 1.3;
@@ -299,6 +299,6 @@
   }
 
   .zoom-reset:hover {
-    background: #f0ede5;
+    background: var(--color-surface-muted);
   }
 </style>

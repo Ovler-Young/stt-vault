@@ -47,12 +47,12 @@
   }
 
   small {
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 11px;
   }
 
   .message {
-    color: #2f6f73;
+    color: var(--color-accent);
     margin: 0;
   }
 

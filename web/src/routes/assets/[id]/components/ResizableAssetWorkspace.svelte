@@ -122,17 +122,17 @@
     position: absolute;
     inset: 0 4px;
     border-radius: 4px;
-    background: #c7c1b4;
+    background: var(--color-border-strong);
   }
 
   .pane-divider:hover::before,
   .pane-divider:focus-visible::before,
   .pane-divider.resizing::before {
-    background: #2f6f73;
+    background: var(--color-accent);
   }
 
   .pane-divider:focus-visible {
-    outline: 2px solid #2f6f73;
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 

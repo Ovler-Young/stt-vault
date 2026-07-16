@@ -105,9 +105,9 @@
     display: grid;
     gap: 6px;
     margin-top: 6px;
-    border: 1px solid #d2cec4;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #fbfaf7;
+    background: var(--color-surface);
     padding: 8px;
   }
 
@@ -123,7 +123,7 @@
   }
 
   .visual-actions span {
-    color: #2f6f73;
+    color: var(--color-accent);
     font-size: 12px;
   }
 
@@ -147,13 +147,13 @@
     height: 81px;
     overflow: hidden;
     padding: 0;
-    border-color: #c7c1b4;
-    background: #111;
+    border-color: var(--color-border-strong);
+    background: var(--color-media);
   }
 
   .thumb-strip button.active {
-    border-color: #2f6f73;
-    box-shadow: 0 0 0 2px #2f6f7333;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px var(--color-accent-ring);
   }
 
   .thumb-strip img {
@@ -170,14 +170,14 @@
     bottom: 4px;
     border-radius: 4px;
     background: rgb(0 0 0 / 68%);
-    color: white;
+    color: var(--color-on-media);
     font-size: 11px;
     padding: 2px 4px;
   }
 
   .muted {
     margin: 0;
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 11px;
   }
 </style>

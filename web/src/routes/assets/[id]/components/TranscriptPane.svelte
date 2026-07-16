@@ -80,12 +80,12 @@
     padding: 6px 8px;
     text-align: left;
     border-radius: 6px;
-    background: #fffdfa;
+    background: var(--color-surface-strong);
   }
 
   .transcript button.active {
-    border-color: #2f6f73;
-    background: #e4f0ed;
+    border-color: var(--color-accent);
+    background: var(--color-accent-surface);
   }
 
   .row-head {
@@ -106,7 +106,7 @@
 
   .row-head small,
   .muted {
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 11px;
   }
 

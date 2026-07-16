@@ -391,7 +391,7 @@
 <style>
   main {
     min-height: 100vh;
-    background: #f7f7f5;
+    background: var(--color-page-subtle);
   }
 
   .topbar {
@@ -402,8 +402,8 @@
     justify-content: space-between;
     gap: 16px;
     padding: 10px 18px;
-    border-bottom: 1px solid #d4d4cf;
-    background: #fff;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-strong);
   }
 
   h1,
@@ -418,7 +418,7 @@
   .topbar p,
   .selection,
   .empty {
-    color: #686862;
+    color: var(--color-text-muted);
     font-size: 12px;
   }
 
@@ -450,8 +450,8 @@
 
   aside {
     padding: 12px 8px;
-    border-right: 1px solid #d4d4cf;
-    background: #efefeb;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
   }
 
   .aside-head {
@@ -471,8 +471,8 @@
   }
 
   .folder.active {
-    background: #dfece8;
-    color: #174f52;
+    background: var(--color-accent-surface);
+    color: var(--color-accent-text);
   }
 
   .file-pane {
@@ -496,16 +496,16 @@
     margin-top: 8px;
     flex-wrap: wrap;
     padding: 8px 0;
-    border-top: 1px solid #d4d4cf;
-    border-bottom: 1px solid #d4d4cf;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
   }
 
   .commandbar label {
     display: inline-flex;
     align-items: center;
-    border: 1px solid #c7c1b4;
+    border: 1px solid var(--color-border-strong);
     border-radius: 6px;
-    background: #fff;
+    background: var(--color-surface-strong);
     padding: 8px 10px;
     cursor: pointer;
   }
@@ -540,7 +540,7 @@
   .error,
   .danger,
   .failed {
-    color: #9b1c1c;
+    color: var(--color-danger);
   }
 
   .batch-results {
@@ -553,7 +553,7 @@
   .asset-list {
     display: grid;
     margin-top: 12px;
-    border-top: 1px solid #d4d4cf;
+    border-top: 1px solid var(--color-border);
   }
 
   article {
@@ -563,7 +563,7 @@
     align-items: center;
     min-height: 64px;
     padding: 8px 0;
-    border-bottom: 1px solid #d4d4cf;
+    border-bottom: 1px solid var(--color-border);
   }
 
   .asset-link {
@@ -585,7 +585,7 @@
 
   .asset-link span,
   .asset-link small {
-    color: #686862;
+    color: var(--color-text-muted);
     font-size: 12px;
   }
 
@@ -621,7 +621,7 @@
       max-height: 190px;
       overflow: auto;
       border-right: 0;
-      border-bottom: 1px solid #d4d4cf;
+      border-bottom: 1px solid var(--color-border);
     }
 
     .file-pane {

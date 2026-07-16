@@ -129,9 +129,9 @@
   }
 
   .panel {
-    border: 1px solid #d2cec4;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #fbfaf7;
+    background: var(--color-surface);
     padding: 16px;
   }
 
@@ -162,9 +162,9 @@
     grid-template-columns: minmax(180px, 1fr) minmax(180px, 260px) auto minmax(150px, 220px) auto auto;
     gap: 8px;
     align-items: center;
-    border: 1px solid #d2cec4;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: white;
+    background: var(--color-surface-strong);
     padding: 10px;
   }
 
@@ -175,18 +175,18 @@
 
   small,
   .muted {
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 12px;
   }
 
   .error,
   .danger {
-    color: #9b1c1c;
+    color: var(--color-danger);
   }
 
   .message {
     margin-top: 12px;
-    color: #2f6f73;
+    color: var(--color-accent);
   }
 
   @media (max-width: 820px) {

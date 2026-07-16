@@ -474,7 +474,7 @@
   }
 
   .error {
-    color: #9b1c1c;
+    color: var(--color-danger);
     margin: 0;
   }
 

@@ -41,9 +41,9 @@
   }
 
   .event {
-    border-left: 3px solid #b9b2a4;
+    border-left: 3px solid var(--color-border-muted);
     padding: 4px 6px;
-    background: white;
+    background: var(--color-surface-strong);
   }
 
   .event p {
@@ -52,15 +52,15 @@
   }
 
   .event.warning {
-    border-left-color: #a66b00;
+    border-left-color: var(--color-warning);
   }
 
   .event.error {
-    border-left-color: #9b1c1c;
+    border-left-color: var(--color-danger);
   }
 
   small {
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 11px;
   }
 </style>

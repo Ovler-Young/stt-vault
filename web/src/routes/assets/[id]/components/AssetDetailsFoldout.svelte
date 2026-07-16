@@ -41,7 +41,7 @@
   }
 
   .kv span {
-    color: #666052;
+    color: var(--color-text-muted);
   }
 
   .stats {
@@ -55,18 +55,18 @@
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    border: 1px solid #d2cec4;
+    border: 1px solid var(--color-border);
     border-radius: 6px;
     padding: 4px 6px;
-    background: white;
+    background: var(--color-surface-strong);
     font-size: 11px;
   }
 
   .error-box {
     margin-top: 8px;
     white-space: pre-wrap;
-    background: #fff1f1;
-    border: 1px solid #efb4b4;
+    background: var(--color-danger-surface);
+    border: 1px solid var(--color-danger-border);
     border-radius: 6px;
     padding: 8px;
   }

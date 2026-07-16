@@ -31,11 +31,11 @@
     display: grid;
     gap: 6px;
     width: 260px;
-    border: 1px solid #c7c1b4;
+    border: 1px solid var(--color-border-strong);
     border-radius: 8px;
-    background: #fbfaf7;
+    background: var(--color-surface);
     padding: 8px;
-    box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+    box-shadow: 0 12px 32px var(--shadow-popup);
   }
 
   .speaker-editor div {
@@ -45,7 +45,7 @@
   }
 
   small {
-    color: #666052;
+    color: var(--color-text-muted);
     font-size: 11px;
   }
 </style>

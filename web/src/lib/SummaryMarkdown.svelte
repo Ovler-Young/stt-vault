@@ -58,7 +58,7 @@
 
 <style>
   .summary-markdown {
-    color: #252525;
+    color: var(--color-text);
     line-height: 1.5;
   }
 
@@ -82,7 +82,7 @@
   }
 
   .summary-markdown :global(a[href^='#timestamp=']) {
-    color: #1f6266;
+    color: var(--color-accent);
     font-weight: 600;
     text-decoration: underline;
   }

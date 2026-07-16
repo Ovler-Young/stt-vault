@@ -69,7 +69,7 @@
   }
 
   .download-message {
-    color: #2f6f73;
+    color: var(--color-accent);
     font-size: 12px;
   }
 </style>

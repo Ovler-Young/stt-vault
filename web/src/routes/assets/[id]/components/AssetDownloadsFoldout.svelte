@@ -7,16 +7,7 @@
 
   let downloadMessage = '';
 
-  async function copyText(text: string) {
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        // Continue to the browser fallback when clipboard permissions are unavailable.
-      }
-    }
-
+  function copyTextWithDocument(text: string) {
     if (typeof document === 'undefined') return false;
     const textarea = document.createElement('textarea');
     textarea.value = text;
@@ -24,11 +15,26 @@
     textarea.style.position = 'fixed';
     textarea.style.opacity = '0';
     document.body.append(textarea);
+    textarea.focus();
     textarea.select();
+    textarea.setSelectionRange(0, text.length);
     try {
       return document.execCommand('copy');
     } finally {
       textarea.remove();
+    }
+  }
+
+  async function copyText(text: string) {
+    // This deprecated API must run synchronously while the user gesture is active.
+    if (copyTextWithDocument(text)) return true;
+
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
     }
   }
 

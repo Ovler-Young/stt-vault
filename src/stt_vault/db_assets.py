@@ -1,4 +1,7 @@
 import json
+import re
+import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +10,19 @@ from .db_connection import connect, now, row_to_dict, transaction
 from .db_jobs import get_job, list_current_run_events, list_events
 from .db_transcripts import list_transcript_chunks, list_transcript_chunks_from_conn
 from .db_visual_events import list_visual_events
+
+RECORDED_AT_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$")
+
+
+def recorded_at_from_filename(filename: str) -> int | None:
+    stem = Path(filename).stem
+    if not RECORDED_AT_PATTERN.fullmatch(stem):
+        return None
+    try:
+        value = datetime.strptime(stem, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+    return int(value.timestamp())
 
 
 def create_asset(
@@ -20,41 +36,63 @@ def create_asset(
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO assets (
-                id, filename, media_type, parent_folder_id, original_path, status, created_at,
-                updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)
-            """,
-            (
-                asset_id,
-                filename,
-                media_type,
-                parent_folder_id,
-                str(original_path),
-                timestamp,
-                timestamp,
-            ),
+        create_asset_from_conn(
+            conn,
+            asset_id,
+            filename,
+            media_type,
+            original_path,
+            parent_folder_id=parent_folder_id,
+            timestamp=timestamp,
         )
-        conn.execute(
-            """
-            INSERT INTO jobs (id, asset_id, status, created_at)
-            VALUES (?, ?, 'queued', ?)
-            """,
-            (asset_id, asset_id, timestamp),
+
+
+def create_asset_from_conn(
+    conn: sqlite3.Connection,
+    asset_id: str,
+    filename: str,
+    media_type: str,
+    original_path: Path,
+    *,
+    parent_folder_id: str | None = None,
+    timestamp: int,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO assets (
+            id, filename, recorded_at, media_type, parent_folder_id, original_path, status,
+            created_at, updated_at
         )
+        VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+        """,
+        (
+            asset_id,
+            filename,
+            recorded_at_from_filename(filename),
+            media_type,
+            parent_folder_id,
+            str(original_path),
+            timestamp,
+            timestamp,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO jobs (id, asset_id, status, created_at)
+        VALUES (?, ?, 'queued', ?)
+        """,
+        (asset_id, asset_id, timestamp),
+    )
 
 
 def list_assets(db_path: Path) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT id, filename, media_type, duration, status, error, parent_folder_id,
-                   created_at, updated_at
+            SELECT id, filename, title, recorded_at, media_type, duration, status, error,
+                   summary_status, parent_folder_id, created_at, updated_at
             FROM assets
-            ORDER BY created_at DESC
+            ORDER BY COALESCE(recorded_at, created_at) DESC, created_at DESC, id DESC
             """
         ).fetchall()
     return [row_to_dict(row) or {} for row in rows]
@@ -130,6 +168,7 @@ def update_asset_summary(
     text: str | None = None,
     error: str | None = None,
     model: str | None = None,
+    title: str | None = None,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -137,10 +176,11 @@ def update_asset_summary(
             """
             UPDATE assets
             SET summary_status = ?, summary_text = ?, summary_error = ?, summary_model = ?,
+                title = COALESCE(?, title),
                 summary_updated_at = ?, updated_at = ?
             WHERE id = ?
             """,
-            (status, text, error, model, timestamp, timestamp, asset_id),
+            (status, text, error, model, title, timestamp, timestamp, asset_id),
         )
 
 

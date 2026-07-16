@@ -65,10 +65,10 @@ def list_folder_tree(db_path: Path) -> dict[str, list[dict[str, Any]]]:
         ).fetchall()
         asset_rows = conn.execute(
             """
-            SELECT id, filename, media_type, duration, status, error, parent_folder_id,
-                   created_at, updated_at
+            SELECT id, filename, title, recorded_at, media_type, duration, status, error,
+                   summary_status, parent_folder_id, created_at, updated_at
             FROM assets
-            ORDER BY created_at DESC, id DESC
+            ORDER BY COALESCE(recorded_at, created_at) DESC, created_at DESC, id DESC
             """
         ).fetchall()
 
@@ -112,6 +112,34 @@ def move_folder(
             (parent_id, timestamp, folder_id),
         )
     return {**folder, "parent_id": parent_id, "updated_at": timestamp}
+
+
+def rename_folder(db_path: Path, folder_id: str, name: str) -> dict[str, Any]:
+    normalized_name = _normalize_name(name)
+    timestamp = now()
+    with transaction(db_path) as conn:
+        folder = _require_folder(conn, folder_id)
+        conn.execute(
+            "UPDATE folders SET name = ?, updated_at = ? WHERE id = ?",
+            (normalized_name, timestamp, folder_id),
+        )
+    return {**folder, "name": normalized_name, "updated_at": timestamp}
+
+
+def delete_folder(db_path: Path, folder_id: str) -> None:
+    with transaction(db_path) as conn:
+        _require_folder(conn, folder_id)
+        has_child = conn.execute(
+            "SELECT 1 FROM folders WHERE parent_id = ? LIMIT 1",
+            (folder_id,),
+        ).fetchone()
+        has_asset = conn.execute(
+            "SELECT 1 FROM assets WHERE parent_folder_id = ? LIMIT 1",
+            (folder_id,),
+        ).fetchone()
+        if has_child is not None or has_asset is not None:
+            raise ValueError("Folder is not empty")
+        conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
 
 
 def move_asset(

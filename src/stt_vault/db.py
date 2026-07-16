@@ -15,11 +15,13 @@ from .db_assets import (
 from .db_connection import connect, now, row_to_dict, transaction
 from .db_folders import (
     create_folder,
+    delete_folder,
     get_folder,
     list_folder_tree,
     list_folders,
     move_asset,
     move_folder,
+    rename_folder,
 )
 from .db_jobs import (
     add_event,
@@ -57,6 +59,13 @@ from .db_transcripts import (
     reset_transcript_chunks,
     upsert_transcript_chunk,
 )
+from .db_uploads import (
+    complete_upload_session,
+    create_upload_session,
+    delete_upload_session,
+    get_upload_session,
+    update_upload_offset,
+)
 from .db_visual_events import list_visual_events, replace_visual_events
 
 __all__ = [
@@ -64,17 +73,22 @@ __all__ = [
     "apply_ai_speaker_names",
     "add_missing_columns",
     "claim_next_job",
+    "complete_upload_session",
     "connect",
     "create_asset",
     "create_folder",
+    "create_upload_session",
+    "delete_folder",
     "clear_cleanup_task",
     "get_cleanup_task",
     "delete_speaker",
     "delete_asset_with_cleanup_task",
+    "delete_upload_session",
     "find_speaker_by_display_name",
     "get_asset",
     "get_folder",
     "get_job",
+    "get_upload_session",
     "get_speaker",
     "initialize",
     "list_asset_ids_for_speaker",
@@ -102,6 +116,7 @@ __all__ = [
     "relabel_asset_speaker",
     "relabel_asset_speakers",
     "rename_speaker",
+    "rename_folder",
     "replace_visual_events",
     "reset_transcript_chunks",
     "retry_asset",
@@ -113,6 +128,7 @@ __all__ = [
     "update_diarization_metadata",
     "update_progress",
     "update_stage",
+    "update_upload_offset",
     "upsert_speaker",
     "upsert_transcript_chunk",
 ]

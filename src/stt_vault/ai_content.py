@@ -10,6 +10,7 @@ _UNUSABLE_SPEAKER_NAMES = {"unknown", "unidentified", "n/a", "none"}
 
 @dataclass(frozen=True)
 class ContentAnalysis:
+    title: str
     content_summary: str
     themes: list[str]
     conclusions: list[str]
@@ -41,12 +42,14 @@ def build_content_analysis_prompt(
         [
             "Analyze the conversation content below. Return one JSON object with exactly "
             "these keys:",
-            '{"content_summary":"string","themes":["string"],"conclusions":["string"],'
+            '{"title":"short descriptive title","content_summary":"string",'
+            '"themes":["string"],"conclusions":["string"],'
             '"decisions":["string"],"action_items":[{"action":"string","owner":"string or null"}],'
             '"open_questions":["string"],"highlights":[{"timestamp":0,"text":"string"}],'
             '"speaker_candidates":[{"speaker":"SPEAKER_XX",'
             '"name":"string","confidence":0.0}]}',
-            "Summarize the subject matter, conclusions, themes, decisions, action items, and "
+            "Write a concise descriptive title, then summarize the subject matter, conclusions, "
+            "themes, decisions, action items, and "
             "open questions. Include 6 to 15 highlights for high-signal moments. Each highlight "
             "timestamp must be a non-negative integer number of seconds from the provided "
             "conversation timestamps. Do not describe transcription, diarization, a model, "
@@ -73,6 +76,9 @@ def parse_content_analysis(
     if not isinstance(payload, dict):
         raise ValueError("AI response was not a JSON object")
 
+    title = _required_text(payload.get("title"), "title")
+    if len(title) > 160:
+        raise ValueError("AI response title was too long")
     content_summary = _required_text(payload.get("content_summary"), "content_summary")
     speaker_names: dict[str, str] = {}
     for candidate in _object_list(payload.get("speaker_candidates")):
@@ -97,6 +103,7 @@ def parse_content_analysis(
         action_items.append((action.strip(), owner_value))
 
     return ContentAnalysis(
+        title=title,
         content_summary=content_summary,
         themes=_text_list(payload.get("themes")),
         conclusions=_text_list(payload.get("conclusions")),

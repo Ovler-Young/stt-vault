@@ -9,6 +9,7 @@ from .diarization import DiarizerManager, match_speakers, serialize_centroids
 from .exports import write_exports
 from .media import ffprobe_duration, to_wav_16k_mono
 from .settings import Settings
+from .summary_service import generate_asset_summary
 from .transcription import Transcriber, build_transcription_plan, transcript_chunks_match_plan
 from .visual import detect_slide_changes, write_visual_event_thumbnails, write_visual_events_export
 
@@ -276,8 +277,7 @@ class Worker:
         )
         exports.update(self.detect_visual_events(asset_id, asset, original_path))
 
-        db.mark_success(
-            self.settings.stt_db_path,
+        self.complete_asset(
             asset_id,
             wav_path=wav_path,
             duration=duration,
@@ -289,6 +289,47 @@ class Worker:
             exports=exports,
         )
         shutil.rmtree(work_dir, ignore_errors=True)
+
+    def complete_asset(
+        self,
+        asset_id: str,
+        *,
+        wav_path: Path,
+        duration: float,
+        diarization_stats: dict[str, Any],
+        raw_segments: list[dict[str, Any]],
+        merged_segments: list[dict[str, Any]],
+        speaker_centroids: dict[str, list[float]],
+        transcript_segments: list[dict[str, Any]],
+        exports: dict[str, str],
+    ) -> None:
+        db.update_asset_summary(self.settings.stt_db_path, asset_id, status="running")
+        db.mark_success(
+            self.settings.stt_db_path,
+            asset_id,
+            wav_path=wav_path,
+            duration=duration,
+            diarization_stats=diarization_stats,
+            raw_segments=raw_segments,
+            merged_segments=merged_segments,
+            speaker_centroids=speaker_centroids,
+            transcript_segments=transcript_segments,
+            exports=exports,
+        )
+        self.generate_summary(asset_id)
+
+    def generate_summary(self, asset_id: str) -> None:
+        try:
+            generate_asset_summary(self.settings, asset_id)
+        except Exception as exc:
+            db.add_event(
+                self.settings.stt_db_path,
+                asset_id,
+                "warning",
+                "summarizing content",
+                "Automatic summary generation failed",
+                {"type": exc.__class__.__name__, "message": str(exc)},
+            )
 
     def detect_visual_events(
         self,

@@ -11,8 +11,8 @@
 
 <section class="asset-head">
   <div class="title">
-    <h1>{asset.filename}</h1>
-    <p>{asset.status} · {formatTime(asset.duration)} {#if progressText(asset)}· {progressText(asset)} chunks{/if}</p>
+    <h1>{asset.title || asset.filename}</h1>
+    <p>{asset.filename} · {asset.status} · {formatTime(asset.duration)} {#if progressText(asset)}· {progressText(asset)} chunks{/if}</p>
   </div>
   <div class="actions">
     {#if asset.status === 'failed' || asset.status === 'partial'}

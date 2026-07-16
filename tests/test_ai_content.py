@@ -13,6 +13,7 @@ def test_content_analysis_contract_keeps_content_fields_and_filters_candidates()
     prompt = build_content_analysis_prompt(transcript)
     analysis = parse_content_analysis(
         '''{
+          "title": "Friday release planning",
           "content_summary": "The team agreed to ship on Friday.",
           "themes": ["release planning"],
           "conclusions": ["Friday is the target date"],
@@ -36,6 +37,7 @@ def test_content_analysis_contract_keeps_content_fields_and_filters_candidates()
     assert "[SPEAKER_00 00:00-00:04] We should ship Friday." in prompt
     assert "[SPEAKER_01 00:05-00:08] I approve the plan." in prompt
     assert analysis.speaker_names == {"SPEAKER_00": "Maya Chen"}
+    assert analysis.title == "Friday release planning"
     assert analysis.highlights == [
         (5, "The team confirms the Friday release."),
         (125, "QA readiness remains open."),
@@ -61,3 +63,15 @@ def test_content_analysis_rejects_invalid_json() -> None:
         assert str(exc) == "AI response was not valid JSON"
     else:
         raise AssertionError("Expected invalid JSON to be rejected")
+
+
+def test_content_analysis_requires_a_title() -> None:
+    try:
+        parse_content_analysis(
+            '{"content_summary":"Summary"}',
+            minimum_speaker_confidence=0.95,
+        )
+    except ValueError as exc:
+        assert str(exc) == "AI response did not include title"
+    else:
+        raise AssertionError("Expected a missing title to be rejected")

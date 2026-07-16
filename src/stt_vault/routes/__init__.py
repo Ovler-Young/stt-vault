@@ -18,6 +18,7 @@ from .assets import (
 from .folders import register_folder_routes
 from .speakers import register_speaker_routes
 from .system import register_system_routes
+from .uploads import register_upload_routes
 
 __all__ = ["register_api_routes"]
 
@@ -25,6 +26,7 @@ __all__ = ["register_api_routes"]
 def register_api_routes(app: FastAPI, settings: Settings, worker: Worker) -> None:
     register_system_routes(app, settings)
     register_asset_collection_routes(app, settings)
+    register_upload_routes(app, settings)
     register_folder_routes(app, settings)
     register_speaker_routes(app, settings)
     register_asset_detail_routes(app, settings)

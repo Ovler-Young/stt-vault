@@ -88,3 +88,43 @@ def test_folder_move_rejects_descendant_target(
 
     assert response.status_code == 409
     assert response.json() == {"detail": "A folder cannot be moved into a descendant"}
+
+
+def test_folder_rename_and_empty_delete(
+    folder_client: tuple[TestClient, dict[str, str]],
+) -> None:
+    client, headers = folder_client
+    folder = client.post("/api/folders", headers=headers, json={"name": "Draft"}).json()
+
+    rename_response = client.put(
+        f"/api/folders/{folder['id']}",
+        headers=headers,
+        json={"name": "Published"},
+    )
+    delete_response = client.delete(f"/api/folders/{folder['id']}", headers=headers)
+
+    assert rename_response.status_code == 200
+    assert rename_response.json()["name"] == "Published"
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"status": "deleted"}
+
+
+def test_folder_delete_rejects_non_empty_folder(
+    folder_client: tuple[TestClient, dict[str, str]],
+) -> None:
+    client, headers = folder_client
+    folder = client.post("/api/folders", headers=headers, json={"name": "Meetings"}).json()
+    settings = get_settings()
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-1",
+        "meeting.mp4",
+        "video",
+        settings.media_dir / "asset-1" / "meeting.mp4",
+        parent_folder_id=folder["id"],
+    )
+
+    response = client.delete(f"/api/folders/{folder['id']}", headers=headers)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Folder is not empty"}

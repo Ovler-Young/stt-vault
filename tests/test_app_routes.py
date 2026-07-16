@@ -20,9 +20,15 @@ EXPECTED_API_ROUTES = [
     ("POST", "/api/assets/batch"),
     ("GET", "/api/assets"),
     ("GET", "/api/jobs"),
+    ("POST", "/api/uploads"),
+    ("GET", "/api/uploads/{upload_id}"),
+    ("PUT", "/api/uploads/{upload_id}"),
+    ("POST", "/api/uploads/{upload_id}/complete"),
     ("GET", "/api/folders"),
     ("POST", "/api/folders"),
     ("POST", "/api/folders/{folder_id}/move"),
+    ("PUT", "/api/folders/{folder_id}"),
+    ("DELETE", "/api/folders/{folder_id}"),
     ("GET", "/api/speakers"),
     ("PUT", "/api/speakers/{speaker_id}"),
     ("DELETE", "/api/speakers/{speaker_id}"),
@@ -152,6 +158,62 @@ def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient
     }
 
 
+def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> None:
+    headers = auth_headers(client)
+    create_response = client.post(
+        "/api/uploads",
+        headers=headers,
+        json={"filename": "2026-07-15_12-57-52.mp4", "size": 10},
+    )
+
+    assert create_response.status_code == 200
+    upload_id = create_response.json()["id"]
+    upload = db.get_upload_session(get_settings().stt_db_path, upload_id)
+    assert upload is not None
+    Path(upload["temp_path"]).write_bytes(b"unconfirmed")
+    first_response = client.put(
+        f"/api/uploads/{upload_id}",
+        headers={**headers, "Content-Range": "bytes 0-4/10"},
+        content=b"first",
+    )
+    rejected_response = client.put(
+        f"/api/uploads/{upload_id}",
+        headers={**headers, "Content-Range": "bytes 7-9/10"},
+        content=b"bad",
+    )
+    short_response = client.put(
+        f"/api/uploads/{upload_id}",
+        headers={**headers, "Content-Range": "bytes 5-9/10"},
+        content=b"no",
+    )
+    status_response = client.get(f"/api/uploads/{upload_id}", headers=headers)
+
+    assert first_response.status_code == 200
+    assert first_response.json()["offset"] == 5
+    assert rejected_response.status_code == 409
+    assert rejected_response.json() == {"detail": "Expected range to start at byte 5"}
+    assert short_response.status_code == 400
+    assert short_response.json() == {"detail": "Content-Range does not match body size"}
+    assert status_response.json()["offset"] == 5
+
+    final_response = client.put(
+        f"/api/uploads/{upload_id}",
+        headers={**headers, "Content-Range": "bytes 5-9/10"},
+        content=b"final",
+    )
+    complete_response = client.post(f"/api/uploads/{upload_id}/complete", headers=headers)
+
+    assert final_response.status_code == 200
+    assert final_response.json()["offset"] == 10
+    assert complete_response.status_code == 200
+    asset = db.get_asset(get_settings().stt_db_path, complete_response.json()["id"])
+    assert asset is not None
+    assert asset["filename"] == "2026-07-15_12-57-52.mp4"
+    assert asset["recorded_at"] == 1_784_120_272
+    assert Path(asset["original_path"]).read_bytes() == b"firstfinal"
+    assert client.get(f"/api/uploads/{upload_id}", headers=headers).status_code == 404
+
+
 def test_summary_requires_completed_transcript(client: TestClient) -> None:
     response = client.post("/api/assets/missing/summary", headers=auth_headers(client))
     assert response.status_code == 404
@@ -172,7 +234,8 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
                     SimpleNamespace(
                         message=SimpleNamespace(
                             content=(
-                                '{"content_summary":"The team approved a Friday release.",'
+                                '{"title":"Friday release approved",'
+                                '"content_summary":"The team approved a Friday release.",'
                                 '"themes":["release planning"],"conclusions":[],"decisions":[],'
                                 '"action_items":[],"open_questions":[],'
                                 '"highlights":[{"timestamp":3,"text":"Friday release confirmed."}],'
@@ -193,7 +256,7 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
         def __init__(self, **_kwargs) -> None:
             self.chat = SimpleNamespace(completions=completions)
 
-    monkeypatch.setattr("stt_vault.routes.assets.OpenAI", FakeOpenAI)
+    monkeypatch.setattr("stt_vault.summary_service.OpenAI", FakeOpenAI)
     db_path = get_settings().stt_db_path
     db.create_asset(db_path, "asset-1", "clip.mp4", "video", db_path.parent / "clip.mp4")
     db.upsert_transcript_chunk(
@@ -223,6 +286,7 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
     asset = db.get_asset(db_path, "asset-1")
 
     assert response.status_code == 200
+    assert response.json()["title"] == "Friday release approved"
     assert response.json()["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
     assert "response_format" not in completions.calls[0]
     assert "[SPEAKER_00 00:00-00:02] Ship Friday." in completions.calls[0]["messages"][1]["content"]
@@ -230,6 +294,7 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
         "messages"
     ][1]["content"]
     assert asset is not None
+    assert asset["title"] == "Friday release approved"
     assert "## Summary\n\nThe team approved a Friday release." in asset["summary_text"]
     assert "## Highlights\n\n- [00:00:03] Friday release confirmed." in asset["summary_text"]
     assert [segment["speaker_name"] for segment in asset["transcript_segments"]] == [

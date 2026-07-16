@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
 from .. import db
 from ..auth import require_admin
-from ..requests import FolderCreateRequest, FolderMoveRequest
+from ..requests import FolderCreateRequest, FolderMoveRequest, FolderRenameRequest
 from ..settings import Settings
 
 __all__ = ["register_folder_routes"]
@@ -39,5 +39,24 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
             raise HTTPException(status_code=404, detail=detail) from None
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @router.put("/api/folders/{folder_id}", dependencies=[Depends(require_admin)])
+    def rename_folder(folder_id: str, payload: FolderRenameRequest) -> dict:
+        try:
+            return db.rename_folder(settings.stt_db_path, folder_id, payload.name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Folder not found") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @router.delete("/api/folders/{folder_id}", dependencies=[Depends(require_admin)])
+    def delete_folder(folder_id: str) -> dict[str, str]:
+        try:
+            db.delete_folder(settings.stt_db_path, folder_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Folder not found") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"status": "deleted"}
 
     app.include_router(router)

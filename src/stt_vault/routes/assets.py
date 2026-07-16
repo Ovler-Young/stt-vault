@@ -4,18 +4,13 @@ from pathlib import Path, PurePosixPath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, UploadFile
-from openai import OpenAI
 
 from .. import db
-from ..ai_content import (
-    build_content_analysis_prompt,
-    format_content_summary,
-    parse_content_analysis,
-)
 from ..auth import require_admin
 from ..media import store_upload
 from ..requests import AssetMoveRequest
 from ..settings import Settings
+from ..summary_service import generate_asset_summary
 
 __all__ = [
     "register_asset_collection_routes",
@@ -154,51 +149,10 @@ def register_asset_summary_routes(app: FastAPI, settings: Settings) -> None:
             raise HTTPException(status_code=404, detail="Asset not found")
         if asset["status"] != "success" or not asset.get("transcript_segments"):
             raise HTTPException(status_code=409, detail="A completed transcript is required")
-        prompt = build_content_analysis_prompt(
-            asset["transcript_segments"],
-            minimum_speaker_confidence=settings.openai_speaker_name_confidence,
-        )
-        db.update_asset_summary(settings.stt_db_path, asset_id, status="running")
         try:
-            client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
-            response = client.chat.completions.create(
-                model=settings.openai_summary_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Return only valid JSON. Do not add markdown fences or "
-                        "commentary.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            )
-            analysis = parse_content_analysis(
-                response.choices[0].message.content or "",
-                minimum_speaker_confidence=settings.openai_speaker_name_confidence,
-            )
-            text = format_content_summary(analysis)
-            speaker_names = db.apply_ai_speaker_names(
-                settings.stt_db_path,
-                asset_id,
-                analysis.speaker_names,
-            )
+            return generate_asset_summary(settings, asset_id, asset)
         except Exception as exc:
-            db.update_asset_summary(
-                settings.stt_db_path,
-                asset_id,
-                status="failed",
-                error=str(exc),
-                model=settings.openai_summary_model,
-            )
             raise HTTPException(status_code=502, detail="Summary generation failed") from exc
-        db.update_asset_summary(
-            settings.stt_db_path,
-            asset_id,
-            status="success",
-            text=text,
-            model=settings.openai_summary_model,
-        )
-        return {"status": "success", "summary": text, "speaker_names": speaker_names}
 
     app.include_router(router)
 

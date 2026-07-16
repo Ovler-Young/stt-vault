@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+from .db_assets import recorded_at_from_filename
 from .db_connection import transaction
 
 
@@ -11,6 +12,8 @@ def initialize(db_path: Path) -> None:
             CREATE TABLE IF NOT EXISTS assets (
                 id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
+                title TEXT,
+                recorded_at INTEGER,
                 media_type TEXT NOT NULL,
                 parent_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
                 original_path TEXT NOT NULL,
@@ -87,6 +90,16 @@ def initialize(db_path: Path) -> None:
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS upload_sessions (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                total_size INTEGER NOT NULL,
+                offset INTEGER NOT NULL DEFAULT 0,
+                temp_path TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS transcript_chunks (
                 asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
                 chunk_index INTEGER NOT NULL,
@@ -132,6 +145,8 @@ def initialize(db_path: Path) -> None:
             "assets",
             {
                 "parent_folder_id": "TEXT REFERENCES folders(id) ON DELETE SET NULL",
+                "title": "TEXT",
+                "recorded_at": "INTEGER",
                 "summary_status": "TEXT",
                 "summary_text": "TEXT",
                 "summary_error": "TEXT",
@@ -139,6 +154,19 @@ def initialize(db_path: Path) -> None:
                 "summary_updated_at": "INTEGER",
             },
         )
+        asset_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(assets)").fetchall()
+        }
+        if "filename" in asset_columns:
+            for row in conn.execute(
+                "SELECT id, filename FROM assets WHERE recorded_at IS NULL"
+            ).fetchall():
+                recorded_at = recorded_at_from_filename(row["filename"])
+                if recorded_at is not None:
+                    conn.execute(
+                        "UPDATE assets SET recorded_at = ? WHERE id = ?",
+                        (recorded_at, row["id"]),
+                    )
         add_missing_columns(
             conn,
             "jobs",
@@ -154,6 +182,9 @@ def initialize(db_path: Path) -> None:
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_assets_parent_folder_id ON assets(parent_folder_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assets_recorded_at ON assets(recorded_at DESC)"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_processing_claim "

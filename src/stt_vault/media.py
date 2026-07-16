@@ -34,6 +34,15 @@ def store_upload(data_media_dir: Path, filename: str, source_path: Path) -> tupl
     return asset_id, stored_path, media_type_for_filename(filename)
 
 
+def move_upload(data_media_dir: Path, filename: str, source_path: Path) -> tuple[str, Path, str]:
+    asset_id = new_asset_id()
+    target_dir = asset_dir(data_media_dir, asset_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = target_dir / safe_filename(filename)
+    source_path.replace(stored_path)
+    return asset_id, stored_path, media_type_for_filename(filename)
+
+
 def ffprobe_duration(input_path: Path) -> float:
     result = subprocess.run(
         [

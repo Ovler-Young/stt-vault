@@ -78,6 +78,10 @@ class Settings(BaseSettings):
         return self.stt_data_dir / "tmp"
 
     @property
+    def uploads_dir(self) -> Path:
+        return self.stt_data_dir / "uploads"
+
+    @property
     def parsed_export_formats(self) -> list[str]:
         return [item.strip() for item in self.export_formats.split(",") if item.strip()]
 

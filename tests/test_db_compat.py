@@ -126,6 +126,9 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         chunk_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(transcript_chunks)")
         }
+        upload_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(upload_sessions)")
+        }
 
     assert {
         "assets",
@@ -135,6 +138,7 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "transcript_chunks",
         "asset_visual_events",
         "folders",
+        "upload_sessions",
     }.issubset(tables)
     assert {
         "idx_assets_created_at",
@@ -153,7 +157,18 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "transcript_segments",
         "exports",
         "parent_folder_id",
+        "title",
+        "recorded_at",
     }.issubset(assets_columns)
+    assert {
+        "id",
+        "filename",
+        "total_size",
+        "offset",
+        "temp_path",
+        "created_at",
+        "updated_at",
+    }.issubset(upload_columns)
     assert {"id", "name", "parent_id", "created_at", "updated_at"}.issubset(folders_columns)
     assert {
         "progress_total_chunks",

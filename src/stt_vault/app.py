@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     settings.media_dir.mkdir(parents=True, exist_ok=True)
     settings.exports_dir.mkdir(parents=True, exist_ok=True)
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     db.initialize(settings.stt_db_path)
     db.recover_expired_jobs(settings.stt_db_path)
 

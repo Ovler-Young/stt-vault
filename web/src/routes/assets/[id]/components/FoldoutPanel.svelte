@@ -1,8 +1,9 @@
 <script lang="ts">
   export let summary: string;
+  export let open = false;
 </script>
 
-<details>
+<details {open}>
   <summary>{summary}</summary>
   <slot />
 </details>

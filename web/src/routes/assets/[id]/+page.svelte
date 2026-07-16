@@ -20,6 +20,7 @@
   import AssetDownloadsFoldout from './components/AssetDownloadsFoldout.svelte';
   import AssetEventsFoldout from './components/AssetEventsFoldout.svelte';
   import AssetFoldoutGroup from './components/AssetFoldoutGroup.svelte';
+  import FoldoutPanel from './components/FoldoutPanel.svelte';
   import AssetHeader from './components/AssetHeader.svelte';
   import AssetMediaPane from './components/AssetMediaPane.svelte';
   import AssetSpeakersFoldout from './components/AssetSpeakersFoldout.svelte';
@@ -47,6 +48,7 @@
   let playbackRate = 1;
   let pendingMediaSeek: number | null = null;
   let playbackFrame: number | null = null;
+  let autoMatchedAssetId = '';
 
   $: assetId = $page.params.id ?? '';
   $: speakerRows = asset ? localSpeakerRows(asset) : [];
@@ -67,6 +69,15 @@
     try {
       if (!assetId) return;
       asset = await fetchAsset(assetId);
+      if (asset.id !== autoMatchedAssetId && hasUnmatchedSpeakers(asset)) {
+        autoMatchedAssetId = asset.id;
+        try {
+          await recomputeAssetSpeakers(asset.id);
+          asset = await fetchAsset(asset.id);
+        } catch (matchError) {
+          speakerMessage = matchError instanceof Error ? matchError.message : String(matchError);
+        }
+      }
       await loadAudioTracks(asset.id);
       syncSpeakerDrafts();
       updatePolling();
@@ -76,8 +87,17 @@
     }
   }
 
+  function hasUnmatchedSpeakers(currentAsset: AssetDetail) {
+    if (currentAsset.status !== 'success' && currentAsset.status !== 'partial') return false;
+    return (currentAsset.transcript_segments ?? []).some((segment) => {
+      const displayName = segment.speaker_name?.trim();
+      return /^SPEAKER_\d+$/.test(segment.speaker) && (!displayName || displayName === segment.speaker);
+    });
+  }
+
   function updatePolling() {
-    const shouldPoll = asset?.status === 'queued' || asset?.status === 'processing';
+    const shouldPoll =
+      asset?.status === 'queued' || asset?.status === 'processing' || asset?.summary_status === 'running';
     if (shouldPoll && !poll) {
       poll = setInterval(load, 3000);
     } else if (!shouldPoll && poll) {
@@ -398,12 +418,12 @@
 
         <AssetFoldoutGroup>
           {#if asset.status === 'success'}
-            <section class="summary">
+            <FoldoutPanel summary="Summary" open>
               <button on:click={summarize}>Generate summary</button>
               {#if summaryMessage}<p aria-live="polite">{summaryMessage}</p>{/if}
               {#if asset.summary_text}<SummaryMarkdown markdown={asset.summary_text} onSeek={seekToTime} />{/if}
               {#if asset.summary_error}<p class="error">{asset.summary_error}</p>{/if}
-            </section>
+            </FoldoutPanel>
           {/if}
           <AssetDetailsFoldout {asset} />
           {#if asset.exports}

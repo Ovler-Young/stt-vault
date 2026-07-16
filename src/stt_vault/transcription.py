@@ -13,7 +13,6 @@ def build_chunks(
     segments: list[dict[str, Any]],
     *,
     max_seconds: float,
-    overlap_seconds: float,
 ) -> list[dict[str, Any]]:
     chunks: list[dict[str, Any]] = []
     chunk_index = 0
@@ -26,16 +25,38 @@ def build_chunks(
             chunks.append(
                 {
                     "chunk_index": chunk_index,
-                    "start": max(0.0, cursor - overlap_seconds),
+                    "start": cursor,
                     "end": chunk_end,
                     "speaker": segment["speaker"],
-                    "source_start": start,
-                    "source_end": end,
                 }
             )
             chunk_index += 1
             cursor = chunk_end
     return chunks
+
+
+def build_transcription_plan(
+    diarization: dict[str, Any], *, max_seconds: float
+) -> list[dict[str, Any]]:
+    return build_chunks(diarization["raw_segments"], max_seconds=max_seconds)
+
+
+def transcript_chunks_match_plan(
+    existing_chunks: list[dict[str, Any]], chunks: list[dict[str, Any]]
+) -> bool:
+    for existing in existing_chunks:
+        index = existing.get("chunk_index")
+        if not isinstance(index, int) or index < 0 or index >= len(chunks):
+            return False
+        expected = chunks[index]
+        if existing.get("speaker") != expected["speaker"]:
+            return False
+        for field in ("start", "end", "chunk_start", "chunk_end"):
+            actual = existing.get(field)
+            expected_value = expected["start"] if field.endswith("start") else expected["end"]
+            if not isinstance(actual, int | float) or abs(float(actual) - expected_value) > 0.001:
+                return False
+    return True
 
 
 class Transcriber:
@@ -138,8 +159,8 @@ class Transcriber:
                         text = response.get("text")
 
                     result = {
-                        "start": chunk["source_start"],
-                        "end": chunk["source_end"],
+                        "start": chunk["start"],
+                        "end": chunk["end"],
                         "chunk_start": chunk["start"],
                         "chunk_end": chunk["end"],
                         "speaker": chunk["speaker"],

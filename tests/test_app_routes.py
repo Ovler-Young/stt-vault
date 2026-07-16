@@ -175,6 +175,7 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
                                 '{"content_summary":"The team approved a Friday release.",'
                                 '"themes":["release planning"],"conclusions":[],"decisions":[],'
                                 '"action_items":[],"open_questions":[],'
+                                '"highlights":[{"timestamp":3,"text":"Friday release confirmed."}],'
                                 '"speaker_candidates":['
                                 '{"speaker":"SPEAKER_00","name":"Maya Chen",'
                                 '"confidence":0.97},'
@@ -229,7 +230,8 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
         "messages"
     ][1]["content"]
     assert asset is not None
-    assert asset["summary_text"].startswith("The team approved a Friday release.")
+    assert "## Summary\n\nThe team approved a Friday release." in asset["summary_text"]
+    assert "## Highlights\n\n- [00:00:03] Friday release confirmed." in asset["summary_text"]
     assert [segment["speaker_name"] for segment in asset["transcript_segments"]] == [
         "Maya Chen",
         "Alice",

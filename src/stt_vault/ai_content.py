@@ -16,6 +16,7 @@ class ContentAnalysis:
     decisions: list[str]
     action_items: list[tuple[str, str | None]]
     open_questions: list[str]
+    highlights: list[tuple[int, str]]
     speaker_names: dict[str, str]
 
 
@@ -42,11 +43,14 @@ def build_content_analysis_prompt(
             "these keys:",
             '{"content_summary":"string","themes":["string"],"conclusions":["string"],'
             '"decisions":["string"],"action_items":[{"action":"string","owner":"string or null"}],'
-            '"open_questions":["string"],"speaker_candidates":[{"speaker":"SPEAKER_XX",'
+            '"open_questions":["string"],"highlights":[{"timestamp":0,"text":"string"}],'
+            '"speaker_candidates":[{"speaker":"SPEAKER_XX",'
             '"name":"string","confidence":0.0}]}',
             "Summarize the subject matter, conclusions, themes, decisions, action items, and "
-            "open questions. Do not describe transcription, diarization, a model, processing, or "
-            "the analysis task. Use speaker_candidates only when the complete conversation "
+            "open questions. Include 6 to 15 highlights for high-signal moments. Each highlight "
+            "timestamp must be a non-negative integer number of seconds from the provided "
+            "conversation timestamps. Do not describe transcription, diarization, a model, "
+            "processing, or the analysis task. Use speaker_candidates only when the conversation "
             "provides strong evidence of a person's actual name. Do not guess. Preserve the "
             "exact SPEAKER_XX label in each candidate. Omit a candidate when confidence is "
             f"below {minimum_speaker_confidence:.2f}, when a name is not supported by the "
@@ -99,12 +103,13 @@ def parse_content_analysis(
         decisions=_text_list(payload.get("decisions")),
         action_items=action_items,
         open_questions=_text_list(payload.get("open_questions")),
+        highlights=_highlights(payload.get("highlights")),
         speaker_names=speaker_names,
     )
 
 
 def format_content_summary(analysis: ContentAnalysis) -> str:
-    sections = [analysis.content_summary]
+    sections = ["## Summary\n\n" + analysis.content_summary]
     for heading, values in (
         ("Themes", analysis.themes),
         ("Conclusions", analysis.conclusions),
@@ -116,7 +121,12 @@ def format_content_summary(analysis: ContentAnalysis) -> str:
         ("Open questions", analysis.open_questions),
     ):
         if values:
-            sections.append(f"{heading}\n" + "\n".join(f"- {value}" for value in values))
+            sections.append(f"### {heading}\n\n" + "\n".join(f"- {value}" for value in values))
+    highlights = "\n".join(
+        f"- [{_format_highlight_timestamp(timestamp)}] {text}"
+        for timestamp, text in analysis.highlights
+    )
+    sections.append("## Highlights" + (f"\n\n{highlights}" if highlights else ""))
     return "\n\n".join(sections)
 
 
@@ -137,6 +147,12 @@ def _format_timestamp(value: object) -> str:
     return f"{minutes:02d}:{seconds:02d}"
 
 
+def _format_highlight_timestamp(seconds: int) -> str:
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 def _required_text(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"AI response did not include {field}")
@@ -153,6 +169,28 @@ def _object_list(value: object) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _highlights(value: object) -> list[tuple[int, str]]:
+    highlights: list[tuple[int, str]] = []
+    seen = set()
+    for item in _object_list(value):
+        timestamp = item.get("timestamp")
+        text = item.get("text")
+        if isinstance(timestamp, bool) or not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            seconds_value = float(timestamp)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(seconds_value) or not seconds_value.is_integer():
+            continue
+        seconds = int(seconds_value)
+        if seconds < 0 or seconds in seen:
+            continue
+        seen.add(seconds)
+        highlights.append((seconds, text.strip()))
+    return sorted(highlights)
 
 
 def _is_confident(value: object, threshold: float) -> bool:

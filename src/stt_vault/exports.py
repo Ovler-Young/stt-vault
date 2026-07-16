@@ -86,24 +86,12 @@ def to_srt(segments: list[dict[str, Any]]) -> str:
 
 def to_ai_text(segments: list[dict[str, Any]]) -> str:
     blocks = []
-    current_speaker = None
-    current_lines = []
-
     for segment in segments:
         speaker = segment.get("speaker_name") or segment["speaker"]
         text = segment["text"].strip()
         if not text:
             continue
-        if current_speaker is None:
-            current_speaker = speaker
-        if speaker != current_speaker:
-            blocks.append(f"{current_speaker}:\n" + " ".join(current_lines))
-            current_speaker = speaker
-            current_lines = []
-        current_lines.append(text)
-
-    if current_speaker is not None and current_lines:
-        blocks.append(f"{current_speaker}:\n" + " ".join(current_lines))
+        blocks.append(f"[{format_vtt_time(segment['start'])}] {speaker}:\n{text}")
 
     return "\n\n".join(blocks) + "\n"
 

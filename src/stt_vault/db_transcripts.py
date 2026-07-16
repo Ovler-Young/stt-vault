@@ -9,6 +9,10 @@ from .db_connection import connect, now, transaction
 def reset_transcript_chunks(db_path: Path, asset_id: str) -> None:
     with transaction(db_path) as conn:
         conn.execute("DELETE FROM transcript_chunks WHERE asset_id = ?", (asset_id,))
+        conn.execute(
+            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+            ("[]", now(), asset_id),
+        )
 
 
 def upsert_transcript_chunk(

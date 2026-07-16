@@ -49,11 +49,7 @@ class Settings(BaseSettings):
     jwt_access_token_minutes: int = Field(default=60, ge=1, alias="JWT_ACCESS_TOKEN_MINUTES")
 
     max_upload_mb: int = Field(default=4096, alias="MAX_UPLOAD_MB")
-    transcribe_chunk_seconds: float = Field(default=45.0, alias="TRANSCRIBE_CHUNK_SECONDS")
-    transcribe_chunk_overlap_seconds: float = Field(
-        default=1.0,
-        alias="TRANSCRIBE_CHUNK_OVERLAP_SECONDS",
-    )
+    transcribe_chunk_seconds: float = Field(default=60.0, alias="TRANSCRIBE_CHUNK_SECONDS")
     speaker_similarity_threshold: float = Field(
         default=0.875,
         alias="SPEAKER_SIMILARITY_THRESHOLD",

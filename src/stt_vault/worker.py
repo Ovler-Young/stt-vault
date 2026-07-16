@@ -9,7 +9,7 @@ from .diarization import DiarizerManager, match_speakers, serialize_centroids
 from .exports import write_exports
 from .media import ffprobe_duration, to_wav_16k_mono
 from .settings import Settings
-from .transcription import Transcriber, build_chunks
+from .transcription import Transcriber, build_transcription_plan, transcript_chunks_match_plan
 from .visual import detect_slide_changes, write_visual_event_thumbnails, write_visual_events_export
 
 
@@ -119,7 +119,21 @@ class Worker:
             )
 
         db.update_stage(self.settings.stt_db_path, asset_id, "transcribing speech")
+        chunks = build_transcription_plan(
+            diarization,
+            max_seconds=self.settings.transcribe_chunk_seconds,
+        )
         existing_chunks = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+        if existing_chunks and not transcript_chunks_match_plan(existing_chunks, chunks):
+            db.reset_transcript_chunks(self.settings.stt_db_path, asset_id)
+            existing_chunks = []
+            db.add_event(
+                self.settings.stt_db_path,
+                asset_id,
+                "info",
+                "transcribing speech",
+                "Transcript chunk plan changed; restarting transcription",
+            )
         completed_chunk_indexes = {
             int(chunk["chunk_index"])
             for chunk in existing_chunks
@@ -194,11 +208,6 @@ class Worker:
             retry_backoff_seconds=self.settings.parsed_openai_retry_backoff_seconds,
             on_chunk_done=on_chunk_done,
             on_chunk_retry=on_chunk_retry,
-        )
-        chunks = build_chunks(
-            diarization["merged_segments"],
-            max_seconds=self.settings.transcribe_chunk_seconds,
-            overlap_seconds=self.settings.transcribe_chunk_overlap_seconds,
         )
         chunks_to_transcribe = [
             chunk for chunk in chunks if int(chunk["chunk_index"]) not in completed_chunk_indexes

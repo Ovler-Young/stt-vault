@@ -25,6 +25,7 @@
   import AssetSpeakersFoldout from './components/AssetSpeakersFoldout.svelte';
   import ResizableAssetWorkspace from './components/ResizableAssetWorkspace.svelte';
   import SpeakerEditorPopover from './components/SpeakerEditorPopover.svelte';
+  import SummaryMarkdown from '$lib/SummaryMarkdown.svelte';
   import TranscriptPane from './components/TranscriptPane.svelte';
   import VisualEventsStrip from './components/VisualEventsStrip.svelte';
 
@@ -400,7 +401,7 @@
             <section class="summary">
               <button on:click={summarize}>Generate summary</button>
               {#if summaryMessage}<p aria-live="polite">{summaryMessage}</p>{/if}
-              {#if asset.summary_text}<p>{asset.summary_text}</p>{/if}
+              {#if asset.summary_text}<SummaryMarkdown markdown={asset.summary_text} onSeek={seekToTime} />{/if}
               {#if asset.summary_error}<p class="error">{asset.summary_error}</p>{/if}
             </section>
           {/if}

@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+.DS_Store
+.env
+data
+web/node_modules
+web/build
+web/.svelte-kit
+src/stt_vault/static

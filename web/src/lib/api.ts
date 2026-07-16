@@ -98,7 +98,7 @@ const accessTokenKey = 'stt-vault-access-token';
 export type AccessToken = {
   access_token: string;
   token_type: 'bearer';
-  expires_in: number;
+  expires_in: number | null;
 };
 
 export class ApiError extends Error {
@@ -112,14 +112,20 @@ export class ApiError extends Error {
 }
 
 export function getStoredAccessToken(): string {
+  if (typeof localStorage === 'undefined') return '';
+  const storedToken = localStorage.getItem(accessTokenKey);
+  if (storedToken) return storedToken;
+
   if (typeof sessionStorage === 'undefined') return '';
-  return sessionStorage.getItem(accessTokenKey) ?? '';
+  const sessionToken = sessionStorage.getItem(accessTokenKey);
+  if (sessionToken) localStorage.setItem(accessTokenKey, sessionToken);
+  return sessionToken ?? '';
 }
 
 export function setStoredAccessToken(value: string) {
-  if (typeof sessionStorage === 'undefined') return;
-  if (value) sessionStorage.setItem(accessTokenKey, value);
-  else sessionStorage.removeItem(accessTokenKey);
+  if (typeof localStorage === 'undefined') return;
+  if (value) localStorage.setItem(accessTokenKey, value);
+  else localStorage.removeItem(accessTokenKey);
 }
 
 export function authenticatedResourceUrl(path: string, params = new URLSearchParams()): string {

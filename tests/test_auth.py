@@ -18,6 +18,7 @@ def create_test_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     admin_password: str = "secret",
+    jwt_access_token_minutes: int | None = None,
 ) -> TestClient:
     data_dir = tmp_path / "data"
     monkeypatch.setenv("STT_DATA_DIR", str(data_dir))
@@ -26,6 +27,8 @@ def create_test_client(
     monkeypatch.setenv("JWT_SECRET", JWT_SECRET)
     monkeypatch.setenv("JWT_ISSUER", JWT_ISSUER)
     monkeypatch.setenv("JWT_AUDIENCE", JWT_AUDIENCE)
+    if jwt_access_token_minutes is not None:
+        monkeypatch.setenv("JWT_ACCESS_TOKEN_MINUTES", str(jwt_access_token_minutes))
     get_settings.cache_clear()
     return TestClient(create_app())
 
@@ -50,13 +53,13 @@ def bearer_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_login_issues_signed_administrator_access_token(client: TestClient) -> None:
+def test_login_issues_non_expiring_signed_administrator_access_token(client: TestClient) -> None:
     response = client.post("/api/auth/token", json={"password": "secret"})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["token_type"] == "bearer"
-    assert payload["expires_in"] == 3600
+    assert payload["expires_in"] is None
     claims = jwt.decode(
         payload["access_token"],
         JWT_SECRET,
@@ -66,10 +69,54 @@ def test_login_issues_signed_administrator_access_token(client: TestClient) -> N
     )
     assert claims["sub"] == "single-user-admin"
     assert claims["role"] == "admin"
+    assert "exp" not in claims
+
+
+def test_login_can_issue_a_finite_lifetime_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(monkeypatch, tmp_path, jwt_access_token_minutes=5)
+    try:
+        response = client.post("/api/auth/token", json={"password": "secret"})
+    finally:
+        client.close()
+        get_settings.cache_clear()
+
+    assert response.status_code == 200
+    assert response.json()["expires_in"] == 300
+    claims = jwt.decode(
+        response.json()["access_token"],
+        JWT_SECRET,
+        algorithms=["HS256"],
+        issuer=JWT_ISSUER,
+        audience=JWT_AUDIENCE,
+    )
+    assert "exp" in claims
 
 
 def test_bearer_auth_allows_protected_requests(client: TestClient) -> None:
     response = client.get("/api/assets", headers=bearer_headers(issue_token(client)))
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_non_expiring_administrator_token_allows_protected_requests(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    token = jwt.encode(
+        {
+            "sub": "single-user-admin",
+            "role": "admin",
+            "iss": JWT_ISSUER,
+            "aud": JWT_AUDIENCE,
+            "iat": now,
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+
+    response = client.get("/api/assets", headers=bearer_headers(token))
 
     assert response.status_code == 200
     assert response.json() == []

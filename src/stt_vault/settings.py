@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="", alias="JWT_SECRET")
     jwt_issuer: str = Field(default="stt-vault", alias="JWT_ISSUER")
     jwt_audience: str = Field(default="stt-vault-api", alias="JWT_AUDIENCE")
-    jwt_access_token_minutes: int = Field(default=60, ge=1, alias="JWT_ACCESS_TOKEN_MINUTES")
+    jwt_access_token_minutes: int = Field(default=0, ge=0, alias="JWT_ACCESS_TOKEN_MINUTES")
 
     max_upload_mb: int = Field(default=4096, alias="MAX_UPLOAD_MB")
     transcribe_chunk_seconds: float = Field(default=60.0, alias="TRANSCRIBE_CHUNK_SECONDS")

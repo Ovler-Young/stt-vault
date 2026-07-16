@@ -30,7 +30,9 @@ def register_system_routes(app: FastAPI, settings: Settings) -> None:
         return {
             "access_token": issue_access_token(settings),
             "token_type": "bearer",
-            "expires_in": max(1, settings.jwt_access_token_minutes) * 60,
+            "expires_in": settings.jwt_access_token_minutes * 60
+            if settings.jwt_access_token_minutes > 0
+            else None,
         }
 
     app.include_router(router)

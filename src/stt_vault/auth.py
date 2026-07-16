@@ -45,7 +45,7 @@ def _validate_admin_token(settings: Settings, token: str | None) -> None:
             algorithms=["HS256"],
             issuer=settings.jwt_issuer,
             audience=settings.jwt_audience,
-            options={"require": ["aud", "exp", "iat", "iss", "role", "sub"]},
+            options={"require": ["aud", "iat", "iss", "role", "sub"]},
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid bearer token") from exc
@@ -57,18 +57,16 @@ def issue_access_token(settings: Settings) -> str:
     if not settings.jwt_secret:
         raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
     now = datetime.now(UTC)
-    return jwt.encode(
-        {
-            "sub": "single-user-admin",
-            "role": "admin",
-            "iss": settings.jwt_issuer,
-            "aud": settings.jwt_audience,
-            "iat": now,
-            "exp": now + timedelta(minutes=max(1, settings.jwt_access_token_minutes)),
-        },
-        settings.jwt_secret,
-        algorithm="HS256",
-    )
+    claims = {
+        "sub": "single-user-admin",
+        "role": "admin",
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": now,
+    }
+    if settings.jwt_access_token_minutes > 0:
+        claims["exp"] = now + timedelta(minutes=settings.jwt_access_token_minutes)
+    return jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
 
 
 def admin_password_matches(candidate: str | None, expected: str) -> bool:

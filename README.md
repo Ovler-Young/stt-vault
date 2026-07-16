@@ -82,7 +82,8 @@ Important optional settings:
 - `ADMIN_PASSWORD`: password accepted only by `POST /api/auth/token`
 - `JWT_SECRET`: required signing secret for application-issued JWT access tokens
 - `JWT_ISSUER`, `JWT_AUDIENCE`: JWT validation claims, with defaults suitable for this application
-- `JWT_ACCESS_TOKEN_MINUTES`: access token lifetime, default `60`
+- `JWT_ACCESS_TOKEN_MINUTES`: access token lifetime in minutes. The default `0` issues a
+  non-expiring token; use a positive value to issue tokens with a finite lifetime.
 
 All protected API endpoints require `Authorization: Bearer <access-token>`. Obtain an
 access token through `POST /api/auth/token` with the configured administrator password.

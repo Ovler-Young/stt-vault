@@ -18,6 +18,25 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: CPU
+            target: cpu
+            cache_scope: stt-vault-cpu
+            tags: |
+              type=raw,value=latest,enable={{is_default_branch}}
+              type=raw,value=cpu,enable={{is_default_branch}}
+              type=sha,prefix=cpu-sha-
+              type=semver,pattern=cpu-{{version}}
+          - name: GPU
+            target: gpu
+            cache_scope: stt-vault-gpu
+            tags: |
+              type=raw,value=gpu,enable={{is_default_branch}}
+              type=sha,prefix=gpu-sha-
+              type=semver,pattern=gpu-{{version}}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -32,45 +51,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract CPU metadata
-        id: meta-cpu
+      - name: Extract ${{ matrix.name }} metadata
+        id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=cpu,enable={{is_default_branch}}
-            type=sha,prefix=cpu-sha-
-            type=semver,pattern=cpu-{{version}}
+          tags: ${{ matrix.tags }}
 
-      - name: Extract GPU metadata
-        id: meta-gpu
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=gpu,enable={{is_default_branch}}
-            type=sha,prefix=gpu-sha-
-            type=semver,pattern=gpu-{{version}}
-
-      - name: Build and push CPU image
+      - name: Build and push ${{ matrix.name }} image
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: cpu
+          target: ${{ matrix.target }}
           push: true
-          tags: ${{ steps.meta-cpu.outputs.tags }}
-          labels: ${{ steps.meta-cpu.outputs.labels }}
-          cache-from: type=gha,scope=stt-vault-cpu
-          cache-to: type=gha,mode=max,scope=stt-vault-cpu
-
-      - name: Build and push GPU image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          target: gpu
-          push: true
-          tags: ${{ steps.meta-gpu.outputs.tags }}
-          labels: ${{ steps.meta-gpu.outputs.labels }}
-          cache-from: type=gha,scope=stt-vault-gpu
-          cache-to: type=gha,mode=max,scope=stt-vault-gpu
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}

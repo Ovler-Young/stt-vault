@@ -36,7 +36,11 @@ FROM backend-base AS backend-dependencies-cpu
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/var/cache/uv \
     uv export --locked --no-dev --extra cpu --no-emit-project -o requirements.txt \
-    && uv pip install --system --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+    && uv pip install --system \
+        --index-url https://pypi.org/simple \
+        --find-links https://download.pytorch.org/whl/cpu/torch/ \
+        --find-links https://download.pytorch.org/whl/cpu/torchaudio/ \
+        -r requirements.txt
 
 FROM backend-base AS backend-dependencies-gpu
 COPY pyproject.toml uv.lock ./

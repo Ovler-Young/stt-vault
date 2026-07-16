@@ -1,0 +1,6 @@
+services:
+  stt-vault:
+    image: ghcr.io/ovler-young/stt-vault:gpu
+    gpus: all
+    environment:
+      SENKO_DEVICE: cuda

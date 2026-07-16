@@ -171,7 +171,6 @@ def register_asset_summary_routes(app: FastAPI, settings: Settings) -> None:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                response_format={"type": "json_object"},
             )
             analysis = parse_content_analysis(
                 response.choices[0].message.content or "",

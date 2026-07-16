@@ -32,22 +32,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Extract CPU metadata
+        id: meta-cpu
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-
-            type=semver,pattern={{version}}
+            type=raw,value=cpu,enable={{is_default_branch}}
+            type=sha,prefix=cpu-sha-
+            type=semver,pattern=cpu-{{version}}
 
-      - name: Build and push
+      - name: Extract GPU metadata
+        id: meta-gpu
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=gpu,enable={{is_default_branch}}
+            type=sha,prefix=gpu-sha-
+            type=semver,pattern=gpu-{{version}}
+
+      - name: Build and push CPU image
         uses: docker/build-push-action@v7
         with:
           context: .
+          target: cpu
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=stt-vault-image
-          cache-to: type=gha,mode=max,scope=stt-vault-image
+          tags: ${{ steps.meta-cpu.outputs.tags }}
+          labels: ${{ steps.meta-cpu.outputs.labels }}
+          cache-from: type=gha,scope=stt-vault-cpu
+          cache-to: type=gha,mode=max,scope=stt-vault-cpu
+
+      - name: Build and push GPU image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: gpu
+          push: true
+          tags: ${{ steps.meta-gpu.outputs.tags }}
+          labels: ${{ steps.meta-gpu.outputs.labels }}
+          cache-from: type=gha,scope=stt-vault-gpu
+          cache-to: type=gha,mode=max,scope=stt-vault-gpu

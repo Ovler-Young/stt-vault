@@ -105,7 +105,8 @@
       await load();
       summaryMessage = '';
     } catch (err) {
-      summaryMessage = err instanceof Error ? err.message : String(err);
+      await load();
+      summaryMessage = asset?.summary_error ? '' : err instanceof Error ? err.message : String(err);
     }
   }
 

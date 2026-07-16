@@ -1,3 +1,5 @@
 services:
   stt-vault:
-    build: .
+    build:
+      context: .
+      target: ${STT_BUILD_TARGET:-cpu}

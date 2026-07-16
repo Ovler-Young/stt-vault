@@ -1,6 +1,6 @@
 services:
   stt-vault:
-    image: ghcr.io/ovler-young/stt-vault:latest
+    image: ghcr.io/ovler-young/stt-vault:${STT_IMAGE_TAG:-latest}
     ports:
       - "${APP_PORT:-8080}:8080"
     volumes:

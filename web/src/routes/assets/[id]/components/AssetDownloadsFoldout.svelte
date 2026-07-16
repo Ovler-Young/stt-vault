@@ -7,10 +7,35 @@
 
   let downloadMessage = '';
 
+  async function copyText(text: string) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Continue to the browser fallback when clipboard permissions are unavailable.
+      }
+    }
+
+    if (typeof document === 'undefined') return false;
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    try {
+      return document.execCommand('copy');
+    } finally {
+      textarea.remove();
+    }
+  }
+
   async function copyExportHref(event: MouseEvent, href: string) {
     event.preventDefault();
     try {
-      await navigator.clipboard.writeText(href);
+      if (!(await copyText(href))) throw new Error('Clipboard access is unavailable');
       downloadMessage = 'Download link copied';
     } catch (err) {
       downloadMessage = err instanceof Error ? `Copy failed: ${err.message}` : 'Copy failed';

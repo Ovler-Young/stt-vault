@@ -223,6 +223,7 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
 
     assert response.status_code == 200
     assert response.json()["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
+    assert "response_format" not in completions.calls[0]
     assert "[SPEAKER_00 00:00-00:02] Ship Friday." in completions.calls[0]["messages"][1]["content"]
     assert "[SPEAKER_01 (Alice) 00:02-00:04] I approve." in completions.calls[0][
         "messages"

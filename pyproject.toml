@@ -15,17 +15,43 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "openai>=2.14.0",
     "numpy>=2.0.0",
-    "torch==2.8.0",
-    "torchaudio==2.8.0",
     "senko @ git+https://github.com/narcotic-sh/senko.git",
     "pyjwt>=2.10,<3",
 ]
 
 [project.optional-dependencies]
+cpu = [
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+]
+gpu = [
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+]
 dev = [
     "pytest>=9.0.0",
     "ruff>=0.14.0",
 ]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pypi", extra = "gpu" },
+]
+torchaudio = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pypi", extra = "gpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
 
 [project.scripts]
 stt-vault = "stt_vault.app:run"
@@ -42,3 +68,11 @@ testpaths = ["tests"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "gpu" },
+    ],
+]

@@ -12,7 +12,7 @@ STT Vault combines:
 
 ## Quick Start
 
-Use the published GHCR image for normal deployment:
+Use the published CPU image for normal deployment:
 
 ```sh
 mkdir -p ./data
@@ -21,6 +21,17 @@ docker compose up -d
 ```
 
 Open `http://localhost:8080`.
+
+The `latest` and `cpu` tags are CPU-only. They do not include NVIDIA CUDA libraries.
+
+For an NVIDIA host with the NVIDIA Container Toolkit installed, run the separate GPU image:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml pull
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+```
+
+The GPU override uses the `gpu` image tag, exposes all host GPUs, and sets `SENKO_DEVICE=cuda`.
 
 For a private GitHub package, log in to GHCR before pulling:
 
@@ -38,6 +49,15 @@ For local image builds, use the build override:
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+```
+
+Build and start the GPU target locally with:
+
+```sh
+STT_BUILD_TARGET=gpu docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.gpu.yml \
+  -f docker-compose.build.yml up --build
 ```
 
 ## Configuration
@@ -78,8 +98,7 @@ curl -fsS http://localhost:${APP_PORT:-8080}/api/health
 
 ```sh
 uv venv --python 3.13 .venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv sync --extra cpu --extra dev
 cd web
 pnpm install
 pnpm build

@@ -120,9 +120,9 @@
     dispatch('seek', { time: eventTime(event, windowStart, windowEnd) });
   }
 
-  function handleDoubleClick(event: MouseEvent) {
+  function handleDoubleClick(event: MouseEvent, windowStart: number, windowEnd: number) {
     if (!effectiveDuration) return;
-    const time = eventTime(event, 0, 1);
+    const time = eventTime(event, windowStart, windowEnd);
     const segment = segmentAt(segments, time);
     const fullStart = segment ? segment.start / effectiveDuration : time / effectiveDuration;
     const fullEnd = segment ? segment.end / effectiveDuration : fullStart;
@@ -132,11 +132,10 @@
     setZoomWindow(center - nextWidth / 2, center + nextWidth / 2);
   }
 
-  function handleWheel(event: WheelEvent) {
+  function handleWheel(event: WheelEvent, windowStart: number, windowEnd: number) {
     if (!effectiveDuration) return;
     event.preventDefault();
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    const ratio = eventTime(event, windowStart, windowEnd) / effectiveDuration;
     if (Math.abs(event.deltaX) > Math.abs(event.deltaY) && isZoomed) {
       panWindow(event.deltaX * wheelPanSensitivity * zoomSize);
       return;
@@ -242,6 +241,8 @@
       onRowMouseDown={handleMouseDown}
       onRowMouseMove={(event) => handleMouseMove(event, 'zoom', zoomStart, zoomEnd)}
       onRowMouseLeave={() => (hovered = null)}
+      onRowDoubleClick={(event) => handleDoubleClick(event, zoomStart, zoomEnd)}
+      onRowWheel={(event) => handleWheel(event, zoomStart, zoomEnd)}
     />
 
     <SpeakerTimelineRow
@@ -264,8 +265,8 @@
       onRowMouseDown={handleMouseDown}
       onRowMouseMove={(event) => handleMouseMove(event, 'full', 0, 1)}
       onRowMouseLeave={() => (hovered = null)}
-      onRowDoubleClick={handleDoubleClick}
-      onRowWheel={handleWheel}
+      onRowDoubleClick={(event) => handleDoubleClick(event, 0, 1)}
+      onRowWheel={(event) => handleWheel(event, 0, 1)}
     />
 
     {#if isZoomed}

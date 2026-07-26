@@ -3,12 +3,13 @@ import threading
 import uuid
 from collections.abc import Callable
 
-from . import db
-from .diarization import DiarizerManager
-from .logging_config import job_log_context
-from .process_diagnostics import format_diagnostic_text
-from .settings import Settings
-from .types import AssetRecord, ErrorRecord, TranscriptSegment
+from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.process_diagnostics import format_diagnostic_text
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord, ErrorRecord, TranscriptSegment
+from stt_vault.persistence import db
+from stt_vault.processing.diarization import DiarizerManager
+
 from .worker_completion import CompletionStage
 from .worker_exports import TranscriptExportStage, VisualEventStage
 from .worker_media import DiarizationStage, MediaPreparationStage

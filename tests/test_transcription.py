@@ -1,5 +1,5 @@
-from stt_vault.exports import to_ai_text
-from stt_vault.transcription import (
+from stt_vault.processing.exports import to_ai_text
+from stt_vault.processing.transcription import (
     Transcriber,
     build_chunks,
     build_transcription_plan,

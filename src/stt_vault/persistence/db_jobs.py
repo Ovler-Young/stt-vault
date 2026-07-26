@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .api_models import EventResponse, JobResponse
+from stt_vault.core.api_models import EventResponse, JobResponse
+from stt_vault.core.process_diagnostics import format_diagnostic_text
+
 from .db_connection import connect, decode_record, now, transaction
-from .process_diagnostics import format_diagnostic_text
 
 JOB_JSON_FIELDS = {"error": dict}
 EVENT_JSON_FIELDS = {"payload": dict}

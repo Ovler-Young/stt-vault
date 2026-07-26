@@ -2,10 +2,10 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from . import db
-from .diarization import match_speakers
-from .settings import Settings
-from .types import AssetRecord
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord
+from stt_vault.persistence import db
+from stt_vault.processing.diarization import match_speakers
 
 
 def clean_display_name(display_name: str) -> str:

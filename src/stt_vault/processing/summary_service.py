@@ -2,14 +2,15 @@ from typing import Literal, Protocol, TypedDict
 
 from openai import OpenAI
 
-from . import db
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord, TranscriptSegment
+from stt_vault.persistence import db
+
 from .ai_content import (
     build_content_analysis_prompt,
     format_content_summary,
     parse_content_analysis,
 )
-from .settings import Settings
-from .types import AssetRecord, TranscriptSegment
 
 
 class SummaryMessage(Protocol):

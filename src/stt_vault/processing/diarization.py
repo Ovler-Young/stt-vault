@@ -8,8 +8,8 @@ from typing import ParamSpec, Protocol, TypeVar
 
 import numpy as np
 
-from .api_models import DiarizationResult
-from .types import KnownSpeaker, SpeakerMatch
+from stt_vault.core.api_models import DiarizationResult
+from stt_vault.core.types import KnownSpeaker, SpeakerMatch
 
 P = ParamSpec("P")
 R = TypeVar("R")

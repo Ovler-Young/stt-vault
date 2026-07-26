@@ -1,10 +1,11 @@
 import logging
 from pathlib import Path
 
-from . import db
-from .logging_config import job_log_context
-from .settings import Settings
-from .types import AssetRecord, VisualEvent
+from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord, VisualEvent
+from stt_vault.persistence import db
+
 from .visual import (
     CommandRunner,
     ThumbnailExtractor,

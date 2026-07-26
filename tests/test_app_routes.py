@@ -7,16 +7,16 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from stt_vault import db
-from stt_vault.api_models import AssetResponse
-from stt_vault.app import create_app
-from stt_vault.settings import get_settings
-from stt_vault.summary_service import (
+from stt_vault.core.api_models import AssetResponse
+from stt_vault.core.app import create_app
+from stt_vault.core.settings import get_settings
+from stt_vault.persistence import db
+from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,
     generate_asset_summary,
     require_completed_transcript,
 )
-from stt_vault.upload_sessions import UploadSessionService
+from stt_vault.services.upload_sessions import UploadSessionService
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
@@ -373,13 +373,15 @@ def test_upload_session_completion_restores_temp_file_when_database_write_fails(
     stored_path = settings.media_dir / "asset-1" / "original.wav"
     stored_path.parent.mkdir(parents=True)
 
-    monkeypatch.setattr("stt_vault.upload_sessions.db.get_upload_session", lambda *_args: upload)
     monkeypatch.setattr(
-        "stt_vault.upload_sessions.move_upload",
+        "stt_vault.services.upload_sessions.db.get_upload_session", lambda *_args: upload
+    )
+    monkeypatch.setattr(
+        "stt_vault.services.upload_sessions.move_upload",
         lambda *_args: ("asset-1", stored_path, "audio"),
     )
     monkeypatch.setattr(
-        "stt_vault.upload_sessions.db.complete_upload_session",
+        "stt_vault.services.upload_sessions.db.complete_upload_session",
         lambda *_args: (_ for _ in ()).throw(RuntimeError("database unavailable")),
     )
     stored_path.write_bytes(b"upload")

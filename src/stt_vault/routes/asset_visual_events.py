@@ -4,12 +4,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-from .. import db
-from ..asset_visual_events import detect_asset_visual_events
-from ..auth import require_admin, require_resource_access
-from ..settings import Settings
-from ..types import VisualEvent
-from ..visual import extract_thumbnail, visual_event_thumbnail_path
+from stt_vault.core.auth import require_admin, require_resource_access
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import VisualEvent
+from stt_vault.persistence import db
+from stt_vault.processing.asset_visual_events import detect_asset_visual_events
+from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path
 
 __all__ = ["register_asset_visual_event_routes"]
 

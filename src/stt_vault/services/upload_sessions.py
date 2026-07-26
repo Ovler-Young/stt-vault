@@ -4,10 +4,10 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from . import db
-from .media import move_upload
-from .settings import Settings
-from .types import UploadResponse, UploadSessionRecord
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import UploadResponse, UploadSessionRecord
+from stt_vault.persistence import db
+from stt_vault.processing.media import move_upload
 
 
 class UploadSessionService:

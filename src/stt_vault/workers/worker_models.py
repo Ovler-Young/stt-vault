@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from .api_models import JsonValue
-from .types import SpeakerMatch, SpeakerSegment, TranscriptSegment
+from stt_vault.core.api_models import JsonValue
+from stt_vault.core.types import SpeakerMatch, SpeakerSegment, TranscriptSegment
 
 
 @dataclass(frozen=True)

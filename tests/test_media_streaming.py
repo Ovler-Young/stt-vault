@@ -1,8 +1,8 @@
 import io
 import logging
 
-from stt_vault.media_streaming import stream_process_stdout
-from stt_vault.process_diagnostics import MAX_SUBPROCESS_DIAGNOSTIC_BYTES
+from stt_vault.core.process_diagnostics import MAX_SUBPROCESS_DIAGNOSTIC_BYTES
+from stt_vault.services.media_streaming import stream_process_stdout
 
 
 class CountingBytesIO(io.BytesIO):

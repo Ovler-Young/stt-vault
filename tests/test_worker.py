@@ -4,13 +4,13 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from stt_vault.api_models import DiarizationResult
-from stt_vault.diarization import DiarizerManager
-from stt_vault.worker import Worker
-from stt_vault.worker_completion import CompletionStage
-from stt_vault.worker_exports import VisualEventStage
-from stt_vault.worker_models import PreparedAsset, TranscriptionWork
-from stt_vault.worker_transcription import TranscriptionStage
+from stt_vault.core.api_models import DiarizationResult
+from stt_vault.processing.diarization import DiarizerManager
+from stt_vault.workers.worker import Worker
+from stt_vault.workers.worker_completion import CompletionStage
+from stt_vault.workers.worker_exports import VisualEventStage
+from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
+from stt_vault.workers.worker_transcription import TranscriptionStage
 
 
 def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
@@ -21,7 +21,7 @@ def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "stt_vault.worker.db.mark_success",
+        "stt_vault.workers.worker.db.mark_success",
         lambda _db_path, asset_id, **kwargs: calls.append(("asset-success", (asset_id, kwargs))),
     )
 
@@ -84,7 +84,7 @@ def test_worker_process_asset_orchestrates_stage_services(monkeypatch, tmp_path:
         complete=lambda asset_id, stage_prepared, segments, exports: calls.append("complete")
     )
     monkeypatch.setattr(
-        "stt_vault.worker.db.get_asset",
+        "stt_vault.workers.worker.db.get_asset",
         lambda _db_path, _asset_id: {
             "id": "asset-1",
             "filename": "clip.wav",
@@ -92,7 +92,7 @@ def test_worker_process_asset_orchestrates_stage_services(monkeypatch, tmp_path:
         },
     )
     monkeypatch.setattr(
-        "stt_vault.worker.db.list_transcript_chunks",
+        "stt_vault.workers.worker.db.list_transcript_chunks",
         lambda _db_path, _asset_id: [],
     )
 
@@ -198,22 +198,22 @@ def test_visual_event_stage_persists_and_exports_video_events(monkeypatch, tmp_p
         )
     )
     monkeypatch.setattr(
-        "stt_vault.worker_exports.db.update_stage", lambda *_args: calls.append("stage")
+        "stt_vault.workers.worker_exports.db.update_stage", lambda *_args: calls.append("stage")
     )
     monkeypatch.setattr(
-        "stt_vault.worker_exports.detect_slide_changes",
+        "stt_vault.workers.worker_exports.detect_slide_changes",
         lambda *_args, **_kwargs: [{"timestamp": 2.0, "score": 20.0, "kind": "slide_change"}],
     )
     monkeypatch.setattr(
-        "stt_vault.worker_exports.db.replace_visual_events",
+        "stt_vault.workers.worker_exports.db.replace_visual_events",
         lambda *_args: calls.append("persist"),
     )
     monkeypatch.setattr(
-        "stt_vault.worker_exports.write_visual_event_thumbnails",
+        "stt_vault.workers.worker_exports.write_visual_event_thumbnails",
         lambda *_args, **_kwargs: calls.append("thumbnails"),
     )
     monkeypatch.setattr(
-        "stt_vault.worker_exports.write_visual_events_export",
+        "stt_vault.workers.worker_exports.write_visual_events_export",
         lambda *_args: "events.json",
     )
 
@@ -246,18 +246,20 @@ def test_visual_event_stage_propagates_injected_thumbnail_extractor(
         thumbnail_extractor=extractor,
     )
     captured: dict[str, object] = {}
-    monkeypatch.setattr("stt_vault.worker_exports.db.update_stage", lambda *_args: None)
+    monkeypatch.setattr("stt_vault.workers.worker_exports.db.update_stage", lambda *_args: None)
     monkeypatch.setattr(
-        "stt_vault.worker_exports.detect_slide_changes",
+        "stt_vault.workers.worker_exports.detect_slide_changes",
         lambda *_args, **_kwargs: [],
     )
-    monkeypatch.setattr("stt_vault.worker_exports.db.replace_visual_events", lambda *_args: None)
     monkeypatch.setattr(
-        "stt_vault.worker_exports.write_visual_event_thumbnails",
+        "stt_vault.workers.worker_exports.db.replace_visual_events", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        "stt_vault.workers.worker_exports.write_visual_event_thumbnails",
         lambda *_args, **kwargs: captured.update(kwargs),
     )
     monkeypatch.setattr(
-        "stt_vault.worker_exports.write_visual_events_export", lambda *_args: "events.json"
+        "stt_vault.workers.worker_exports.write_visual_events_export", lambda *_args: "events.json"
     )
 
     stage.detect("asset-1", {"media_type": "video", "original_path": str(tmp_path / "clip.mp4")})

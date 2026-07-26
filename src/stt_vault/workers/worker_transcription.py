@@ -1,11 +1,16 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from . import db
-from .diarization import match_speakers
-from .settings import Settings
-from .transcription import Transcriber, build_transcription_plan, transcript_chunks_match_plan
-from .types import AssetRecord, TranscriptSegment
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord, TranscriptSegment
+from stt_vault.persistence import db
+from stt_vault.processing.diarization import match_speakers
+from stt_vault.processing.transcription import (
+    Transcriber,
+    build_transcription_plan,
+    transcript_chunks_match_plan,
+)
+
 from .worker_models import PreparedAsset, TranscriptionWork, apply_speaker_names
 
 TranscriberFactory = Callable[..., Transcriber]

@@ -1,13 +1,13 @@
 import logging
 from pathlib import Path
 
-from . import db
-from .exports import write_exports
-from .logging_config import job_log_context
-from .process_diagnostics import format_diagnostic_text
-from .settings import Settings
-from .types import AssetRecord, TranscriptSegment
-from .visual import (
+from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.process_diagnostics import format_diagnostic_text
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord, TranscriptSegment
+from stt_vault.persistence import db
+from stt_vault.processing.exports import write_exports
+from stt_vault.processing.visual import (
     CommandRunner,
     ThumbnailExtractor,
     detect_slide_changes,
@@ -15,6 +15,7 @@ from .visual import (
     write_visual_event_thumbnails,
     write_visual_events_export,
 )
+
 from .worker_models import PreparedAsset
 
 logger = logging.getLogger(__name__)

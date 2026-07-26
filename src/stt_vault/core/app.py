@@ -1,14 +1,15 @@
 import uvicorn
 from fastapi import FastAPI
 
-from . import db
+from stt_vault.persistence import db
+from stt_vault.routes import register_api_routes
+from stt_vault.workers.worker import Worker
+
 from .auth import admin_password_matches, require_admin
 from .logging_config import configure_logging
 from .requests import SpeakerMergeRequest, SpeakerNameRequest
-from .routes import register_api_routes
 from .settings import get_settings
 from .static_frontend import mount_static_frontend
-from .worker import Worker
 
 __all__ = [
     "SpeakerMergeRequest",
@@ -50,7 +51,7 @@ def create_app() -> FastAPI:
 def run() -> None:
     settings = get_settings()
     uvicorn.run(
-        "stt_vault.app:create_app",
+        "stt_vault.core.app:create_app",
         factory=True,
         host=settings.app_host,
         port=settings.app_port,

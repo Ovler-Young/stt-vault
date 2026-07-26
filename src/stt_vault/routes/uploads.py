@@ -3,11 +3,12 @@ import re
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 
-from ..auth import require_admin
-from ..requests import UploadCreateRequest
-from ..settings import Settings
-from ..types import UploadResponse
-from ..upload_sessions import UploadSessionService
+from stt_vault.core.auth import require_admin
+from stt_vault.core.requests import UploadCreateRequest
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import UploadResponse
+from stt_vault.services.upload_sessions import UploadSessionService
+
 from .assets import _validated_relative_path
 
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")

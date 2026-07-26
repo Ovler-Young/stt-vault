@@ -8,7 +8,7 @@ from .process_diagnostics import format_diagnostic_text
 
 def job_log_context(db_path: Path, asset_id: str) -> dict[str, str | None]:
     """Correlate a worker log record with its persisted job when available."""
-    from . import db
+    from stt_vault.persistence import db
 
     job = db.get_job(db_path, asset_id)
     return {"asset_id": asset_id, "job_id": job.id if job is not None else None}

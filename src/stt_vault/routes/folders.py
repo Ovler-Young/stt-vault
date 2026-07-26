@@ -2,10 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from .. import db
-from ..auth import require_admin
-from ..requests import FolderCreateRequest, FolderMoveRequest, FolderRenameRequest
-from ..settings import Settings
+from stt_vault.core.auth import require_admin
+from stt_vault.core.requests import FolderCreateRequest, FolderMoveRequest, FolderRenameRequest
+from stt_vault.core.settings import Settings
+from stt_vault.persistence import db
 
 __all__ = ["register_folder_routes"]
 

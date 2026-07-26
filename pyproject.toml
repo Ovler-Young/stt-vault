@@ -54,7 +54,7 @@ url = "https://pypi.org/simple"
 default = true
 
 [project.scripts]
-stt-vault = "stt_vault.app:run"
+stt-vault = "stt_vault.core.app:run"
 
 [tool.ruff]
 line-length = 100

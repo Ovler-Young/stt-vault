@@ -6,13 +6,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, UploadFile
 
-from .. import db
-from ..api_models import AssetResponse, EventResponse, JobResponse
-from ..auth import require_admin
-from ..media import store_upload
-from ..requests import AssetMoveRequest
-from ..settings import Settings
-from ..summary_service import (
+from stt_vault.core.api_models import AssetResponse, EventResponse, JobResponse
+from stt_vault.core.auth import require_admin
+from stt_vault.core.requests import AssetMoveRequest
+from stt_vault.core.settings import Settings
+from stt_vault.persistence import db
+from stt_vault.processing.media import store_upload
+from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,
     generate_asset_summary,
     require_completed_transcript,

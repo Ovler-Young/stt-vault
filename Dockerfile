@@ -56,7 +56,7 @@ COPY --from=frontend /app/web/build ./src/stt_vault/static
 RUN --mount=type=cache,target=/var/cache/uv uv pip install --system --no-deps .
 
 EXPOSE 8080
-CMD ["python", "-m", "stt_vault.app"]
+CMD ["python", "-m", "stt_vault.core.app"]
 
 FROM backend-dependencies-gpu AS gpu
 COPY README.md ./
@@ -66,6 +66,6 @@ COPY --from=frontend /app/web/build ./src/stt_vault/static
 RUN --mount=type=cache,target=/var/cache/uv uv pip install --system --no-deps .
 
 EXPOSE 8080
-CMD ["python", "-m", "stt_vault.app"]
+CMD ["python", "-m", "stt_vault.core.app"]
 
 FROM cpu AS default

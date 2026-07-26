@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Protocol, TypedDict
 
-from .types import AudioStream
+from stt_vault.core.types import AudioStream
 
 
 class CommandRunner(Protocol):

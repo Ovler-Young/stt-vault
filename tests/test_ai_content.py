@@ -1,4 +1,4 @@
-from stt_vault.ai_content import (
+from stt_vault.processing.ai_content import (
     build_content_analysis_prompt,
     format_content_summary,
     parse_content_analysis,

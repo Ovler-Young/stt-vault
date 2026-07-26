@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from stt_vault.visual import detect_slide_changes, write_visual_event_thumbnails
+from stt_vault.processing.visual import detect_slide_changes, write_visual_event_thumbnails
 
 
 class FailedFfmpeg:

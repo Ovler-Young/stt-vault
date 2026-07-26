@@ -5,12 +5,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
-from .. import db
-from ..auth import require_admin, require_resource_access
-from ..media import ffprobe_audio_streams, playback_media_stream_command
-from ..media_streaming import stream_process_stdout
-from ..settings import Settings
-from ..types import AudioStream
+from stt_vault.core.auth import require_admin, require_resource_access
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AudioStream
+from stt_vault.persistence import db
+from stt_vault.processing.media import ffprobe_audio_streams, playback_media_stream_command
+from stt_vault.services.media_streaming import stream_process_stdout
 
 __all__ = ["register_asset_media_routes"]
 logger = logging.getLogger(__name__)

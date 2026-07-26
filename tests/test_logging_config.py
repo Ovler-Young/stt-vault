@@ -3,15 +3,15 @@ import logging
 import sys
 from pathlib import Path
 
-from stt_vault import db
-from stt_vault.logging_config import StructuredFormatter, configure_logging, job_log_context
+from stt_vault.core.logging_config import StructuredFormatter, configure_logging, job_log_context
+from stt_vault.persistence import db
 
 
 def test_structured_formatter_includes_standard_context_keys() -> None:
     formatter = StructuredFormatter()
     record = logging.makeLogRecord(
         {
-            "name": "stt_vault.visual",
+            "name": "stt_vault.processing.visual",
             "levelno": logging.ERROR,
             "levelname": "ERROR",
             "msg": "ffmpeg failed",
@@ -26,7 +26,7 @@ def test_structured_formatter_includes_standard_context_keys() -> None:
     assert json.loads(formatter.format(record)) == {
         "event_name": "log.message",
         "level": "ERROR",
-        "logger": "stt_vault.visual",
+        "logger": "stt_vault.processing.visual",
         "message": "ffmpeg failed",
         "asset_id": "asset-1",
         "job_id": "job-1",
@@ -40,7 +40,7 @@ def test_structured_formatter_preserves_stable_event_and_job_correlation() -> No
     formatter = StructuredFormatter()
     record = logging.makeLogRecord(
         {
-            "name": "stt_vault.worker",
+            "name": "stt_vault.workers.worker",
             "levelno": logging.ERROR,
             "levelname": "ERROR",
             "msg": "worker job failed",
@@ -67,7 +67,7 @@ def test_job_log_context_uses_persisted_job_identifier(tmp_path: Path) -> None:
         StructuredFormatter().format(
             logging.makeLogRecord(
                 {
-                    "name": "stt_vault.worker",
+                    "name": "stt_vault.workers.worker",
                     "levelno": logging.ERROR,
                     "levelname": "ERROR",
                     "msg": "worker job failed",
@@ -104,7 +104,7 @@ def test_structured_formatter_redacts_dynamic_context_and_exception_details() ->
     except RuntimeError:
         record = logging.makeLogRecord(
             {
-                "name": "stt_vault.worker",
+                "name": "stt_vault.workers.worker",
                 "levelno": logging.ERROR,
                 "levelname": "ERROR",
                 "msg": "worker failed",
@@ -124,7 +124,7 @@ def test_structured_formatter_redacts_and_bounds_nested_context() -> None:
     formatter = StructuredFormatter()
     record = logging.makeLogRecord(
         {
-            "name": "stt_vault.worker",
+            "name": "stt_vault.workers.worker",
             "levelno": logging.ERROR,
             "levelname": "ERROR",
             "msg": "worker failed",

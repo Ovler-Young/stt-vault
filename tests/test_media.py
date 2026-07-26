@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from stt_vault.media import ffprobe_audio_streams, ffprobe_duration
-from stt_vault.process_diagnostics import (
+from stt_vault.core.process_diagnostics import (
     MAX_SUBPROCESS_DIAGNOSTIC_BYTES,
     format_process_diagnostics,
 )
+from stt_vault.processing.media import ffprobe_audio_streams, ffprobe_duration
 
 
 def test_ffprobe_duration_uses_injected_command_runner() -> None:

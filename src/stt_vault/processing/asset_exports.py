@@ -1,6 +1,7 @@
-from . import db
+from stt_vault.core.settings import Settings
+from stt_vault.persistence import db
+
 from .exports import write_exports
-from .settings import Settings
 
 
 def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:

@@ -6,8 +6,8 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from stt_vault.app import create_app
-from stt_vault.settings import get_settings
+from stt_vault.core.app import create_app
+from stt_vault.core.settings import get_settings
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 JWT_ISSUER = "stt-vault-test"

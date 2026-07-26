@@ -4,13 +4,13 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-from .process_diagnostics import (
+from stt_vault.core.process_diagnostics import (
     ProcessFactory,
     command_name,
     start_process,
     start_stderr_drain,
 )
-from .types import VisualEvent
+from stt_vault.core.types import VisualEvent
 
 FRAME_WIDTH = 32
 FRAME_HEIGHT = 18

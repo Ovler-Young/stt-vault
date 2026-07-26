@@ -3,8 +3,8 @@ import math
 import re
 from dataclasses import dataclass
 
-from .api_models import JsonValue
-from .types import TranscriptSegment
+from stt_vault.core.api_models import JsonValue
+from stt_vault.core.types import TranscriptSegment
 
 _LOCAL_SPEAKER_PATTERN = re.compile(r"SPEAKER_\d+")
 _UNUSABLE_SPEAKER_NAMES = {"unknown", "unidentified", "n/a", "none"}

@@ -2,16 +2,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from .. import db
-from ..asset_exports import rewrite_asset_exports
-from ..auth import require_admin
-from ..requests import SpeakerMergeRequest, SpeakerNameRequest
-from ..settings import Settings
-from ..speaker_service import (
+from stt_vault.core.auth import require_admin
+from stt_vault.core.requests import SpeakerMergeRequest, SpeakerNameRequest
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import SpeakerRecord
+from stt_vault.persistence import db
+from stt_vault.processing.asset_exports import rewrite_asset_exports
+from stt_vault.services.speaker_service import (
     clean_display_name,
     recompute_asset_speaker_matches,
 )
-from ..types import SpeakerRecord
 
 __all__ = ["register_speaker_routes"]
 

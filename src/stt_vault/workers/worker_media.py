@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from . import db
-from .diarization import DiarizerManager
-from .media import ffprobe_duration, to_wav_16k_mono
-from .settings import Settings
-from .types import AssetRecord
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import AssetRecord
+from stt_vault.persistence import db
+from stt_vault.processing.diarization import DiarizerManager
+from stt_vault.processing.media import ffprobe_duration, to_wav_16k_mono
+
 from .worker_models import PreparedAsset
 
 

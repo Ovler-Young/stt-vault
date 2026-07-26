@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 
-from ..settings import Settings
-from ..worker import Worker
+from stt_vault.core.settings import Settings
+from stt_vault.workers.worker import Worker
+
 from .asset_media import register_asset_media_routes
 from .asset_speakers import register_asset_speaker_routes
 from .asset_visual_events import register_asset_visual_event_routes

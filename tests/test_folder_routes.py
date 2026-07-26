@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from stt_vault import db
-from stt_vault.app import create_app
-from stt_vault.settings import get_settings
+from stt_vault.core.app import create_app
+from stt_vault.core.settings import get_settings
+from stt_vault.persistence import db
 
 
 @pytest.fixture

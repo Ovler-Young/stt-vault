@@ -1,8 +1,8 @@
 from fastapi import APIRouter, FastAPI, HTTPException
 
-from ..auth import admin_password_matches, issue_access_token
-from ..requests import LoginRequest
-from ..settings import Settings
+from stt_vault.core.auth import admin_password_matches, issue_access_token
+from stt_vault.core.requests import LoginRequest
+from stt_vault.core.settings import Settings
 
 __all__ = ["register_system_routes"]
 

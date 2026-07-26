@@ -6,8 +6,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from stt_vault import db
-from stt_vault.api_models import EventResponse, JobResponse
+from stt_vault.core.api_models import EventResponse, JobResponse
+from stt_vault.persistence import db
 
 PUBLIC_DB_FUNCTIONS = {
     "connect",

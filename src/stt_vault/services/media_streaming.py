@@ -2,7 +2,7 @@ import logging
 import subprocess
 from collections.abc import Iterator
 
-from .process_diagnostics import (
+from stt_vault.core.process_diagnostics import (
     ProcessFactory,
     command_name,
     start_process,

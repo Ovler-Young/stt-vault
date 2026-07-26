@@ -2,9 +2,10 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .api_models import TranscriptChunkRecord
+from stt_vault.core.api_models import TranscriptChunkRecord
+from stt_vault.core.types import ErrorRecord, TranscriptSegment
+
 from .db_connection import connect, decode_record, now, transaction
-from .types import ErrorRecord, TranscriptSegment
 
 TRANSCRIPT_CHUNK_JSON_FIELDS = {"error": dict}
 

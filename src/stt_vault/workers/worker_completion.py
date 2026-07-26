@@ -1,11 +1,12 @@
 import logging
 from collections.abc import Callable
 
-from . import db
-from .logging_config import job_log_context
-from .settings import Settings
-from .summary_service import SummaryGenerationResult, generate_asset_summary
-from .types import TranscriptSegment
+from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.settings import Settings
+from stt_vault.core.types import TranscriptSegment
+from stt_vault.persistence import db
+from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
+
 from .worker_models import PreparedAsset
 
 logger = logging.getLogger(__name__)

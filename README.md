@@ -114,7 +114,7 @@ cd web
 pnpm install
 pnpm build
 cd ..
-uvicorn stt_vault.app:create_app --factory --reload
+uvicorn stt_vault.core.app:create_app --factory --reload
 ```
 
 The frontend build is copied into `src/stt_vault/static` by Docker. During local development, run `pnpm build` in `web/` and copy `web/build` to `src/stt_vault/static`, or run SvelteKit separately.
@@ -136,9 +136,9 @@ backend test suite are the configured backend quality checks.
 
 ## Architecture
 
-- `app.py` creates the FastAPI application, owns service lifetime, and registers route groups from `routes/`: system/auth, assets, uploads, folders, speakers, media, visual events, and asset-speaker actions. Each group receives the same settings instance and applies its own authentication dependency.
-- `worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `worker_media.py`, `worker_transcription.py`, `worker_exports.py`, and `worker_completion.py` own the stage boundaries; `db_*.py` modules own the SQLite operations at each boundary.
-- `media.py`, `diarization.py`, `transcription.py`, `visual.py`, `exports.py`, and `summary_service.py` isolate the external processing and export concerns.
+- `core/app.py` creates the FastAPI application, owns service lifetime, and registers route groups from `routes/`: system/auth, assets, uploads, folders, speakers, media, visual events, and asset-speaker actions. `core/` also contains settings, logging, diagnostics, shared types, authentication, and API request/response models.
+- `workers/worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `workers/worker_media.py`, `workers/worker_transcription.py`, `workers/worker_exports.py`, and `workers/worker_completion.py` own the stage boundaries.
+- `persistence/` owns SQLite connection, schema, and repositories. `processing/` contains media, diarization, transcription, visual, export, summary, and content analysis behavior. `services/` owns upload-session, media-streaming, and speaker services.
 - `web/src/routes/` contains SvelteKit pages. The asset-detail page composes media, transcript, foldout, summary, and speaker components; playback navigation is isolated in its controller. Shared API types and UI utilities are in `web/src/lib/`.
 
 ## Notes

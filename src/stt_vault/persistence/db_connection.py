@@ -5,7 +5,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from .api_models import JsonValue
+from stt_vault.core.api_models import JsonValue
 
 AssetJsonFields = Mapping[str, type[object]]
 

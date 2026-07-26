@@ -24,6 +24,14 @@ CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[object]]
 ThumbnailExtractor = Callable[[Path, Path, float, CommandRunner], Path]
 
 
+class VisualProcessingError(RuntimeError):
+    """A visual-processing failure whose public representation excludes command diagnostics."""
+
+    def __init__(self, return_code: int) -> None:
+        super().__init__("ffmpeg slide-change extraction failed")
+        self.return_code = return_code
+
+
 def run_checked_command(command: list[str]) -> subprocess.CompletedProcess[object]:
     return subprocess.run(command, check=True)
 
@@ -112,7 +120,7 @@ def detect_slide_changes(
                 "stderr": diagnostics.formatted(),
             },
         )
-        raise subprocess.CalledProcessError(return_code, command, stderr=diagnostics.as_bytes())
+        raise VisualProcessingError(return_code)
 
     return events
 

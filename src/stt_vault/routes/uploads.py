@@ -9,7 +9,7 @@ from stt_vault.core.settings import Settings
 from stt_vault.core.types import UploadResponse
 from stt_vault.services.upload_sessions import UploadSessionService
 
-from .assets import _validated_relative_path
+from .asset_collection import validate_relative_path
 
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 UPLOAD_LOCKS: dict[str, asyncio.Lock] = {}
@@ -21,7 +21,7 @@ def register_upload_routes(app: FastAPI, settings: Settings) -> None:
 
     @router.post("/api/uploads")
     def create_upload(payload: UploadCreateRequest) -> UploadResponse:
-        filename = _validated_relative_path(payload.filename)
+        filename = validate_relative_path(payload.filename)
         if payload.size > settings.max_upload_bytes:
             raise HTTPException(status_code=413, detail="Upload is too large")
         return sessions.create(filename, payload.size)

@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 import wave
@@ -13,6 +14,7 @@ from stt_vault.core.types import KnownSpeaker, SpeakerMatch
 
 P = ParamSpec("P")
 R = TypeVar("R")
+logger = logging.getLogger(__name__)
 
 
 class DiarizationProvider(Protocol):
@@ -76,7 +78,7 @@ class DiarizerManager:
 
             rss_before = current_rss_mb()
             start = time.perf_counter()
-            self._diarizer = Diarizer(device=self.device, warmup=True, quiet=False)
+            self._diarizer = Diarizer(device=self.device, warmup=True, quiet=True)
             self._instrument_diarizer(self._diarizer)
             self._last_used = time.monotonic()
             self._resource_stats["load_diarizer"] = {
@@ -97,7 +99,10 @@ class DiarizerManager:
         diarizer._timing_stats = {}
         total_start = time.time()
 
-        diarizer._print(f"\n    \033[38;2;120;167;214m{Path(wav_path).name}\033[0m")
+        logger.info(
+            "diarization started",
+            extra={"event_name": "diarization.started", "media_filename": Path(wav_path).name},
+        )
         with wave.open(wav_path, "rb") as wav_file:
             diarizer._validate_wav_file(wav_file, wav_path)
 

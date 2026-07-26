@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from stt_vault.core.api_models import AssetResponse
-from stt_vault.core.app import create_app
-from stt_vault.core.settings import get_settings
+from stt_vault.core.app import ApplicationDependencies, create_app
+from stt_vault.core.settings import Settings, get_settings
 from stt_vault.persistence import db
 from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,
@@ -109,6 +109,70 @@ def test_create_app_registers_current_api_route_table(
     app = create_test_app(monkeypatch, tmp_path)
 
     assert api_route_pairs(app) == EXPECTED_API_ROUTES
+
+
+def test_create_app_accepts_injected_composition_dependencies(tmp_path: Path) -> None:
+    settings = Settings(stt_data_dir=tmp_path / "data", stt_db_path=tmp_path / "app.sqlite3")
+    calls: list[str] = []
+    worker = SimpleNamespace(
+        start=lambda: calls.append("start"),
+        stop=lambda: calls.append("stop"),
+    )
+    dependencies = ApplicationDependencies(
+        configure_logging=lambda: calls.append("logging"),
+        get_settings=lambda: settings,
+        prepare_directories=lambda _settings: calls.append("directories"),
+        initialize_database=lambda _path: calls.append("initialize"),
+        recover_expired_jobs=lambda _path: calls.append("recover"),
+        worker_factory=lambda _settings: worker,
+        register_routes=lambda _app, _settings, created_worker: (
+            calls.append("routes"),
+            assert_worker(created_worker, worker),
+        ),
+        mount_frontend=lambda _app: calls.append("frontend"),
+    )
+
+    app = create_app(dependencies)
+    with TestClient(app):
+        pass
+
+    assert calls == [
+        "logging",
+        "directories",
+        "initialize",
+        "recover",
+        "routes",
+        "frontend",
+        "start",
+        "stop",
+    ]
+
+
+def assert_worker(actual: object, expected: object) -> None:
+    assert actual is expected
+
+
+def test_run_preserves_structured_logging_for_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+    settings = SimpleNamespace(app_host="127.0.0.1", app_port=8099)
+    monkeypatch.setattr("stt_vault.core.app.configure_logging", lambda: calls.append("logging"))
+    monkeypatch.setattr("stt_vault.core.app.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "stt_vault.core.app.uvicorn.run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    from stt_vault.core.app import run
+
+    run()
+
+    assert calls == [
+        "logging",
+        (
+            ("stt_vault.core.app:create_app",),
+            {"factory": True, "host": "127.0.0.1", "port": 8099, "log_config": None},
+        ),
+    ]
 
 
 def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> None:

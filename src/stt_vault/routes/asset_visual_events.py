@@ -11,6 +11,8 @@ from stt_vault.persistence import db
 from stt_vault.processing.asset_visual_events import detect_asset_visual_events
 from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path
 
+from .asset_lookup import get_asset_or_404
+
 __all__ = ["register_asset_visual_event_routes"]
 
 
@@ -21,15 +23,12 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
     def get_visual_events(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[VisualEvent]:
-        if db.get_asset(settings.stt_db_path, asset_id) is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        get_asset_or_404(settings.stt_db_path, asset_id)
         return db.list_visual_events(settings.stt_db_path, asset_id)
 
     @router.post("/api/assets/{asset_id}/visual-events", dependencies=[Depends(require_admin)])
     def detect_visual_events(asset_id: str) -> dict[str, int]:
-        asset = db.get_asset(settings.stt_db_path, asset_id)
-        if asset is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        asset = get_asset_or_404(settings.stt_db_path, asset_id)
         events = detect_asset_visual_events(settings, asset)
         return {"events": len(events)}
 
@@ -39,9 +38,7 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
         event_index: int,
         _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
-        asset = db.get_asset(settings.stt_db_path, asset_id)
-        if asset is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        asset = get_asset_or_404(settings.stt_db_path, asset_id)
         events = db.list_visual_events(settings.stt_db_path, asset_id)
         if event_index < 0 or event_index >= len(events):
             raise HTTPException(status_code=404, detail="Visual event not found")

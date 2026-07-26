@@ -1,10 +1,13 @@
 import io
-import subprocess
 from pathlib import Path
 
 import pytest
 
-from stt_vault.processing.visual import detect_slide_changes, write_visual_event_thumbnails
+from stt_vault.processing.visual import (
+    VisualProcessingError,
+    detect_slide_changes,
+    write_visual_event_thumbnails,
+)
 
 
 class FailedFfmpeg:
@@ -49,24 +52,31 @@ class NoisyStderrFfmpeg:
         return 1
 
 
-def test_slide_change_failure_keeps_ffmpeg_diagnostics() -> None:
-    with pytest.raises(subprocess.CalledProcessError) as error:
+def test_slide_change_failure_does_not_expose_ffmpeg_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "Bearer diagnostic-secret /srv/private/broken.mp4"
+    process = FailedFfmpeg()
+    process.stderr = io.BytesIO(secret.encode())
+
+    with pytest.raises(VisualProcessingError) as error:
         detect_slide_changes(
-            Path("broken.mp4"), process_factory=lambda *_args, **_kwargs: FailedFfmpeg()
+            Path("broken.mp4"), process_factory=lambda *_args, **_kwargs: process
         )
 
-    assert error.value.stderr == b"invalid media"
+    assert secret not in str(error.value)
+    assert "diagnostic-secret" not in caplog.text
+    assert "/srv/private/broken.mp4" not in caplog.text
 
 
 def test_slide_change_failure_drains_noisy_stderr_before_waiting() -> None:
     process = NoisyStderrFfmpeg()
 
-    with pytest.raises(subprocess.CalledProcessError) as error:
+    with pytest.raises(VisualProcessingError) as error:
         detect_slide_changes(Path("broken.mp4"), process_factory=lambda _command: process)
 
     assert process.stderr_read is True
-    assert error.value.returncode == 1
-    assert len(error.value.stderr) <= 8 * 1024 + len(b" [truncated]")
+    assert error.value.return_code == 1
 
 
 def test_write_visual_event_thumbnails_uses_injected_extractor(tmp_path: Path) -> None:

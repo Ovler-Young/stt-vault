@@ -8,9 +8,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from stt_vault.core.auth import require_admin, require_resource_access
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AudioStream
-from stt_vault.persistence import db
 from stt_vault.processing.media import ffprobe_audio_streams, playback_media_stream_command
 from stt_vault.services.media_streaming import stream_process_stdout
+
+from .asset_lookup import get_asset_or_404
 
 __all__ = ["register_asset_media_routes"]
 logger = logging.getLogger(__name__)
@@ -23,9 +24,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
     def get_audio_tracks(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[AudioStream]:
-        asset = db.get_asset(settings.stt_db_path, asset_id)
-        if asset is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        asset = get_asset_or_404(settings.stt_db_path, asset_id)
         try:
             return ffprobe_audio_streams(Path(asset["original_path"]))
         except Exception as exc:
@@ -38,9 +37,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         _: Annotated[None, Depends(require_resource_access)],
         audio_track: str | None = None,
     ) -> FileResponse | StreamingResponse:
-        asset = db.get_asset(settings.stt_db_path, asset_id)
-        if asset is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        asset = get_asset_or_404(settings.stt_db_path, asset_id)
         if not audio_track or audio_track == "default":
             return FileResponse(asset["original_path"], filename=asset["filename"])
         try:
@@ -59,8 +56,8 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         format_name: str,
         _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
-        asset = db.get_asset(settings.stt_db_path, asset_id)
-        if asset is None or not asset.get("exports") or format_name not in asset["exports"]:
+        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        if not asset.get("exports") or format_name not in asset["exports"]:
             raise HTTPException(status_code=404, detail="Export not found")
         return FileResponse(asset["exports"][format_name])
 

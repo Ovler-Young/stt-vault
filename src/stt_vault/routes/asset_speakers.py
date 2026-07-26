@@ -12,6 +12,8 @@ from stt_vault.services.speaker_service import (
     resolve_speaker_id,
 )
 
+from .asset_lookup import get_asset_or_404
+
 __all__ = ["register_asset_speaker_routes"]
 
 
@@ -28,9 +30,7 @@ def register_asset_speaker_routes(app: FastAPI, settings: Settings) -> None:
         payload: SpeakerNameRequest,
     ) -> dict:
         display_name = clean_display_name(payload.display_name)
-        asset = db.get_asset(settings.stt_db_path, asset_id)
-        if asset is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        asset = get_asset_or_404(settings.stt_db_path, asset_id)
 
         centroids = asset.get("speaker_centroids") or {}
         centroid = centroids.get(local_speaker)
@@ -66,8 +66,7 @@ def register_asset_speaker_routes(app: FastAPI, settings: Settings) -> None:
         dependencies=[Depends(require_admin)],
     )
     def recompute_asset_speakers(asset_id: str) -> dict[str, int]:
-        if db.get_asset(settings.stt_db_path, asset_id) is None:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        get_asset_or_404(settings.stt_db_path, asset_id)
         updated_asset_ids = recompute_asset_speaker_matches(settings, [asset_id])
         rewrite_asset_exports(settings, updated_asset_ids)
         return {"assets": len(updated_asset_ids)}

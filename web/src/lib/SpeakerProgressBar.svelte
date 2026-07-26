@@ -28,12 +28,13 @@
   const wheelPanSensitivity = 0.00125;
   const keyZoomStep = 0.12;
   const keyPanStep = 0.12;
+  const fullTimelineWindow: TimelineWindow = { start: 0, end: 1 };
 
   let hovered: TimelineHover | null = null;
   let zoomStart = 0;
   let zoomEnd = 1;
   let dragStartX = 0;
-  let dragStartZoom: TimelineWindow = { start: 0, end: 1 };
+  let dragStartZoom: TimelineWindow = fullTimelineWindow;
   let dragContainerWidth = 1;
   let dragMoved = false;
   let dragActive = false;
@@ -294,8 +295,8 @@
       row="full"
       {segments}
       {effectiveDuration}
-      windowStart={0}
-      windowEnd={1}
+      windowStart={fullTimelineWindow.start}
+      windowEnd={fullTimelineWindow.end}
       {currentTime}
       progressPercent={fullProgressPercent}
       ariaLabel="Full speaker timeline"
@@ -304,14 +305,19 @@
       showZoomWindow={isZoomed}
       {zoomWindowLeft}
       {zoomWindowWidth}
-      onRowClick={(event) => handleClick(event, 0, 1)}
-      onRowContextMenu={(event) => handleContextMenu(event, 0, 1)}
+      onRowClick={(event) =>
+        handleClick(event, fullTimelineWindow.start, fullTimelineWindow.end)}
+      onRowContextMenu={(event) =>
+        handleContextMenu(event, fullTimelineWindow.start, fullTimelineWindow.end)}
       onRowKeydown={handleKeydown}
       onRowMouseDown={handleMouseDown}
-      onRowMouseMove={(event) => handleMouseMove(event, "full", 0, 1)}
+      onRowMouseMove={(event) =>
+        handleMouseMove(event, "full", fullTimelineWindow.start, fullTimelineWindow.end)}
       onRowMouseLeave={() => (hovered = null)}
-      onRowDoubleClick={(event) => handleDoubleClick(event, 0, 1)}
-      onRowWheel={(event) => handleWheel(event, 0, 1)}
+      onRowDoubleClick={(event) =>
+        handleDoubleClick(event, fullTimelineWindow.start, fullTimelineWindow.end)}
+      onRowWheel={(event) =>
+        handleWheel(event, fullTimelineWindow.start, fullTimelineWindow.end)}
     />
 
     {#if isZoomed}

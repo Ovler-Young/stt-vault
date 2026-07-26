@@ -6,7 +6,10 @@ from .logging_config import job_log_context
 from .settings import Settings
 from .types import AssetRecord, VisualEvent
 from .visual import (
+    CommandRunner,
+    ThumbnailExtractor,
     detect_slide_changes,
+    run_checked_command,
     write_visual_event_thumbnails,
     write_visual_events_export,
 )
@@ -14,7 +17,13 @@ from .visual import (
 logger = logging.getLogger(__name__)
 
 
-def detect_asset_visual_events(settings: Settings, asset: AssetRecord) -> list[VisualEvent]:
+def detect_asset_visual_events(
+    settings: Settings,
+    asset: AssetRecord,
+    *,
+    thumbnail_runner: CommandRunner = run_checked_command,
+    thumbnail_extractor: ThumbnailExtractor | None = None,
+) -> list[VisualEvent]:
     if asset.get("media_type") != "video":
         return []
 
@@ -27,7 +36,12 @@ def detect_asset_visual_events(settings: Settings, asset: AssetRecord) -> list[V
         )
         db.replace_visual_events(settings.stt_db_path, asset["id"], events)
         write_visual_event_thumbnails(
-            Path(asset["original_path"]), settings.exports_dir, asset["id"], events
+            Path(asset["original_path"]),
+            settings.exports_dir,
+            asset["id"],
+            events,
+            runner=thumbnail_runner,
+            extractor=thumbnail_extractor,
         )
         exports = dict(asset.get("exports") or {})
         exports["visual_events"] = write_visual_events_export(

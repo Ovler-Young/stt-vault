@@ -21,10 +21,20 @@ logger = logging.getLogger(__name__)
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[object]]
+ThumbnailExtractor = Callable[[Path, Path, float, CommandRunner], Path]
 
 
 def run_checked_command(command: list[str]) -> subprocess.CompletedProcess[object]:
     return subprocess.run(command, check=True)
+
+
+def run_thumbnail_extractor(
+    media_path: Path,
+    output_path: Path,
+    timestamp: float,
+    runner: CommandRunner,
+) -> Path:
+    return extract_thumbnail(media_path, output_path, timestamp, runner=runner)
 
 
 def detect_slide_changes(
@@ -135,11 +145,15 @@ def write_visual_event_thumbnails(
     export_dir: Path,
     asset_id: str,
     events: list[VisualEvent],
+    *,
+    runner: CommandRunner = run_checked_command,
+    extractor: ThumbnailExtractor | None = None,
 ) -> None:
     target = export_dir / asset_id / "visual-thumbnails"
     target.mkdir(parents=True, exist_ok=True)
+    extractor = extractor or run_thumbnail_extractor
     for index, event in enumerate(events):
-        extract_thumbnail(media_path, target / f"event-{index:04d}.jpg", float(event["timestamp"]))
+        extractor(media_path, target / f"event-{index:04d}.jpg", float(event["timestamp"]), runner)
 
 
 def extract_thumbnail(

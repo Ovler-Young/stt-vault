@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .api_models import EventResponse, JobResponse
 from .db_connection import connect, decode_record, now, transaction
 from .process_diagnostics import format_diagnostic_text
 
@@ -9,7 +10,7 @@ JOB_JSON_FIELDS = {"error": dict}
 EVENT_JSON_FIELDS = {"payload": dict}
 
 
-def list_jobs(db_path: Path) -> list[dict[str, Any]]:
+def list_jobs(db_path: Path) -> list[JobResponse]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -26,7 +27,7 @@ def list_jobs(db_path: Path) -> list[dict[str, Any]]:
     return [_decode_job(row) for row in rows]
 
 
-def get_job(db_path: Path, asset_id: str) -> dict[str, Any] | None:
+def get_job(db_path: Path, asset_id: str) -> JobResponse | None:
     with connect(db_path) as conn:
         row = conn.execute("SELECT * FROM jobs WHERE asset_id = ?", (asset_id,)).fetchone()
     if row is None:
@@ -205,7 +206,7 @@ def add_event(
         )
 
 
-def list_events(db_path: Path, asset_id: str, limit: int = 200) -> list[dict[str, Any]]:
+def list_events(db_path: Path, asset_id: str, limit: int = 200) -> list[EventResponse]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -224,7 +225,7 @@ def list_current_run_events(
     db_path: Path,
     asset_id: str,
     limit: int = 200,
-) -> list[dict[str, Any]]:
+) -> list[EventResponse]:
     job = get_job(db_path, asset_id)
     if job is None:
         return []
@@ -237,7 +238,7 @@ def list_current_run_events(
             ORDER BY id DESC
             LIMIT ?
             """,
-            (asset_id, job["run_attempt"], limit),
+            (asset_id, job.run_attempt, limit),
         ).fetchall()
     return _decode_events(rows)
 
@@ -346,14 +347,20 @@ def mark_success(
     add_event(db_path, asset_id, "info", "done", "Job completed")
 
 
-def _decode_job(row: Any) -> dict[str, Any]:
-    return decode_record(row, json_fields=JOB_JSON_FIELDS) or {}
+def _decode_job(row: Any) -> JobResponse:
+    record = decode_record(row, json_fields=JOB_JSON_FIELDS)
+    if record is None:
+        raise ValueError("job record has an invalid shape")
+    return JobResponse.model_validate(record)
 
 
-def _decode_events(rows: list[Any]) -> list[dict[str, Any]]:
-    events = []
+def _decode_events(rows: list[Any]) -> list[EventResponse]:
+    events: list[EventResponse] = []
     for row in reversed(rows):
-        events.append(decode_record(row, json_fields=EVENT_JSON_FIELDS) or {})
+        record = decode_record(row, json_fields=EVENT_JSON_FIELDS)
+        if record is None:
+            raise ValueError("job event record has an invalid shape")
+        events.append(EventResponse.model_validate(record))
     return events
 
 

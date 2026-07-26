@@ -107,9 +107,12 @@ def get_asset(db_path: Path, asset_id: str) -> AssetRecord | None:
         chunks = list_transcript_chunks(db_path, asset_id)
         if chunks:
             asset["transcript_segments"] = chunks
-        asset["job"] = get_job(db_path, asset_id)
-        asset["events"] = list_current_run_events(db_path, asset_id)
-        asset["event_history"] = list_events(db_path, asset_id)
+        job = get_job(db_path, asset_id)
+        asset["job"] = job.model_dump() if job is not None else None
+        asset["events"] = [
+            event.model_dump() for event in list_current_run_events(db_path, asset_id)
+        ]
+        asset["event_history"] = [event.model_dump() for event in list_events(db_path, asset_id)]
         asset["visual_events"] = list_visual_events(db_path, asset_id)
     return _validated_asset(asset) if asset is not None else None
 

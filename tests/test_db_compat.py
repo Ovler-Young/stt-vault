@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from stt_vault import db
+from stt_vault.api_models import EventResponse, JobResponse
 
 PUBLIC_DB_FUNCTIONS = {
     "connect",
@@ -352,8 +353,9 @@ def test_asset_job_lifecycle_and_get_asset_aggregate(tmp_path: Path) -> None:
     [listed_job] = db.list_jobs(db_path)
     assert listed_asset["status"] == "queued"
     assert listed_asset["filename"] == "clip.mp4"
-    assert listed_job["asset_id"] == "asset-1"
-    assert listed_job["filename"] == "clip.mp4"
+    assert listed_job.asset_id == "asset-1"
+    assert listed_job.filename == "clip.mp4"
+    assert isinstance(listed_job, JobResponse)
 
     assert db.claim_next_job(db_path) == "asset-1"
     db.update_stage(db_path, "asset-1", "transcribing speech")
@@ -373,6 +375,9 @@ def test_asset_job_lifecycle_and_get_asset_aggregate(tmp_path: Path) -> None:
         "Chunk retry scheduled",
         {"chunk_index": 1},
     )
+    event = db.list_events(db_path, "asset-1")[-1]
+    assert isinstance(event, EventResponse)
+    assert event.message == "Chunk retry scheduled"
 
     asset = db.get_asset(db_path, "asset-1")
 
@@ -647,7 +652,7 @@ def test_job_claim_recovery_preserves_valid_lease_and_requeues_expired_claim(
         conn.execute("UPDATE jobs SET claim_expires_at = 0 WHERE asset_id = 'asset-1'")
 
     assert db.recover_expired_jobs(db_path) == ["asset-1"]
-    assert db.get_job(db_path, "asset-1")["status"] == "queued"
+    assert db.get_job(db_path, "asset-1").status == "queued"
 
 
 def test_cleanup_task_and_summary_state_are_persisted(tmp_path: Path) -> None:

@@ -7,7 +7,14 @@ from .logging_config import job_log_context
 from .process_diagnostics import format_diagnostic_text
 from .settings import Settings
 from .types import AssetRecord, TranscriptSegment
-from .visual import detect_slide_changes, write_visual_event_thumbnails, write_visual_events_export
+from .visual import (
+    CommandRunner,
+    ThumbnailExtractor,
+    detect_slide_changes,
+    run_checked_command,
+    write_visual_event_thumbnails,
+    write_visual_events_export,
+)
 from .worker_models import PreparedAsset
 
 logger = logging.getLogger(__name__)
@@ -42,8 +49,16 @@ class TranscriptExportStage:
 
 
 class VisualEventStage:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        thumbnail_runner: CommandRunner = run_checked_command,
+        thumbnail_extractor: ThumbnailExtractor | None = None,
+    ) -> None:
         self.settings = settings
+        self.thumbnail_runner = thumbnail_runner
+        self.thumbnail_extractor = thumbnail_extractor
 
     def detect(self, asset_id: str, asset: AssetRecord) -> dict[str, str]:
         if asset.get("media_type") != "video":
@@ -58,7 +73,12 @@ class VisualEventStage:
             )
             db.replace_visual_events(self.settings.stt_db_path, asset_id, events)
             write_visual_event_thumbnails(
-                Path(asset["original_path"]), self.settings.exports_dir, asset_id, events
+                Path(asset["original_path"]),
+                self.settings.exports_dir,
+                asset_id,
+                events,
+                runner=self.thumbnail_runner,
+                extractor=self.thumbnail_extractor,
             )
             return {
                 "visual_events": write_visual_events_export(

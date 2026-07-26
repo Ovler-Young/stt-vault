@@ -79,7 +79,7 @@ def test_job_log_context_uses_persisted_job_identifier(tmp_path: Path) -> None:
     )
 
     assert event["asset_id"] == "asset-1"
-    assert event["job_id"] == db.get_job(db_path, "asset-1")["id"]
+    assert event["job_id"] == db.get_job(db_path, "asset-1").id
 
 
 def test_configure_logging_reformats_existing_root_handlers() -> None:

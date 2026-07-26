@@ -137,7 +137,7 @@ backend test suite are the configured backend quality checks.
 ## Architecture
 
 - `app.py` creates the FastAPI application, owns service lifetime, and registers route groups from `routes/`: system/auth, assets, uploads, folders, speakers, media, visual events, and asset-speaker actions. Each group receives the same settings instance and applies its own authentication dependency.
-- `worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `worker_stages.py` owns the stage boundaries; `db_*.py` modules own the SQLite operations at each boundary.
+- `worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `worker_media.py`, `worker_transcription.py`, `worker_exports.py`, and `worker_completion.py` own the stage boundaries; `db_*.py` modules own the SQLite operations at each boundary.
 - `media.py`, `diarization.py`, `transcription.py`, `visual.py`, `exports.py`, and `summary_service.py` isolate the external processing and export concerns.
 - `web/src/routes/` contains SvelteKit pages. The asset-detail page composes media, transcript, foldout, summary, and speaker components; playback navigation is isolated in its controller. Shared API types and UI utilities are in `web/src/lib/`.
 

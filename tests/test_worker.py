@@ -13,17 +13,13 @@ from stt_vault.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.worker_transcription import TranscriptionStage
 
 
-def test_complete_asset_publishes_summary_state_and_generates_summary(monkeypatch) -> None:
+def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
     calls: list[tuple[str, object]] = []
     stage = CompletionStage(
         SimpleNamespace(stt_db_path=Path("app.sqlite3")),
         summary_generator=lambda _settings, asset_id: calls.append(("generate-summary", asset_id)),
     )
 
-    monkeypatch.setattr(
-        "stt_vault.worker.db.update_asset_summary",
-        lambda _db_path, asset_id, **kwargs: calls.append(("summary-state", (asset_id, kwargs))),
-    )
     monkeypatch.setattr(
         "stt_vault.worker.db.mark_success",
         lambda _db_path, asset_id, **kwargs: calls.append(("asset-success", (asset_id, kwargs))),
@@ -44,12 +40,10 @@ def test_complete_asset_publishes_summary_state_and_generates_summary(monkeypatc
     )
 
     assert [name for name, _payload in calls] == [
-        "summary-state",
         "asset-success",
         "generate-summary",
     ]
-    assert calls[0][1] == ("asset-1", {"status": "running"})
-    assert calls[1][1][1]["transcript_segments"] == [{"text": "hello"}]
+    assert calls[0][1][1]["transcript_segments"] == [{"text": "hello"}]
 
 
 def test_worker_process_asset_orchestrates_stage_services(monkeypatch, tmp_path: Path) -> None:
@@ -216,7 +210,7 @@ def test_visual_event_stage_persists_and_exports_video_events(monkeypatch, tmp_p
     )
     monkeypatch.setattr(
         "stt_vault.worker_exports.write_visual_event_thumbnails",
-        lambda *_args: calls.append("thumbnails"),
+        lambda *_args, **_kwargs: calls.append("thumbnails"),
     )
     monkeypatch.setattr(
         "stt_vault.worker_exports.write_visual_events_export",
@@ -229,6 +223,47 @@ def test_visual_event_stage_persists_and_exports_video_events(monkeypatch, tmp_p
 
     assert calls == ["stage", "persist", "thumbnails"]
     assert exports == {"visual_events": "events.json"}
+
+
+def test_visual_event_stage_propagates_injected_thumbnail_extractor(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def extractor(_media_path: Path, output_path: Path, _timestamp: float, _runner: object) -> Path:
+        return output_path
+
+    def runner(_command: list[str]) -> object:
+        raise AssertionError("the injected extractor must receive the runner without invoking it")
+
+    stage = VisualEventStage(
+        SimpleNamespace(
+            stt_db_path=tmp_path / "app.sqlite3",
+            exports_dir=tmp_path / "exports",
+            visual_sample_interval_seconds=2.0,
+            visual_change_threshold=18.0,
+            visual_min_gap_seconds=6.0,
+        ),
+        thumbnail_runner=runner,
+        thumbnail_extractor=extractor,
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr("stt_vault.worker_exports.db.update_stage", lambda *_args: None)
+    monkeypatch.setattr(
+        "stt_vault.worker_exports.detect_slide_changes",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr("stt_vault.worker_exports.db.replace_visual_events", lambda *_args: None)
+    monkeypatch.setattr(
+        "stt_vault.worker_exports.write_visual_event_thumbnails",
+        lambda *_args, **kwargs: captured.update(kwargs),
+    )
+    monkeypatch.setattr(
+        "stt_vault.worker_exports.write_visual_events_export", lambda *_args: "events.json"
+    )
+
+    stage.detect("asset-1", {"media_type": "video", "original_path": str(tmp_path / "clip.mp4")})
+
+    assert captured["extractor"] is extractor
+    assert captured["runner"] is runner
 
 
 def test_transcription_stage_coordinates_storage_reconciliation_and_progress_events(

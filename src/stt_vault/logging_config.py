@@ -11,7 +11,7 @@ def job_log_context(db_path: Path, asset_id: str) -> dict[str, str | None]:
     from . import db
 
     job = db.get_job(db_path, asset_id)
-    return {"asset_id": asset_id, "job_id": job["id"] if job is not None else None}
+    return {"asset_id": asset_id, "job_id": job.id if job is not None else None}
 
 
 class StructuredFormatter(logging.Formatter):

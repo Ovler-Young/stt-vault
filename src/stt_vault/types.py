@@ -89,19 +89,6 @@ class AudioStream(TypedDict):
     title: str | None
 
 
-class JobRecord(TypedDict, total=False):
-    asset_id: str
-    status: str
-    stage: str | None
-
-
-class EventRecord(TypedDict, total=False):
-    id: int
-    level: str
-    stage: str | None
-    message: str
-
-
 class SpeakerRecord(TypedDict, total=False):
     id: str
     display_name: str

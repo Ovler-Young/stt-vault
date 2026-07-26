@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from stt_vault.visual import detect_slide_changes
+from stt_vault.visual import detect_slide_changes, write_visual_event_thumbnails
 
 
 class FailedFfmpeg:
@@ -67,3 +67,26 @@ def test_slide_change_failure_drains_noisy_stderr_before_waiting() -> None:
     assert process.stderr_read is True
     assert error.value.returncode == 1
     assert len(error.value.stderr) <= 8 * 1024 + len(b" [truncated]")
+
+
+def test_write_visual_event_thumbnails_uses_injected_extractor(tmp_path: Path) -> None:
+    calls: list[tuple[Path, Path, float]] = []
+
+    write_visual_event_thumbnails(
+        tmp_path / "clip.mp4",
+        tmp_path / "exports",
+        "asset-1",
+        [{"timestamp": 2.5, "score": 20.0, "kind": "slide_change"}],
+        extractor=lambda media_path, output_path, timestamp, _runner: (
+            calls.append((media_path, output_path, timestamp)),
+            output_path,
+        )[1],
+    )
+
+    assert calls == [
+        (
+            tmp_path / "clip.mp4",
+            tmp_path / "exports" / "asset-1" / "visual-thumbnails" / "event-0000.jpg",
+            2.5,
+        )
+    ]

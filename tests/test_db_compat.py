@@ -1,8 +1,10 @@
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from stt_vault import db
 
@@ -100,6 +102,29 @@ def test_db_facade_preserves_public_import_surface() -> None:
     assert missing == []
 
 
+def test_record_decoder_rejects_json_with_the_wrong_schema_type() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT '[1, 2]' AS error").fetchone()
+
+    with pytest.raises(ValueError, match="error must decode to dict"):
+        db.decode_record(row, json_fields={"error": dict})
+
+
+def test_asset_decoder_rejects_malformed_persisted_segment(tmp_path: Path) -> None:
+    db_path = tmp_path / "schema.sqlite3"
+    db.initialize(db_path)
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
+    with db.transaction(db_path) as conn:
+        conn.execute(
+            "UPDATE assets SET raw_segments = ? WHERE id = ?",
+            ('[{"start":"bad","end":1.0,"speaker":"SPEAKER_00"}]', "asset-1"),
+        )
+
+    with pytest.raises(ValidationError):
+        db.get_asset(db_path, "asset-1")
+
+
 def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: Path) -> None:
     db_path = tmp_path / "schema.sqlite3"
     db.initialize(db_path)
@@ -126,9 +151,7 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         chunk_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(transcript_chunks)")
         }
-        upload_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(upload_sessions)")
-        }
+        upload_columns = {row["name"] for row in conn.execute("PRAGMA table_info(upload_sessions)")}
 
     assert {
         "assets",
@@ -220,6 +243,43 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "run_attempt",
     }.issubset(legacy_jobs_columns)
     assert "run_attempt" in legacy_events_columns
+
+
+def test_initialize_serializes_legacy_schema_migrations(tmp_path: Path) -> None:
+    legacy_path = tmp_path / "legacy-concurrent.sqlite3"
+    with sqlite3.connect(legacy_path) as conn:
+        conn.execute("CREATE TABLE assets (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)")
+        conn.execute(
+            "CREATE TABLE jobs ("
+            "id TEXT PRIMARY KEY, asset_id TEXT NOT NULL, status TEXT NOT NULL, "
+            "created_at INTEGER NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE job_events ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, "
+            "asset_id TEXT NOT NULL, created_at INTEGER NOT NULL)"
+        )
+
+    barrier = threading.Barrier(2)
+    errors: list[Exception] = []
+
+    def initialize_concurrently() -> None:
+        barrier.wait()
+        try:
+            db.initialize(legacy_path)
+        except Exception as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=initialize_concurrently) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    with sqlite3.connect(legacy_path) as conn:
+        jobs_columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    assert {"run_attempt", "claim_owner", "claim_expires_at"}.issubset(jobs_columns)
 
 
 def test_folder_tree_and_asset_moves_preserve_a_single_hierarchy(tmp_path: Path) -> None:
@@ -369,6 +429,23 @@ def test_transcript_chunks_are_ordered_decoded_and_mirrored(tmp_path: Path) -> N
     assert db.list_transcript_chunks(db_path, "asset-1") == []
 
 
+def test_transcript_chunk_boundary_rejects_malformed_database_record(tmp_path: Path) -> None:
+    db_path = create_processing_asset(tmp_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO transcript_chunks
+                (asset_id, chunk_index, start, end, chunk_start, chunk_end,
+                 speaker, text, status, attempts, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("asset-1", 0, "not-a-time", 1.0, 0.0, 1.0, "SPEAKER_00", "hello", "success", 1, 0),
+        )
+
+    with pytest.raises(ValueError, match="invalid shape"):
+        db.list_transcript_chunks(db_path, "asset-1")
+
+
 def test_success_failure_partial_and_retry_transitions(tmp_path: Path) -> None:
     success_path = create_processing_asset(tmp_path / "success", "success-asset")
     db.mark_success(
@@ -377,8 +454,8 @@ def test_success_failure_partial_and_retry_transitions(tmp_path: Path) -> None:
         wav_path=tmp_path / "success.wav",
         duration=12.5,
         diarization_stats={"segments": 2},
-        raw_segments=[{"speaker": "SPEAKER_00"}],
-        merged_segments=[{"speaker": "SPEAKER_00", "text": "hello"}],
+        raw_segments=[{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+        merged_segments=[{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
         speaker_centroids={"SPEAKER_00": [0.1, 0.2]},
         transcript_segments=[{"speaker": "SPEAKER_00", "text": "hello"}],
         exports={"txt": "/tmp/success.txt"},
@@ -390,16 +467,23 @@ def test_success_failure_partial_and_retry_transitions(tmp_path: Path) -> None:
     assert success_asset["job"]["stage"] == "done"
     assert success_asset["exports"] == {"txt": "/tmp/success.txt"}
     assert success_asset["diarization_stats"] == {"segments": 2}
-    assert success_asset["raw_segments"] == [{"speaker": "SPEAKER_00"}]
+    assert success_asset["raw_segments"] == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
 
     failed_path = create_processing_asset(tmp_path / "failed", "failed-asset")
     db.update_progress(failed_path, "failed-asset", total_chunks=4, done_chunks=2, failed_chunks=1)
-    db.mark_failed(failed_path, "failed-asset", {"type": "RuntimeError", "message": "boom"})
+    db.mark_failed(
+        failed_path,
+        "failed-asset",
+        {"category": "processing", "message": "boom OPENAI_API_KEY=secret /srv/private.wav"},
+    )
     failed_asset = db.get_asset(failed_path, "failed-asset")
     assert failed_asset is not None
     assert failed_asset["status"] == "failed"
-    assert failed_asset["error"] == {"type": "RuntimeError", "message": "boom"}
-    assert failed_asset["job"]["error"] == {"type": "RuntimeError", "message": "boom"}
+    assert failed_asset["error"] == {
+        "category": "processing",
+        "message": "boom [redacted] [path]",
+    }
+    assert failed_asset["job"]["error"] == failed_asset["error"]
 
     db.retry_asset(failed_path, "failed-asset")
     retried_asset = db.get_asset(failed_path, "failed-asset")
@@ -420,12 +504,16 @@ def test_success_failure_partial_and_retry_transitions(tmp_path: Path) -> None:
     assert [event["message"] for event in retry_run_asset["events"]] == ["Job queued for retry"]
 
     partial_path = create_processing_asset(tmp_path / "partial", "partial-asset")
-    db.mark_partial(partial_path, "partial-asset", {"type": "TimeoutError", "message": "slow"})
+    db.mark_partial(
+        partial_path,
+        "partial-asset",
+        {"category": "provider", "message": "slow"},
+    )
     partial_asset = db.get_asset(partial_path, "partial-asset")
     assert partial_asset is not None
     assert partial_asset["status"] == "partial"
     assert partial_asset["job"]["status"] == "partial"
-    assert partial_asset["error"] == {"type": "TimeoutError", "message": "slow"}
+    assert partial_asset["error"] == {"category": "provider", "message": "slow"}
 
 
 def test_speaker_operations_propagate_to_chunks_and_asset_json(tmp_path: Path) -> None:
@@ -619,9 +707,7 @@ def test_asset_deletion_and_cleanup_task_share_one_transaction(tmp_path: Path) -
     db_path = initialized_db(tmp_path)
     db.create_asset(db_path, "asset-1", "clip.mp4", "video", tmp_path / "clip.mp4")
 
-    db.delete_asset_with_cleanup_task(
-        db_path, "asset-1", tmp_path / "media", tmp_path / "exports"
-    )
+    db.delete_asset_with_cleanup_task(db_path, "asset-1", tmp_path / "media", tmp_path / "exports")
 
     assert db.get_asset(db_path, "asset-1") is None
     assert db.get_cleanup_task(db_path, "asset-1") is not None

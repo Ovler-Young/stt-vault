@@ -12,7 +12,7 @@ def test_content_analysis_contract_keeps_content_fields_and_filters_candidates()
     ]
     prompt = build_content_analysis_prompt(transcript)
     analysis = parse_content_analysis(
-        '''{
+        """{
           "title": "Friday release planning",
           "content_summary": "The team agreed to ship on Friday.",
           "themes": ["release planning"],
@@ -30,7 +30,7 @@ def test_content_analysis_contract_keeps_content_fields_and_filters_candidates()
             {"speaker": "SPEAKER_01", "name": "Unknown", "confidence": 0.99},
             {"speaker": "SPEAKER_02", "name": "Jordan Lee", "confidence": 0.94}
           ]
-        }''',
+        }""",
         minimum_speaker_confidence=0.95,
     )
 

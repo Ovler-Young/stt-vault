@@ -1,31 +1,63 @@
-import shutil
+import logging
 import threading
 import uuid
-from pathlib import Path
-from typing import Any
+from collections.abc import Callable
 
 from . import db
-from .diarization import DiarizerManager, match_speakers, serialize_centroids
-from .exports import write_exports
-from .media import ffprobe_duration, to_wav_16k_mono
+from .diarization import DiarizerManager
+from .logging_config import job_log_context
+from .process_diagnostics import format_diagnostic_text
 from .settings import Settings
-from .summary_service import generate_asset_summary
-from .transcription import Transcriber, build_transcription_plan, transcript_chunks_match_plan
-from .visual import detect_slide_changes, write_visual_event_thumbnails, write_visual_events_export
+from .types import AssetRecord, ErrorRecord, TranscriptSegment
+from .worker_completion import CompletionStage
+from .worker_exports import TranscriptExportStage, VisualEventStage
+from .worker_media import DiarizationStage, MediaPreparationStage
+from .worker_models import PreparedAsset
+from .worker_transcription import TranscriptionStage
+from .worker_workspace import ProcessingWorkspace
+
+logger = logging.getLogger(__name__)
+
+
+def create_diarizer(settings: Settings) -> DiarizerManager:
+    return DiarizerManager(
+        device=settings.senko_device,
+        idle_timeout_seconds=settings.diarizer_idle_timeout_seconds,
+        use_batched_embeddings=settings.senko_batched_embeddings,
+        fbank_batch_segments=settings.senko_fbank_batch_segments,
+    )
 
 
 class Worker:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        diarizer_factory: Callable[[Settings], DiarizerManager] = create_diarizer,
+        media_preparation_stage_factory: Callable[
+            [Settings], MediaPreparationStage
+        ] = MediaPreparationStage,
+        diarization_stage_factory: Callable[
+            [Settings, DiarizerManager], DiarizationStage
+        ] = DiarizationStage,
+        transcription_stage_factory: Callable[[Settings], TranscriptionStage] = TranscriptionStage,
+        visual_event_stage_factory: Callable[[Settings], VisualEventStage] = VisualEventStage,
+        transcript_export_stage_factory: Callable[
+            [Settings], TranscriptExportStage
+        ] = TranscriptExportStage,
+        completion_stage_factory: Callable[[Settings], CompletionStage] = CompletionStage,
+    ) -> None:
         self.settings = settings
         self.stop_event = threading.Event()
         self.claim_owner = uuid.uuid4().hex
         self.thread = threading.Thread(target=self.run, name="stt-vault-worker", daemon=True)
-        self.diarizer = DiarizerManager(
-            device=settings.senko_device,
-            idle_timeout_seconds=settings.diarizer_idle_timeout_seconds,
-            use_batched_embeddings=settings.senko_batched_embeddings,
-            fbank_batch_segments=settings.senko_fbank_batch_segments,
-        )
+        self.diarizer = diarizer_factory(settings)
+        self.media_preparation = media_preparation_stage_factory(settings)
+        self.diarization = diarization_stage_factory(settings, self.diarizer)
+        self.visual_events = visual_event_stage_factory(settings)
+        self.transcription = transcription_stage_factory(settings)
+        self.transcript_exports = transcript_export_stage_factory(settings)
+        self.completion = completion_stage_factory(settings)
 
     def start(self) -> None:
         self.thread.start()
@@ -55,12 +87,19 @@ class Worker:
             )
             claim_renewer.start()
             try:
-                self.process(asset_id)
+                self.process_asset(asset_id)
             except Exception as exc:
+                logger.exception(
+                    "worker job failed",
+                    extra={
+                        **job_log_context(self.settings.stt_db_path, asset_id),
+                        "event_name": "worker.job_failed",
+                    },
+                )
                 db.mark_failed(
                     self.settings.stt_db_path,
                     asset_id,
-                    {"type": exc.__class__.__name__, "message": str(exc)},
+                    _failure_record(self.settings, asset_id, exc),
                 )
             finally:
                 claim_stop_event.set()
@@ -77,316 +116,66 @@ class Worker:
             ):
                 return
 
-    def process(self, asset_id: str) -> None:
+    def process_asset(self, asset_id: str) -> None:
         asset = db.get_asset(self.settings.stt_db_path, asset_id)
         if asset is None:
             return
-
-        original_path = Path(asset["original_path"])
-        work_dir = self.settings.tmp_dir / asset_id
-        if work_dir.exists():
-            shutil.rmtree(work_dir)
-        work_dir.mkdir(parents=True, exist_ok=True)
-        wav_path = self.settings.media_dir / asset_id / "audio.16k.mono.wav"
-
-        db.update_stage(self.settings.stt_db_path, asset_id, "probing media")
-        duration = ffprobe_duration(original_path)
-
-        db.update_stage(self.settings.stt_db_path, asset_id, "normalizing audio")
-        to_wav_16k_mono(original_path, wav_path)
-
-        db.update_stage(self.settings.stt_db_path, asset_id, "identifying speakers")
-        diarization = self.diarizer.diarize(str(wav_path))
-        if diarization is None:
-            raise RuntimeError("No speech detected")
-
-        centroids = serialize_centroids(diarization["speaker_centroids"])
-        db.update_diarization_metadata(
-            self.settings.stt_db_path,
-            asset_id,
-            wav_path=wav_path,
-            duration=duration,
-            diarization_stats=diarization["timing_stats"],
-            raw_segments=diarization["raw_segments"],
-            merged_segments=diarization["merged_segments"],
-            speaker_centroids=centroids,
-        )
-
-        def current_speaker_matches() -> dict[str, dict[str, Any]]:
-            return match_speakers(
-                centroids,
-                db.list_speakers(self.settings.stt_db_path),
-                self.settings.speaker_similarity_threshold,
+        with ProcessingWorkspace(self.settings.tmp_dir, asset_id) as work_dir:
+            wav_path, duration = self.media_preparation.prepare(asset_id, asset)
+            prepared = self.diarization.diarize(asset_id, wav_path, duration)
+            transcript_segments, error = self.transcription.transcribe(
+                asset_id, asset, prepared, work_dir
             )
-
-        db.update_stage(self.settings.stt_db_path, asset_id, "transcribing speech")
-        chunks = build_transcription_plan(
-            diarization,
-            max_seconds=self.settings.transcribe_chunk_seconds,
-        )
-        existing_chunks = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
-        if existing_chunks and not transcript_chunks_match_plan(existing_chunks, chunks):
-            db.reset_transcript_chunks(self.settings.stt_db_path, asset_id)
-            existing_chunks = []
-            db.add_event(
-                self.settings.stt_db_path,
-                asset_id,
-                "info",
-                "transcribing speech",
-                "Transcript chunk plan changed; restarting transcription",
-            )
-        completed_chunk_indexes = {
-            int(chunk["chunk_index"])
-            for chunk in existing_chunks
-            if chunk.get("status") == "success"
-        }
-        chunk_progress = {"done": 0, "failed": 0}
-
-        def on_chunk_done(index: int, result: dict[str, Any]) -> None:
-            enriched = apply_speaker_names([result], current_speaker_matches())[0]
-            chunk_progress["done"] += 1
-            db.upsert_transcript_chunk(
-                self.settings.stt_db_path,
-                asset_id,
-                index,
-                enriched,
-                attempts=int(result.get("attempts", 1)),
-            )
-            db.update_progress(
-                self.settings.stt_db_path,
-                asset_id,
-                done_chunks=chunk_progress["done"],
-                failed_chunks=chunk_progress["failed"],
-                next_retry_at=None,
-            )
-            db.add_event(
-                self.settings.stt_db_path,
-                asset_id,
-                "info",
-                "transcribing speech",
-                f"Chunk {index + 1} transcribed",
-                {"chunk_index": index, "done_chunks": chunk_progress["done"]},
-            )
-
-        def on_chunk_retry(index: int, attempt: int, exc: Exception, retry_at: int) -> None:
-            chunk_progress["failed"] += 1
-            db.update_progress(
-                self.settings.stt_db_path,
-                asset_id,
-                failed_chunks=chunk_progress["failed"],
-                next_retry_at=retry_at,
-            )
-            db.add_event(
-                self.settings.stt_db_path,
-                asset_id,
-                "warning",
-                "transcribing speech",
-                (
-                    f"Chunk {index + 1} failed on attempt {attempt}; "
-                    "OpenAI cooldown active until retry"
-                ),
-                {
-                    "chunk_index": index,
-                    "attempt": attempt,
-                    "retry_at": retry_at,
-                    "note": (
-                        "New OpenAI requests pause until retry; "
-                        "already in-flight requests may still finish."
-                    ),
-                    "error_type": exc.__class__.__name__,
-                    "error": str(exc),
-                },
-            )
-
-        transcriber = Transcriber(
-            api_key=self.settings.openai_api_key,
-            base_url=self.settings.openai_base_url,
-            model=self.settings.openai_transcribe_model,
-            prompt=self.settings.openai_transcribe_prompt,
-            concurrency=self.settings.openai_concurrency,
-            retry_seconds=self.settings.openai_retry_seconds,
-            max_retries=self.settings.openai_max_retries,
-            retry_backoff_seconds=self.settings.parsed_openai_retry_backoff_seconds,
-            on_chunk_done=on_chunk_done,
-            on_chunk_retry=on_chunk_retry,
-        )
-        chunks_to_transcribe = [
-            chunk for chunk in chunks if int(chunk["chunk_index"]) not in completed_chunk_indexes
-        ]
-        chunk_progress["done"] = len(completed_chunk_indexes)
-        db.update_progress(
-            self.settings.stt_db_path,
-            asset_id,
-            total_chunks=len(chunks),
-            done_chunks=chunk_progress["done"],
-        )
-        transcript_segments = []
-        try:
-            transcript_segments = transcriber.transcribe_chunks(
-                original_path,
-                chunks_to_transcribe,
-                work_dir,
-            )
-            transcript_segments = apply_speaker_names(
-                transcript_segments,
-                current_speaker_matches(),
-            )
-        except Exception as exc:
-            transcript_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
-            db.update_stage(self.settings.stt_db_path, asset_id, "writing partial exports")
-            exports = write_exports(
-                self.settings.exports_dir,
-                asset_id,
-                asset["filename"],
-                transcript_segments,
-                diarization["raw_segments"],
-                self.settings.parsed_export_formats,
-            )
-            exports.update(self.detect_visual_events(asset_id, asset, original_path))
-            db.mark_success(
-                self.settings.stt_db_path,
-                asset_id,
-                wav_path=wav_path,
-                duration=duration,
-                diarization_stats=diarization["timing_stats"],
-                raw_segments=diarization["raw_segments"],
-                merged_segments=diarization["merged_segments"],
-                speaker_centroids=centroids,
-                transcript_segments=transcript_segments,
-                exports=exports,
-            )
-            db.mark_partial(
-                self.settings.stt_db_path,
-                asset_id,
-                {"type": exc.__class__.__name__, "message": str(exc)},
-            )
-            shutil.rmtree(work_dir, ignore_errors=True)
-            return
-
-        db.update_stage(self.settings.stt_db_path, asset_id, "writing exports")
-        transcript_segments = (
-            db.list_transcript_chunks(self.settings.stt_db_path, asset_id) or transcript_segments
-        )
-        exports = write_exports(
-            self.settings.exports_dir,
-            asset_id,
-            asset["filename"],
-            transcript_segments,
-            diarization["raw_segments"],
-            self.settings.parsed_export_formats,
-        )
-        exports.update(self.detect_visual_events(asset_id, asset, original_path))
-
-        self.complete_asset(
-            asset_id,
-            wav_path=wav_path,
-            duration=duration,
-            diarization_stats=diarization["timing_stats"],
-            raw_segments=diarization["raw_segments"],
-            merged_segments=diarization["merged_segments"],
-            speaker_centroids=centroids,
-            transcript_segments=transcript_segments,
-            exports=exports,
-        )
-        shutil.rmtree(work_dir, ignore_errors=True)
-
-    def complete_asset(
-        self,
-        asset_id: str,
-        *,
-        wav_path: Path,
-        duration: float,
-        diarization_stats: dict[str, Any],
-        raw_segments: list[dict[str, Any]],
-        merged_segments: list[dict[str, Any]],
-        speaker_centroids: dict[str, list[float]],
-        transcript_segments: list[dict[str, Any]],
-        exports: dict[str, str],
-    ) -> None:
-        db.update_asset_summary(self.settings.stt_db_path, asset_id, status="running")
-        db.mark_success(
-            self.settings.stt_db_path,
-            asset_id,
-            wav_path=wav_path,
-            duration=duration,
-            diarization_stats=diarization_stats,
-            raw_segments=raw_segments,
-            merged_segments=merged_segments,
-            speaker_centroids=speaker_centroids,
-            transcript_segments=transcript_segments,
-            exports=exports,
-        )
-        self.generate_summary(asset_id)
-
-    def generate_summary(self, asset_id: str) -> None:
-        try:
-            generate_asset_summary(self.settings, asset_id)
-        except Exception as exc:
-            db.add_event(
-                self.settings.stt_db_path,
-                asset_id,
-                "warning",
-                "summarizing content",
-                "Automatic summary generation failed",
-                {"type": exc.__class__.__name__, "message": str(exc)},
-            )
-
-    def detect_visual_events(
-        self,
-        asset_id: str,
-        asset: dict[str, Any],
-        original_path: Path,
-    ) -> dict[str, str]:
-        if asset.get("media_type") != "video":
-            return {}
-
-        db.update_stage(self.settings.stt_db_path, asset_id, "detecting slide changes")
-        try:
-            visual_events = detect_slide_changes(
-                original_path,
-                sample_interval_seconds=self.settings.visual_sample_interval_seconds,
-                threshold=self.settings.visual_change_threshold,
-                min_gap_seconds=self.settings.visual_min_gap_seconds,
-            )
-            db.replace_visual_events(self.settings.stt_db_path, asset_id, visual_events)
-            write_visual_event_thumbnails(
-                original_path,
-                self.settings.exports_dir,
-                asset_id,
-                visual_events,
-            )
-            return {
-                "visual_events": write_visual_events_export(
-                    self.settings.exports_dir,
-                    asset_id,
-                    visual_events,
+            if error is not None:
+                exports = self._write_exports(
+                    asset_id, asset, prepared, transcript_segments, partial=True
                 )
-            }
-        except Exception as exc:
-            db.add_event(
-                self.settings.stt_db_path,
-                asset_id,
-                "warning",
-                "detecting slide changes",
-                "Slide-change detection failed",
-                {"type": exc.__class__.__name__, "message": str(exc)},
+                self.completion.complete_partial(
+                    asset_id, prepared, transcript_segments, exports, error
+                )
+                return
+
+            persisted_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+            completed_segments = persisted_segments or transcript_segments
+            exports = self._write_exports(
+                asset_id, asset, prepared, completed_segments, partial=False
             )
-            return {}
+            self.completion.complete(asset_id, prepared, completed_segments, exports)
 
-
-def apply_speaker_names(
-    transcript_segments: list[dict[str, Any]],
-    speaker_matches: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    enriched = []
-    for segment in transcript_segments:
-        match = speaker_matches.get(segment["speaker"], {})
-        enriched.append(
-            {
-                **segment,
-                "speaker_id": match.get("speaker_id", segment["speaker"]),
-                "speaker_name": match.get("display_name", segment["speaker"]),
-                "speaker_similarity": match.get("score"),
-            }
+    def _write_exports(
+        self,
+        asset_id: str,
+        asset: AssetRecord,
+        prepared: PreparedAsset,
+        segments: list[TranscriptSegment],
+        *,
+        partial: bool,
+    ) -> dict[str, str]:
+        exports = self.transcript_exports.write(
+            asset_id, asset, prepared, segments, partial=partial
         )
-    return enriched
+        exports.update(self.visual_events.detect(asset_id, asset))
+        return exports
+
+
+def _failure_record(settings: Settings, asset_id: str, error: Exception) -> ErrorRecord:
+    module = error.__class__.__module__
+    if module.startswith(("openai", "httpx", "requests")):
+        category = "provider"
+        message = "An external provider request failed"
+    elif isinstance(error, OSError):
+        category = "filesystem"
+        message = "A local processing operation failed"
+    else:
+        category = "processing"
+        message = "Asset processing failed"
+    # Keep the redacted cause in filtered logs only; persisted records are user-facing.
+    logger.error(
+        "worker failure categorized",
+        extra={
+            **job_log_context(settings.stt_db_path, asset_id),
+            "event_name": "worker.failure_categorized",
+            "cause": format_diagnostic_text(str(error)),
+        },
+    )
+    return {"category": category, "message": message}

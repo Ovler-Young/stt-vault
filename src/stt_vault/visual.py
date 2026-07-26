@@ -1,12 +1,30 @@
 import json
+import logging
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+
+from .process_diagnostics import (
+    ProcessFactory,
+    command_name,
+    start_process,
+    start_stderr_drain,
+)
+from .types import VisualEvent
 
 FRAME_WIDTH = 32
 FRAME_HEIGHT = 18
 FRAME_BYTES = FRAME_WIDTH * FRAME_HEIGHT
 THUMB_WIDTH = 160
 THUMB_HEIGHT = 90
+logger = logging.getLogger(__name__)
+
+
+CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[object]]
+
+
+def run_checked_command(command: list[str]) -> subprocess.CompletedProcess[object]:
+    return subprocess.run(command, check=True)
 
 
 def detect_slide_changes(
@@ -15,7 +33,8 @@ def detect_slide_changes(
     sample_interval_seconds: float = 2.0,
     threshold: float = 18.0,
     min_gap_seconds: float = 6.0,
-) -> list[dict[str, float | str]]:
+    process_factory: ProcessFactory = start_process,
+) -> list[VisualEvent]:
     if sample_interval_seconds <= 0:
         raise ValueError("sample_interval_seconds must be positive")
 
@@ -32,14 +51,15 @@ def detect_slide_changes(
         "rawvideo",
         "pipe:1",
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE)
+    process = process_factory(command)
     if process.stdout is None:
         raise RuntimeError("ffmpeg stdout pipe is unavailable")
 
-    events: list[dict[str, float | str]] = []
+    events: list[VisualEvent] = []
     previous: bytes | None = None
     frame_index = 0
     last_event_at = -min_gap_seconds
+    diagnostics, stderr_thread = start_stderr_drain(process)
     try:
         while True:
             frame = process.stdout.read(FRAME_BYTES)
@@ -67,8 +87,22 @@ def detect_slide_changes(
         process.stdout.close()
 
     return_code = process.wait()
+    stderr_thread.join()
+    if process.stderr is not None:
+        process.stderr.close()
     if return_code != 0:
-        raise subprocess.CalledProcessError(return_code, command)
+        logger.error(
+            "ffmpeg slide-change extraction failed",
+            extra={
+                "asset_id": media_path.stem,
+                "job_id": None,
+                "event_name": "visual.ffmpeg_slide_change_failed",
+                "return_code": return_code,
+                "command": command_name(command),
+                "stderr": diagnostics.formatted(),
+            },
+        )
+        raise subprocess.CalledProcessError(return_code, command, stderr=diagnostics.as_bytes())
 
     return events
 
@@ -83,7 +117,7 @@ def frame_difference(left: bytes, right: bytes) -> float:
 def write_visual_events_export(
     export_dir: Path,
     asset_id: str,
-    events: list[dict],
+    events: list[VisualEvent],
 ) -> str:
     target = export_dir / asset_id
     target.mkdir(parents=True, exist_ok=True)
@@ -100,7 +134,7 @@ def write_visual_event_thumbnails(
     media_path: Path,
     export_dir: Path,
     asset_id: str,
-    events: list[dict],
+    events: list[VisualEvent],
 ) -> None:
     target = export_dir / asset_id / "visual-thumbnails"
     target.mkdir(parents=True, exist_ok=True)
@@ -108,9 +142,15 @@ def write_visual_event_thumbnails(
         extract_thumbnail(media_path, target / f"event-{index:04d}.jpg", float(event["timestamp"]))
 
 
-def extract_thumbnail(media_path: Path, output_path: Path, timestamp: float) -> Path:
+def extract_thumbnail(
+    media_path: Path,
+    output_path: Path,
+    timestamp: float,
+    *,
+    runner: CommandRunner = run_checked_command,
+) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
+    runner(
         [
             "ffmpeg",
             "-y",
@@ -129,7 +169,6 @@ def extract_thumbnail(media_path: Path, output_path: Path, timestamp: float) -> 
             "-q:v",
             "4",
             str(output_path),
-        ],
-        check=True,
+        ]
     )
     return output_path

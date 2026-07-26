@@ -2,16 +2,8 @@ import uvicorn
 from fastapi import FastAPI
 
 from . import db
-from .app_services import (
-    clean_display_name,
-    count_local_speaker_segments,
-    detect_asset_visual_events,
-    recompute_asset_speaker_matches,
-    resolve_speaker_id,
-    rewrite_asset_exports,
-    stream_process_stdout,
-)
 from .auth import admin_password_matches, require_admin
+from .logging_config import configure_logging
 from .requests import SpeakerMergeRequest, SpeakerNameRequest
 from .routes import register_api_routes
 from .settings import get_settings
@@ -22,20 +14,14 @@ __all__ = [
     "SpeakerMergeRequest",
     "SpeakerNameRequest",
     "admin_password_matches",
-    "clean_display_name",
-    "count_local_speaker_segments",
     "create_app",
-    "detect_asset_visual_events",
-    "recompute_asset_speaker_matches",
     "require_admin",
-    "resolve_speaker_id",
-    "rewrite_asset_exports",
     "run",
-    "stream_process_stdout",
 ]
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     settings = get_settings()
     settings.stt_data_dir.mkdir(parents=True, exist_ok=True)
     settings.media_dir.mkdir(parents=True, exist_ok=True)

@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
-  import type { TranscriptSegment } from '$lib/api';
-  import { formatTime } from '$lib/format';
-  import SpeakerTimelineRow from '$lib/SpeakerTimelineRow.svelte';
+  import { createEventDispatcher, onDestroy } from "svelte";
+  import type { TranscriptSegment } from "$lib/api";
+  import { formatTime } from "$lib/format";
+  import SpeakerTimelineRow from "$lib/SpeakerTimelineRow.svelte";
   import {
     clampTimelineWindow,
+    clampRatio,
     currentTimelineRatio,
     effectiveTimelineDuration,
     eventTimeFromClientX,
@@ -14,8 +15,8 @@
     zoomWindowAround,
     type TimelineHover,
     type TimelineRow,
-    type TimelineWindow
-  } from '$lib/speakerTimeline';
+    type TimelineWindow,
+  } from "$lib/speakerTimeline";
 
   export let segments: TranscriptSegment[] = [];
   export let duration: number | null = null;
@@ -40,21 +41,29 @@
   $: effectiveDuration = effectiveTimelineDuration(duration, segments);
   $: zoomSize = Math.max(0.001, zoomEnd - zoomStart);
   $: currentRatio = currentTimelineRatio(currentTime, effectiveDuration);
-  $: zoomProgressPercent = Math.min(100, Math.max(0, ((currentRatio - zoomStart) / zoomSize) * 100));
+  $: zoomProgressPercent = Math.min(
+    100,
+    Math.max(0, ((currentRatio - zoomStart) / zoomSize) * 100),
+  );
   $: fullProgressPercent = currentRatio * 100;
-  $: zoomProgressInWindow = currentRatio >= zoomStart && currentRatio <= zoomEnd;
+  $: zoomProgressInWindow =
+    currentRatio >= zoomStart && currentRatio <= zoomEnd;
   $: isZoomed = zoomStart > 0.0001 || zoomEnd < 0.9999;
   $: zoomWindowLeft = zoomStart * 100;
   $: zoomWindowWidth = zoomSize * 100;
   $: zoomWindowLabel = `${formatTime(zoomStart * effectiveDuration)} - ${formatTime(
-    zoomEnd * effectiveDuration
+    zoomEnd * effectiveDuration,
   )}`;
 
   onDestroy(() => {
     stopDrag();
   });
 
-  function eventTime(event: MouseEvent, windowStart: number, windowEnd: number) {
+  function eventTime(
+    event: MouseEvent,
+    windowStart: number,
+    windowEnd: number,
+  ) {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     return eventTimeFromClientX(
       event.clientX,
@@ -62,7 +71,7 @@
       rect.width,
       windowStart,
       windowEnd,
-      effectiveDuration
+      effectiveDuration,
     );
   }
 
@@ -78,13 +87,22 @@
   }
 
   function zoomAround(center: number, scale: number) {
-    const nextWindow = zoomWindowAround({ start: zoomStart, end: zoomEnd }, center, scale, minZoomSize);
+    const nextWindow = zoomWindowAround(
+      { start: zoomStart, end: zoomEnd },
+      center,
+      scale,
+      minZoomSize,
+    );
     zoomStart = nextWindow.start;
     zoomEnd = nextWindow.end;
   }
 
   function panWindow(delta: number) {
-    const nextWindow = panTimelineWindow({ start: zoomStart, end: zoomEnd }, delta, minZoomSize);
+    const nextWindow = panTimelineWindow(
+      { start: zoomStart, end: zoomEnd },
+      delta,
+      minZoomSize,
+    );
     zoomStart = nextWindow.start;
     zoomEnd = nextWindow.end;
   }
@@ -92,7 +110,7 @@
   export function centerOnTime(time: number) {
     if (!effectiveDuration) return;
     const currentSize = zoomEnd - zoomStart;
-    const center = Math.min(1, Math.max(0, time / effectiveDuration));
+    const center = clampRatio(time / effectiveDuration);
     setZoomWindow(center - currentSize * 0.1, center + currentSize * 0.9);
   }
 
@@ -105,34 +123,55 @@
     panWindow(delta * zoomSize);
   }
 
-  function handleClick(event: MouseEvent, windowStart: number, windowEnd: number) {
+  function handleClick(
+    event: MouseEvent,
+    windowStart: number,
+    windowEnd: number,
+  ) {
     if (dragMoved) {
       dragMoved = false;
       return;
     }
     const time = eventTime(event, windowStart, windowEnd);
     const segment = segmentAt(segments, time);
-    dispatch('seek', { time: segment?.start ?? time });
+    dispatch("seek", { time: segment?.start ?? time });
   }
 
-  function handleContextMenu(event: MouseEvent, windowStart: number, windowEnd: number) {
+  function handleContextMenu(
+    event: MouseEvent,
+    windowStart: number,
+    windowEnd: number,
+  ) {
     event.preventDefault();
-    dispatch('seek', { time: eventTime(event, windowStart, windowEnd) });
+    dispatch("seek", { time: eventTime(event, windowStart, windowEnd) });
   }
 
-  function handleDoubleClick(event: MouseEvent, windowStart: number, windowEnd: number) {
+  function handleDoubleClick(
+    event: MouseEvent,
+    windowStart: number,
+    windowEnd: number,
+  ) {
     if (!effectiveDuration) return;
     const time = eventTime(event, windowStart, windowEnd);
     const segment = segmentAt(segments, time);
-    const fullStart = segment ? segment.start / effectiveDuration : time / effectiveDuration;
+    const fullStart = segment
+      ? segment.start / effectiveDuration
+      : time / effectiveDuration;
     const fullEnd = segment ? segment.end / effectiveDuration : fullStart;
     const center = (fullStart + fullEnd) / 2;
     const segmentWidth = Math.max(fullEnd - fullStart, 0.015);
-    const nextWidth = Math.max(0.02, Math.min(0.35, segmentWidth * 4, zoomSize * 0.55));
+    const nextWidth = Math.max(
+      0.02,
+      Math.min(0.35, segmentWidth * 4, zoomSize * 0.55),
+    );
     setZoomWindow(center - nextWidth / 2, center + nextWidth / 2);
   }
 
-  function handleWheel(event: WheelEvent, windowStart: number, windowEnd: number) {
+  function handleWheel(
+    event: WheelEvent,
+    windowStart: number,
+    windowEnd: number,
+  ) {
     if (!effectiveDuration) return;
     event.preventDefault();
     const ratio = eventTime(event, windowStart, windowEnd) / effectiveDuration;
@@ -145,24 +184,24 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (!effectiveDuration) return;
-    const currentRatio = Math.min(1, Math.max(0, currentTime / effectiveDuration));
-    if (event.code === 'KeyW') {
+    const currentRatio = clampRatio(currentTime / effectiveDuration);
+    if (event.code === "KeyW") {
       event.preventDefault();
       event.stopPropagation();
       zoomAround(currentRatio, 1 - keyZoomStep);
-    } else if (event.code === 'KeyS') {
+    } else if (event.code === "KeyS") {
       event.preventDefault();
       event.stopPropagation();
       zoomAround(currentRatio, 1 + keyZoomStep);
-    } else if (event.code === 'KeyA') {
+    } else if (event.code === "KeyA") {
       event.preventDefault();
       event.stopPropagation();
       panWindow(-keyPanStep * zoomSize);
-    } else if (event.code === 'KeyD') {
+    } else if (event.code === "KeyD") {
       event.preventDefault();
       event.stopPropagation();
       panWindow(keyPanStep * zoomSize);
-    } else if (event.code === 'Escape') {
+    } else if (event.code === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       resetZoom();
@@ -178,10 +217,10 @@
     dragContainerWidth = Math.max(1, rect.width);
     dragMoved = false;
     dragActive = true;
-    if (typeof document !== 'undefined') {
-      document.body.style.userSelect = 'none';
-      document.addEventListener('mousemove', handleDocumentMouseMove);
-      document.addEventListener('mouseup', handleDocumentMouseUp);
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", handleDocumentMouseMove);
+      document.addEventListener("mouseup", handleDocumentMouseUp);
     }
   }
 
@@ -200,14 +239,19 @@
 
   function stopDrag() {
     dragActive = false;
-    if (typeof document !== 'undefined') {
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', handleDocumentMouseMove);
-      document.removeEventListener('mouseup', handleDocumentMouseUp);
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", handleDocumentMouseMove);
+      document.removeEventListener("mouseup", handleDocumentMouseUp);
     }
   }
 
-  function handleMouseMove(event: MouseEvent, row: TimelineRow, windowStart: number, windowEnd: number) {
+  function handleMouseMove(
+    event: MouseEvent,
+    row: TimelineRow,
+    windowStart: number,
+    windowEnd: number,
+  ) {
     const time = eventTime(event, windowStart, windowEnd);
     const segment = segmentAt(segments, time);
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -215,7 +259,7 @@
       row,
       x: hoverTipX(event.clientX, rect.left, rect.width),
       time,
-      speaker: segment?.speaker_name ?? segment?.speaker ?? null
+      speaker: segment?.speaker_name ?? segment?.speaker ?? null,
     };
   }
 </script>
@@ -239,7 +283,8 @@
       onRowContextMenu={(event) => handleContextMenu(event, zoomStart, zoomEnd)}
       onRowKeydown={handleKeydown}
       onRowMouseDown={handleMouseDown}
-      onRowMouseMove={(event) => handleMouseMove(event, 'zoom', zoomStart, zoomEnd)}
+      onRowMouseMove={(event) =>
+        handleMouseMove(event, "zoom", zoomStart, zoomEnd)}
       onRowMouseLeave={() => (hovered = null)}
       onRowDoubleClick={(event) => handleDoubleClick(event, zoomStart, zoomEnd)}
       onRowWheel={(event) => handleWheel(event, zoomStart, zoomEnd)}
@@ -263,14 +308,19 @@
       onRowContextMenu={(event) => handleContextMenu(event, 0, 1)}
       onRowKeydown={handleKeydown}
       onRowMouseDown={handleMouseDown}
-      onRowMouseMove={(event) => handleMouseMove(event, 'full', 0, 1)}
+      onRowMouseMove={(event) => handleMouseMove(event, "full", 0, 1)}
       onRowMouseLeave={() => (hovered = null)}
       onRowDoubleClick={(event) => handleDoubleClick(event, 0, 1)}
       onRowWheel={(event) => handleWheel(event, 0, 1)}
     />
 
     {#if isZoomed}
-      <button class="zoom-reset" type="button" title={zoomWindowLabel} on:click={resetZoom}>Reset</button>
+      <button
+        class="zoom-reset"
+        type="button"
+        title={zoomWindowLabel}
+        on:click={resetZoom}>Reset</button
+      >
     {/if}
   </div>
 {/if}

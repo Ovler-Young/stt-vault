@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from .. import db
-from ..app_services import detect_asset_visual_events
+from ..asset_visual_events import detect_asset_visual_events
 from ..auth import require_admin, require_resource_access
 from ..settings import Settings
+from ..types import VisualEvent
 from ..visual import extract_thumbnail, visual_event_thumbnail_path
 
 __all__ = ["register_asset_visual_event_routes"]
@@ -17,7 +18,9 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
     router = APIRouter()
 
     @router.get("/api/assets/{asset_id}/visual-events")
-    def get_visual_events(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
+    def get_visual_events(
+        asset_id: str, _: Annotated[None, Depends(require_admin)]
+    ) -> list[VisualEvent]:
         if db.get_asset(settings.stt_db_path, asset_id) is None:
             raise HTTPException(status_code=404, detail="Asset not found")
         return db.list_visual_events(settings.stt_db_path, asset_id)

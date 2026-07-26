@@ -1,9 +1,12 @@
 <script lang="ts">
-  import type { MaybePromise, SpeakerEditor } from '../asset-page.types';
+  import type { MaybePromise, SpeakerEditor } from "../asset-page.types";
 
   export let editor: SpeakerEditor;
-  export let editorName = '';
-  export let onSave: (localSpeaker: string, displayName: string) => MaybePromise = () => {};
+  export let editorName = "";
+  export let onSave: (
+    localSpeaker: string,
+    displayName: string,
+  ) => MaybePromise = () => {};
   export let onCancel: () => void = () => {};
 
   function save() {

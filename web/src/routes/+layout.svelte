@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from "$app/stores";
 </script>
 
 <svelte:head>
@@ -8,16 +8,32 @@
 
 <div class="shell">
   <nav>
-    <a class:active={$page.url.pathname === '/'} href="/" aria-label="Dashboard">
+    <a
+      class:active={$page.url.pathname === "/"}
+      href="/"
+      aria-label="Dashboard"
+    >
       <strong>D</strong><span>Dashboard</span>
     </a>
-    <a class:active={$page.url.pathname.startsWith('/jobs')} href="/jobs" aria-label="Jobs">
+    <a
+      class:active={$page.url.pathname.startsWith("/jobs")}
+      href="/jobs"
+      aria-label="Jobs"
+    >
       <strong>J</strong><span>Jobs</span>
     </a>
-    <a class:active={$page.url.pathname.startsWith('/speakers')} href="/speakers" aria-label="Speakers">
+    <a
+      class:active={$page.url.pathname.startsWith("/speakers")}
+      href="/speakers"
+      aria-label="Speakers"
+    >
       <strong>S</strong><span>Speakers</span>
     </a>
-    <a class:active={$page.url.pathname.startsWith('/settings')} href="/settings" aria-label="Settings">
+    <a
+      class:active={$page.url.pathname.startsWith("/settings")}
+      href="/settings"
+      aria-label="Settings"
+    >
       <strong>C</strong><span>Settings</span>
     </a>
   </nav>
@@ -56,17 +72,24 @@
     --shadow-popup: light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 45%));
   }
 
-  :global(:root[data-theme='light']) {
+  :global(:root[data-theme="light"]) {
     color-scheme: light;
   }
 
-  :global(:root[data-theme='dark']) {
+  :global(:root[data-theme="dark"]) {
     color-scheme: dark;
   }
 
   :global(body) {
     margin: 0;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family:
+      Inter,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
     color: var(--color-text);
     background: var(--color-page);
   }

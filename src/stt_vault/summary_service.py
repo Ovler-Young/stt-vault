@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Literal, Protocol, TypedDict
 
 from openai import OpenAI
 
@@ -9,19 +9,71 @@ from .ai_content import (
     parse_content_analysis,
 )
 from .settings import Settings
+from .types import AssetRecord, TranscriptSegment
+
+
+class SummaryMessage(Protocol):
+    content: str | None
+
+
+class SummaryChoice(Protocol):
+    message: SummaryMessage
+
+
+class SummaryResponse(Protocol):
+    choices: list[SummaryChoice]
+
+
+class SummaryMessageParam(TypedDict):
+    role: Literal["system", "user"]
+    content: str
+
+
+class SummaryCompletions(Protocol):
+    def create(self, *, model: str, messages: list[SummaryMessageParam]) -> SummaryResponse: ...
+
+
+class SummaryChat(Protocol):
+    completions: SummaryCompletions
+
+
+class SummaryClient(Protocol):
+    chat: SummaryChat
+
+
+class SummaryClientFactory(Protocol):
+    def __call__(self, *, api_key: str, base_url: str) -> SummaryClient: ...
+
+
+class CompletedTranscriptRequiredError(ValueError):
+    pass
+
+
+class SummaryGenerationResult(TypedDict):
+    status: Literal["success"]
+    summary: str
+    title: str
+    speaker_names: dict[str, str]
+
+
+def require_completed_transcript(asset: AssetRecord) -> list[TranscriptSegment]:
+    segments = asset.get("transcript_segments") or []
+    if asset.get("status") != "success" or not segments:
+        raise CompletedTranscriptRequiredError("A completed transcript is required")
+    return segments
 
 
 def generate_asset_summary(
     settings: Settings,
     asset_id: str,
-    asset: dict[str, Any] | None = None,
-) -> dict[str, object]:
+    asset: AssetRecord | None = None,
+    *,
+    client_factory: SummaryClientFactory = OpenAI,
+) -> SummaryGenerationResult:
     current_asset = asset or db.get_asset(settings.stt_db_path, asset_id)
     if current_asset is None:
         raise KeyError(asset_id)
-    segments = current_asset.get("transcript_segments") or []
-    if current_asset["status"] != "success" or not segments:
-        raise ValueError("A completed transcript is required")
+    segments = require_completed_transcript(current_asset)
 
     prompt = build_content_analysis_prompt(
         segments,
@@ -29,7 +81,7 @@ def generate_asset_summary(
     )
     db.update_asset_summary(settings.stt_db_path, asset_id, status="running")
     try:
-        client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+        client = client_factory(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
         response = client.chat.completions.create(
             model=settings.openai_summary_model,
             messages=[
@@ -50,12 +102,12 @@ def generate_asset_summary(
             asset_id,
             analysis.speaker_names,
         )
-    except Exception as exc:
+    except Exception:
         db.update_asset_summary(
             settings.stt_db_path,
             asset_id,
             status="failed",
-            error=str(exc),
+            error="Summary generation failed",
             model=settings.openai_summary_model,
         )
         raise

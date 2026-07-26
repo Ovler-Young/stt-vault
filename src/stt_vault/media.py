@@ -3,6 +3,24 @@ import shutil
 import subprocess
 import uuid
 from pathlib import Path
+from typing import Protocol, TypedDict
+
+from .types import AudioStream
+
+
+class CommandRunner(Protocol):
+    def __call__(
+        self, command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[object]: ...
+
+
+class FfprobeFormat(TypedDict):
+    duration: str | float | int
+
+
+class FfprobePayload(TypedDict, total=False):
+    format: FfprobeFormat
+    streams: list[object]
 
 
 def new_asset_id() -> str:
@@ -43,8 +61,8 @@ def move_upload(data_media_dir: Path, filename: str, source_path: Path) -> tuple
     return asset_id, stored_path, media_type_for_filename(filename)
 
 
-def ffprobe_duration(input_path: Path) -> float:
-    result = subprocess.run(
+def ffprobe_duration(input_path: Path, *, runner: CommandRunner = subprocess.run) -> float:
+    result = runner(
         [
             "ffprobe",
             "-v",
@@ -59,12 +77,23 @@ def ffprobe_duration(input_path: Path) -> float:
         capture_output=True,
         text=True,
     )
-    payload = json.loads(result.stdout)
-    return float(payload["format"]["duration"])
+    payload = parse_ffprobe_payload(result.stdout)
+    format_data = payload.get("format")
+    if not isinstance(format_data, dict):
+        raise ValueError("ffprobe response is missing a format object")
+    duration = format_data.get("duration")
+    if not isinstance(duration, str | int | float):
+        raise ValueError("ffprobe response is missing a numeric duration")
+    try:
+        return float(duration)
+    except ValueError as error:
+        raise ValueError("ffprobe response has an invalid duration") from error
 
 
-def ffprobe_audio_streams(input_path: Path) -> list[dict[str, object]]:
-    result = subprocess.run(
+def ffprobe_audio_streams(
+    input_path: Path, *, runner: CommandRunner = subprocess.run
+) -> list[AudioStream]:
+    result = runner(
         [
             "ffprobe",
             "-v",
@@ -81,10 +110,17 @@ def ffprobe_audio_streams(input_path: Path) -> list[dict[str, object]]:
         capture_output=True,
         text=True,
     )
-    payload = json.loads(result.stdout)
-    streams = []
-    for audio_index, stream in enumerate(payload.get("streams") or []):
-        tags = stream.get("tags") or {}
+    payload = parse_ffprobe_payload(result.stdout)
+    raw_streams = payload.get("streams", [])
+    if not isinstance(raw_streams, list):
+        raise ValueError("ffprobe response has an invalid streams collection")
+    streams: list[AudioStream] = []
+    for audio_index, stream in enumerate(raw_streams):
+        if not isinstance(stream, dict):
+            raise ValueError("ffprobe response contains an invalid stream")
+        tags = stream.get("tags", {})
+        if not isinstance(tags, dict):
+            raise ValueError("ffprobe response contains invalid stream tags")
         streams.append(
             {
                 "audio_index": audio_index,
@@ -98,6 +134,18 @@ def ffprobe_audio_streams(input_path: Path) -> list[dict[str, object]]:
             }
         )
     return streams
+
+
+def parse_ffprobe_payload(stdout: object) -> FfprobePayload:
+    if not isinstance(stdout, str):
+        raise ValueError("ffprobe did not return JSON text")
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError("ffprobe returned invalid JSON") from error
+    if not isinstance(payload, dict):
+        raise ValueError("ffprobe response must be a JSON object")
+    return payload
 
 
 def playback_media_stream_command(input_path: Path, audio_track: str) -> list[str]:
@@ -156,9 +204,11 @@ def playback_media_stream_command(input_path: Path, audio_track: str) -> list[st
     return command
 
 
-def to_wav_16k_mono(input_path: Path, output_path: Path) -> Path:
+def to_wav_16k_mono(
+    input_path: Path, output_path: Path, *, runner: CommandRunner = subprocess.run
+) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
+    runner(
         [
             "ffmpeg",
             "-y",
@@ -181,10 +231,17 @@ def to_wav_16k_mono(input_path: Path, output_path: Path) -> Path:
     return output_path
 
 
-def extract_audio_chunk(input_wav: Path, output_path: Path, start: float, end: float) -> Path:
+def extract_audio_chunk(
+    input_wav: Path,
+    output_path: Path,
+    start: float,
+    end: float,
+    *,
+    runner: CommandRunner = subprocess.run,
+) -> Path:
     duration = max(0.0, end - start)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
+    runner(
         [
             "ffmpeg",
             "-y",
@@ -213,10 +270,12 @@ def extract_transcription_chunk(
     output_path: Path,
     start: float,
     end: float,
+    *,
+    runner: CommandRunner = subprocess.run,
 ) -> Path:
     duration = max(0.0, end - start)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    copy_result = subprocess.run(
+    copy_result = runner(
         [
             "ffmpeg",
             "-y",
@@ -241,7 +300,7 @@ def extract_transcription_chunk(
     if copy_result.returncode == 0:
         return output_path
 
-    subprocess.run(
+    runner(
         [
             "ffmpeg",
             "-y",

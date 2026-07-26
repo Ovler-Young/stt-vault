@@ -146,8 +146,7 @@ def to_rttm(asset_id: str, segments: list[dict[str, Any]]) -> str:
         duration = max(0.0, float(segment["end"]) - start)
         speaker = segment["speaker"]
         lines.append(
-            f"SPEAKER {asset_id} 1 {start:.3f} {duration:.3f} <NA> <NA> "
-            f"{speaker} <NA> <NA>"
+            f"SPEAKER {asset_id} 1 {start:.3f} {duration:.3f} <NA> <NA> {speaker} <NA> <NA>"
         )
     return "\n".join(lines) + "\n"
 

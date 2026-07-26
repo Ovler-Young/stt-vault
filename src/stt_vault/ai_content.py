@@ -2,7 +2,9 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Any
+
+from .api_models import JsonValue
+from .types import TranscriptSegment
 
 _LOCAL_SPEAKER_PATTERN = re.compile(r"SPEAKER_\d+")
 _UNUSABLE_SPEAKER_NAMES = {"unknown", "unidentified", "n/a", "none"}
@@ -22,7 +24,7 @@ class ContentAnalysis:
 
 
 def build_content_analysis_prompt(
-    segments: list[dict[str, Any]],
+    segments: list[TranscriptSegment],
     *,
     minimum_speaker_confidence: float = 0.95,
 ) -> str:
@@ -172,7 +174,7 @@ def _text_list(value: object) -> list[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
-def _object_list(value: object) -> list[dict[str, Any]]:
+def _object_list(value: object) -> list[dict[str, JsonValue]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from .db_connection import connect, now, transaction
+from .db_connection import connect, decode_record, now, transaction
 
 
 def replace_visual_events(
@@ -44,4 +44,4 @@ def list_visual_events(db_path: Path, asset_id: str) -> list[dict[str, Any]]:
             """,
             (asset_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [decode_record(row) or {} for row in rows]

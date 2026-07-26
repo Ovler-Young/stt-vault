@@ -1,12 +1,22 @@
 import threading
 import time
 import wave
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import ParamSpec, Protocol, TypeVar
 
 import numpy as np
+
+from .api_models import DiarizationResult
+from .types import KnownSpeaker, SpeakerMatch
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class DiarizationProvider(Protocol):
+    def diarize(self, wav_path: str, *, generate_colors: bool) -> object: ...
 
 
 class DiarizerManager:
@@ -23,29 +33,32 @@ class DiarizerManager:
         self.use_batched_embeddings = use_batched_embeddings
         self.fbank_batch_segments = max(1, fbank_batch_segments)
         self._lock = threading.Lock()
-        self._diarizer = None
+        self._diarizer: DiarizationProvider | None = None
         self._last_used = 0.0
         self._resource_stats: dict[str, dict[str, float | int | None]] = {}
 
-    def diarize(self, wav_path: str) -> dict[str, Any] | None:
+    def diarize(self, wav_path: str) -> DiarizationResult | None:
         with self._lock:
             self._resource_stats = {}
             diarizer = self._get_or_create()
+            result: DiarizationResult | None = None
             rss_before = current_rss_mb()
             start = time.perf_counter()
             if self.use_batched_embeddings:
-                result = self._diarize_batched(diarizer, wav_path, generate_colors=True)
+                provider_result = self._diarize_batched(diarizer, wav_path, generate_colors=True)
             else:
-                result = diarizer.diarize(wav_path, generate_colors=True)
+                provider_result = diarizer.diarize(wav_path, generate_colors=True)
             elapsed = time.perf_counter() - start
-            if result is not None:
-                timing_stats = result.setdefault("timing_stats", {})
+            if provider_result is not None:
+                result = _validate_provider_result(provider_result)
+                timing_stats = dict(result.timing_stats)
                 timing_stats["manager_diarize_wall_time"] = round(elapsed, 3)
                 timing_stats["manager_rss_mb_before"] = rss_before
                 timing_stats["manager_rss_mb_after"] = current_rss_mb()
                 timing_stats["senko_batched_embeddings_requested"] = self.use_batched_embeddings
                 timing_stats["senko_fbank_batch_segments"] = self.fbank_batch_segments
                 timing_stats["senko_resource_stats"] = self._resource_stats
+                result = result.model_copy(update={"timing_stats": timing_stats})
             self._last_used = time.monotonic()
             return result
 
@@ -75,12 +88,12 @@ class DiarizerManager:
 
     def _diarize_batched(
         self,
-        diarizer: Any,
+        diarizer: object,
         wav_path: str,
         *,
         accurate: bool | None = None,
         generate_colors: bool = False,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         diarizer._timing_stats = {}
         total_start = time.time()
 
@@ -134,13 +147,12 @@ class DiarizerManager:
             from senko.colors import generate_speaker_colors
 
             result["speaker_color_sets"] = {
-                str(index): generate_speaker_colors(merged_segments, index)
-                for index in range(10)
+                str(index): generate_speaker_colors(merged_segments, index) for index in range(10)
             }
 
         return result
 
-    def _instrument_diarizer(self, diarizer: Any) -> None:
+    def _instrument_diarizer(self, diarizer: object) -> None:
         if getattr(diarizer, "_stt_vault_instrumented", False):
             return
 
@@ -158,9 +170,9 @@ class DiarizerManager:
             setattr(diarizer, method_name, self._wrap_stage(stage_name, method))
         diarizer._stt_vault_instrumented = True
 
-    def _wrap_stage(self, stage_name: str, method: Callable[..., Any]) -> Callable[..., Any]:
+    def _wrap_stage(self, stage_name: str, method: Callable[P, R]) -> Callable[P, R]:
         @wraps(method)
-        def wrapped(*args: Any, **kwargs: Any) -> Any:
+        def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
             rss_before = current_rss_mb()
             start = time.perf_counter()
             try:
@@ -231,10 +243,10 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
 
 def match_speakers(
     centroids: dict[str, list[float]],
-    known_speakers: list[dict[str, Any]],
+    known_speakers: list[KnownSpeaker],
     threshold: float,
-) -> dict[str, dict[str, Any]]:
-    matches: dict[str, dict[str, Any]] = {}
+) -> dict[str, SpeakerMatch]:
+    matches: dict[str, SpeakerMatch] = {}
     for local_speaker, centroid in centroids.items():
         best = None
         for known in known_speakers:
@@ -254,3 +266,19 @@ def match_speakers(
                 "score": None,
             }
     return matches
+
+
+def _validate_provider_result(provider_result: object) -> DiarizationResult:
+    if not isinstance(provider_result, Mapping):
+        raise ValueError("Diarization provider returned a non-object result")
+    centroids = provider_result.get("speaker_centroids", {})
+    if not isinstance(centroids, dict):
+        raise ValueError("Diarization provider returned invalid speaker centroids")
+    return DiarizationResult.model_validate(
+        {
+            "raw_segments": provider_result.get("raw_segments"),
+            "merged_segments": provider_result.get("merged_segments"),
+            "speaker_centroids": serialize_centroids(centroids),
+            "timing_stats": provider_result.get("timing_stats"),
+        }
+    )

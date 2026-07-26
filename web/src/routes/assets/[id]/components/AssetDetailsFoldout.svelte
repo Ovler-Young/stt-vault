@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { AssetDetail } from '$lib/api';
-  import { formatDate } from '$lib/format';
-  import { formatStatValue } from '../asset-page.helpers';
-  import FoldoutPanel from './FoldoutPanel.svelte';
+  import type { AssetDetail } from "$lib/api";
+  import { formatDate } from "$lib/format";
+  import { formatStatValue } from "../asset-page.helpers";
+  import FoldoutPanel from "./FoldoutPanel.svelte";
 
   export let asset: AssetDetail;
 </script>
@@ -15,7 +15,9 @@
       <span>Total</span><strong>{asset.job.progress_total_chunks}</strong>
       <span>Retries</span><strong>{asset.job.progress_failed_chunks}</strong>
       {#if asset.job.next_retry_at}
-        <span>Retry after</span><strong>{formatDate(asset.job.next_retry_at)}</strong>
+        <span>Retry after</span><strong
+          >{formatDate(asset.job.next_retry_at)}</strong
+        >
       {/if}
     </div>
   {/if}

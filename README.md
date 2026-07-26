@@ -95,6 +95,16 @@ docker compose ps
 curl -fsS http://localhost:${APP_PORT:-8080}/api/health
 ```
 
+Inspect operational failures through the structured container logs and the persisted event history:
+
+```sh
+docker compose logs --tail=200 stt-vault
+docker compose exec stt-vault python -c 'import os, sqlite3; connection = sqlite3.connect(os.environ["STT_DB_PATH"]); print(*connection.execute("SELECT level, stage, message, created_at FROM job_events ORDER BY id DESC LIMIT 50"), sep="\\n")'
+```
+
+Log records include `asset_id`, `job_id`, process return codes, and bounded diagnostics. Credentials
+and filesystem paths are redacted. The API and database retain only categorized user-facing failures.
+
 ## Development
 
 ```sh
@@ -108,6 +118,28 @@ uvicorn stt_vault.app:create_app --factory --reload
 ```
 
 The frontend build is copied into `src/stt_vault/static` by Docker. During local development, run `pnpm build` in `web/` and copy `web/build` to `src/stt_vault/static`, or run SvelteKit separately.
+
+Run the repository checks with:
+
+```sh
+uv run --extra dev ruff format --check .
+uv run --extra dev ruff check .
+uv run --extra dev pytest -q
+pnpm --dir web format
+pnpm --dir web lint
+pnpm --dir web test
+pnpm --dir web build
+```
+
+The backend does not currently configure a static type checker. Ruff formatting and linting plus the
+backend test suite are the configured backend quality checks.
+
+## Architecture
+
+- `app.py` creates the FastAPI application, owns service lifetime, and registers route groups from `routes/`: system/auth, assets, uploads, folders, speakers, media, visual events, and asset-speaker actions. Each group receives the same settings instance and applies its own authentication dependency.
+- `worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `worker_stages.py` owns the stage boundaries; `db_*.py` modules own the SQLite operations at each boundary.
+- `media.py`, `diarization.py`, `transcription.py`, `visual.py`, `exports.py`, and `summary_service.py` isolate the external processing and export concerns.
+- `web/src/routes/` contains SvelteKit pages. The asset-detail page composes media, transcript, foldout, summary, and speaker components; playback navigation is isolated in its controller. Shared API types and UI utilities are in `web/src/lib/`.
 
 ## Notes
 

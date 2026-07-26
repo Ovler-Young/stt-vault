@@ -1,4 +1,7 @@
+import fcntl
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .db_assets import recorded_at_from_filename
@@ -6,7 +9,7 @@ from .db_connection import transaction
 
 
 def initialize(db_path: Path) -> None:
-    with transaction(db_path) as conn:
+    with schema_lock(db_path), transaction(db_path) as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS assets (
@@ -187,8 +190,7 @@ def initialize(db_path: Path) -> None:
             "CREATE INDEX IF NOT EXISTS idx_assets_recorded_at ON assets(recorded_at DESC)"
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_processing_claim "
-            "ON jobs(status, claim_expires_at)"
+            "CREATE INDEX IF NOT EXISTS idx_jobs_processing_claim ON jobs(status, claim_expires_at)"
         )
         add_missing_columns(
             conn,
@@ -204,3 +206,17 @@ def add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str,
     for name, definition in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+@contextmanager
+def schema_lock(db_path: Path) -> Iterator[None]:
+    # SQLite serializes writes, but this lock also serializes schema inspection and ALTER TABLE
+    # across worker processes before either transaction starts.
+    lock_path = db_path.with_suffix(f"{db_path.suffix}.schema.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)

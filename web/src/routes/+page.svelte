@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { onDestroy, onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import {
     ApiError,
     createFolder,
@@ -17,36 +17,51 @@
     uploadAsset,
     uploadAssetBatch,
     type AssetSummary,
+    type BatchUploadResult,
     type FolderNode,
     type FolderTree,
-    type UploadProgress
-  } from '$lib/api';
-  import { formatDate, formatRecordedAt, formatTime } from '$lib/format';
-
-  type FlatFolder = { folder: FolderNode; depth: number };
+    type UploadEntry,
+    type UploadProgress,
+  } from "$lib/api";
+  import { formatDate, formatRecordedAt, formatTime } from "$lib/format";
+  import { hasActivePolling } from "$lib/polling";
+  import FolderSidebar from "./components/FolderSidebar.svelte";
+  import {
+    assetsInTree,
+    findFolder,
+    findFolderPath,
+    flattenFolders,
+    folderContains,
+  } from "./home-page.helpers";
 
   let tree: FolderTree = { folders: [], assets: [] };
   let selectedFolderId: string | null = null;
   let uploadFile: File | null = null;
-  let uploadEntries: Array<{ file: File; path: string }> = [];
-  let batchResults: Array<{ path: string; status: string; detail?: string }> = [];
+  let uploadEntries: UploadEntry[] = [];
+  let batchResults: BatchUploadResult[] = [];
   let uploadProgress: UploadProgress | null = null;
   let assetTargets: Record<string, string> = {};
-  let folderMoveTarget = '';
+  let folderMoveTarget = "";
   let busy = false;
-  let error = '';
-  let adminPassword = '';
+  let error = "";
+  let adminPassword = "";
   let authRequired = false;
   let authenticated = false;
   let poll: ReturnType<typeof setInterval> | null = null;
 
   $: flatFolders = flattenFolders(tree.folders);
-  $: currentFolder = selectedFolderId ? findFolder(tree.folders, selectedFolderId) : null;
+  $: currentFolder = selectedFolderId
+    ? findFolder(tree.folders, selectedFolderId)
+    : null;
   $: visibleAssets = currentFolder?.assets ?? tree.assets;
-  $: breadcrumbs = selectedFolderId ? findFolderPath(tree.folders, selectedFolderId) : [];
+  $: breadcrumbs = selectedFolderId
+    ? findFolderPath(tree.folders, selectedFolderId)
+    : [];
   $: allAssets = assetsInTree(tree);
   $: folderMoveOptions = currentFolder
-    ? flatFolders.filter(({ folder }) => !folderContains(currentFolder!, folder.id))
+    ? flatFolders.filter(
+        ({ folder }) => !folderContains(currentFolder!, folder.id),
+      )
     : flatFolders;
 
   onMount(async () => {
@@ -68,9 +83,10 @@
     }
     try {
       tree = await fetchFolderTree();
-      if (selectedFolderId && !findFolder(tree.folders, selectedFolderId)) selectedFolderId = null;
+      if (selectedFolderId && !findFolder(tree.folders, selectedFolderId))
+        selectedFolderId = null;
       updatePolling();
-      error = '';
+      error = "";
     } catch (requestError) {
       reportRequestError(requestError);
     }
@@ -84,9 +100,13 @@
     const destination = selectedFolderId;
     try {
       if (uploadEntries.length > 0) {
-        const result = await uploadAssetBatch(uploadEntries, (progress) => (uploadProgress = progress));
+        const result = await uploadAssetBatch(
+          uploadEntries,
+          (progress) => (uploadProgress = progress),
+        );
         for (const item of result.results) {
-          if (item.status === 'queued' && item.id && destination) await moveAsset(item.id, destination);
+          if (item.status === "queued" && item.id && destination)
+            await moveAsset(item.id, destination);
         }
         batchResults = result.results;
         uploadEntries = [];
@@ -96,7 +116,11 @@
       }
       const selectedFile = uploadFile;
       if (!selectedFile) return;
-      const result = await uploadAsset(selectedFile, selectedFile.name, (progress) => (uploadProgress = progress));
+      const result = await uploadAsset(
+        selectedFile,
+        selectedFile.name,
+        (progress) => (uploadProgress = progress),
+      );
       if (destination) await moveAsset(result.id, destination);
       uploadFile = null;
       await goto(`/assets/${result.id}`);
@@ -111,13 +135,13 @@
   function selectDirectory(files: FileList | null) {
     uploadEntries = Array.from(files ?? []).map((file) => ({
       file,
-      path: file.webkitRelativePath || file.name
+      path: file.webkitRelativePath || file.name,
     }));
     uploadFile = null;
   }
 
   async function addFolder() {
-    const name = prompt('Folder name')?.trim();
+    const name = prompt("Folder name")?.trim();
     if (!name) return;
     await runFileOperation(async () => {
       const folder = await createFolder(name, selectedFolderId);
@@ -128,7 +152,7 @@
 
   async function editCurrentFolder() {
     if (!currentFolder) return;
-    const name = prompt('Folder name', currentFolder.name)?.trim();
+    const name = prompt("Folder name", currentFolder.name)?.trim();
     if (!name || name === currentFolder.name) return;
     await runFileOperation(async () => {
       await renameFolder(currentFolder!.id, name);
@@ -137,7 +161,11 @@
   }
 
   async function removeCurrentFolder() {
-    if (!currentFolder || !confirm(`Delete empty folder ${currentFolder.name}?`)) return;
+    if (
+      !currentFolder ||
+      !confirm(`Delete empty folder ${currentFolder.name}?`)
+    )
+      return;
     const parentId = currentFolder.parent_id;
     await runFileOperation(async () => {
       await deleteFolder(currentFolder!.id);
@@ -156,7 +184,7 @@
   }
 
   async function moveSelectedAsset(asset: AssetSummary) {
-    const targetId = assetTargets[asset.id] ?? asset.parent_folder_id ?? '';
+    const targetId = assetTargets[asset.id] ?? asset.parent_folder_id ?? "";
     await runFileOperation(async () => {
       await moveAsset(asset.id, targetId || null);
       await loadTree();
@@ -173,7 +201,7 @@
 
   async function runFileOperation(operation: () => Promise<void>) {
     busy = true;
-    error = '';
+    error = "";
     try {
       await operation();
     } catch (requestError) {
@@ -185,14 +213,17 @@
 
   async function submitLogin() {
     busy = true;
-    error = '';
+    error = "";
     try {
       await login(adminPassword);
-      adminPassword = '';
+      adminPassword = "";
       authenticated = true;
       await loadTree();
     } catch (requestError) {
-      error = requestError instanceof Error ? requestError.message : String(requestError);
+      error =
+        requestError instanceof Error
+          ? requestError.message
+          : String(requestError);
     } finally {
       busy = false;
     }
@@ -201,13 +232,11 @@
   function selectFolder(folderId: string | null) {
     selectedFolderId = folderId;
     const folder = folderId ? findFolder(tree.folders, folderId) : null;
-    folderMoveTarget = folder?.parent_id ?? '';
+    folderMoveTarget = folder?.parent_id ?? "";
   }
 
   function updatePolling() {
-    const shouldPoll = assetsInTree(tree).some(
-      (asset) => asset.status === 'queued' || asset.status === 'processing' || asset.summary_status === 'running'
-    );
+    const shouldPoll = hasActivePolling(assetsInTree(tree));
     if (shouldPoll && !poll) poll = setInterval(loadTree, 3000);
     else if (!shouldPoll && poll) {
       clearInterval(poll);
@@ -217,59 +246,25 @@
 
   function reportRequestError(requestError: unknown) {
     if (requestError instanceof ApiError && requestError.status === 401) {
-      setStoredAccessToken('');
+      setStoredAccessToken("");
       authenticated = false;
       tree = { folders: [], assets: [] };
       updatePolling();
-      error = 'Session expired. Sign in again.';
+      error = "Session expired. Sign in again.";
       return;
     }
-    error = requestError instanceof Error ? requestError.message : String(requestError);
+    error =
+      requestError instanceof Error
+        ? requestError.message
+        : String(requestError);
   }
 
   function signOut() {
-    setStoredAccessToken('');
+    setStoredAccessToken("");
     authenticated = false;
     tree = { folders: [], assets: [] };
     updatePolling();
-    error = '';
-  }
-
-  function flattenFolders(folders: FolderNode[], depth = 0): FlatFolder[] {
-    return folders.flatMap((folder) => [
-      { folder, depth },
-      ...flattenFolders(folder.children, depth + 1)
-    ]);
-  }
-
-  function assetsInTree(folderTree: FolderTree): AssetSummary[] {
-    return [
-      ...folderTree.assets,
-      ...flattenFolders(folderTree.folders).flatMap(({ folder }) => folder.assets)
-    ];
-  }
-
-  function folderContains(folder: FolderNode, candidateId: string): boolean {
-    return folder.id === candidateId || folder.children.some((child) => folderContains(child, candidateId));
-  }
-
-  function findFolder(folders: FolderNode[], id: string): FolderNode | null {
-    for (const folder of folders) {
-      if (folder.id === id) return folder;
-      const child = findFolder(folder.children, id);
-      if (child) return child;
-    }
-    return null;
-  }
-
-  function findFolderPath(folders: FolderNode[], id: string, path: FolderNode[] = []): FolderNode[] {
-    for (const folder of folders) {
-      const nextPath = [...path, folder];
-      if (folder.id === id) return nextPath;
-      const childPath = findFolderPath(folder.children, id, nextPath);
-      if (childPath.length) return childPath;
-    }
-    return [];
+    error = "";
   }
 </script>
 
@@ -287,68 +282,107 @@
 
   {#if authRequired && !authenticated}
     <section class="auth">
-      <input bind:value={adminPassword} type="password" placeholder="Admin password" on:keydown={(event) => event.key === 'Enter' && submitLogin()} />
-      <button disabled={!adminPassword || busy} on:click={submitLogin}>Sign in</button>
+      <input
+        bind:value={adminPassword}
+        type="password"
+        placeholder="Admin password"
+        on:keydown={(event) => event.key === "Enter" && submitLogin()}
+      />
+      <button disabled={!adminPassword || busy} on:click={submitLogin}
+        >Sign in</button
+      >
     </section>
   {:else}
     <section class="workspace">
-      <aside>
-        <div class="aside-head">
-          <strong>Folders</strong>
-          <button on:click={addFolder}>New</button>
-        </div>
-        <button class:active={selectedFolderId === null} class="folder root" on:click={() => selectFolder(null)}>Root</button>
-        {#each flatFolders as item}
-          <button
-            class:active={selectedFolderId === item.folder.id}
-            class="folder"
-            style={`padding-left: ${12 + item.depth * 18}px`}
-            on:click={() => selectFolder(item.folder.id)}
-          >{item.folder.name}</button>
-        {/each}
-      </aside>
+      <FolderSidebar
+        folders={flatFolders}
+        {selectedFolderId}
+        onSelect={selectFolder}
+        onAdd={addFolder}
+      />
 
       <div class="file-pane">
         <nav class="breadcrumbs" aria-label="Current folder">
           <button on:click={() => selectFolder(null)}>Root</button>
           {#each breadcrumbs as folder}
-            <span>/</span><button on:click={() => selectFolder(folder.id)}>{folder.name}</button>
+            <span>/</span><button on:click={() => selectFolder(folder.id)}
+              >{folder.name}</button
+            >
           {/each}
         </nav>
 
         <div class="commandbar">
-          <label>Choose file<input type="file" accept="audio/*,video/*" on:change={(event) => (uploadFile = event.currentTarget.files?.[0] ?? null)} /></label>
-          <label>Import folder<input type="file" accept="audio/*,video/*" multiple webkitdirectory on:change={(event) => selectDirectory(event.currentTarget.files)} /></label>
-          <button disabled={(!uploadFile && uploadEntries.length === 0) || busy} on:click={submitUpload}>
-            {busy && uploadProgress ? 'Uploading' : uploadEntries.length ? `Upload ${uploadEntries.length}` : 'Upload'}
+          <label
+            >Choose file<input
+              type="file"
+              accept="audio/*,video/*"
+              on:change={(event) =>
+                (uploadFile = event.currentTarget.files?.[0] ?? null)}
+            /></label
+          >
+          <label
+            >Import folder<input
+              type="file"
+              accept="audio/*,video/*"
+              multiple
+              webkitdirectory
+              on:change={(event) => selectDirectory(event.currentTarget.files)}
+            /></label
+          >
+          <button
+            disabled={(!uploadFile && uploadEntries.length === 0) || busy}
+            on:click={submitUpload}
+          >
+            {busy && uploadProgress
+              ? "Uploading"
+              : uploadEntries.length
+                ? `Upload ${uploadEntries.length}`
+                : "Upload"}
           </button>
           {#if currentFolder}
             <button on:click={editCurrentFolder}>Rename folder</button>
-            <select bind:value={folderMoveTarget} aria-label="Move folder destination">
+            <select
+              bind:value={folderMoveTarget}
+              aria-label="Move folder destination"
+            >
               <option value="">Root</option>
               {#each folderMoveOptions as item}
-                <option value={item.folder.id}>{'  '.repeat(item.depth)}{item.folder.name}</option>
+                <option value={item.folder.id}
+                  >{"  ".repeat(item.depth)}{item.folder.name}</option
+                >
               {/each}
             </select>
-            <button disabled={folderMoveTarget === (currentFolder.parent_id ?? '')} on:click={moveCurrentFolder}>Move folder</button>
-            <button class="danger" on:click={removeCurrentFolder}>Delete folder</button>
+            <button
+              disabled={folderMoveTarget === (currentFolder.parent_id ?? "")}
+              on:click={moveCurrentFolder}>Move folder</button
+            >
+            <button class="danger" on:click={removeCurrentFolder}
+              >Delete folder</button
+            >
           {/if}
         </div>
 
         {#if uploadFile || uploadEntries.length}
-          <p class="selection">{uploadFile?.name ?? `${uploadEntries.length} files selected`}</p>
+          <p class="selection">
+            {uploadFile?.name ?? `${uploadEntries.length} files selected`}
+          </p>
         {/if}
         {#if uploadProgress}
           <div class="progress">
             <span>{uploadProgress.filename}</span>
-            <progress value={uploadProgress.uploaded} max={uploadProgress.total}></progress>
+            <progress value={uploadProgress.uploaded} max={uploadProgress.total}
+            ></progress>
           </div>
         {/if}
         {#if error}<p class="error" aria-live="polite">{error}</p>{/if}
         {#if batchResults.length}
           <ul class="batch-results">
             {#each batchResults as result}
-              <li class:failed={result.status === 'failed'}>{result.path}: {result.status}{result.detail ? ` (${result.detail})` : ''}</li>
+              <li class:failed={result.status === "failed"}>
+                {result.path}: {result.status}{result.detail
+                  ? ` (${result.detail})`
+                  : ""}
+              </li>
             {/each}
           </ul>
         {/if}
@@ -360,24 +394,38 @@
                 <strong>{asset.title || asset.filename}</strong>
                 <span>{asset.filename}</span>
                 <small>
-                  {asset.status} · {formatTime(asset.duration)} · {asset.recorded_at ? formatRecordedAt(asset.recorded_at) : formatDate(asset.updated_at)}
+                  {asset.status} · {formatTime(asset.duration)} · {asset.recorded_at
+                    ? formatRecordedAt(asset.recorded_at)
+                    : formatDate(asset.updated_at)}
                 </small>
               </a>
               <select
                 aria-label={`Move ${asset.filename}`}
-                value={assetTargets[asset.id] ?? asset.parent_folder_id ?? ''}
-                on:change={(event) => (assetTargets = { ...assetTargets, [asset.id]: event.currentTarget.value })}
+                value={assetTargets[asset.id] ?? asset.parent_folder_id ?? ""}
+                on:change={(event) =>
+                  (assetTargets = {
+                    ...assetTargets,
+                    [asset.id]: event.currentTarget.value,
+                  })}
               >
                 <option value="">Root</option>
                 {#each flatFolders as item}
-                  <option value={item.folder.id}>{'  '.repeat(item.depth)}{item.folder.name}</option>
+                  <option value={item.folder.id}
+                    >{"  ".repeat(item.depth)}{item.folder.name}</option
+                  >
                 {/each}
               </select>
               <button
-                disabled={(assetTargets[asset.id] ?? asset.parent_folder_id ?? '') === (asset.parent_folder_id ?? '') || busy}
-                on:click={() => moveSelectedAsset(asset)}
-              >Move</button>
-              <button class="danger" disabled={busy} on:click={() => removeAsset(asset)}>Delete</button>
+                disabled={(assetTargets[asset.id] ??
+                  asset.parent_folder_id ??
+                  "") === (asset.parent_folder_id ?? "") || busy}
+                on:click={() => moveSelectedAsset(asset)}>Move</button
+              >
+              <button
+                class="danger"
+                disabled={busy}
+                on:click={() => removeAsset(asset)}>Delete</button
+              >
             </article>
           {:else}
             <p class="empty">No assets in this folder.</p>
@@ -424,7 +472,6 @@
 
   .actions,
   .auth,
-  .aside-head,
   .commandbar,
   .breadcrumbs {
     display: flex;
@@ -446,33 +493,6 @@
     display: grid;
     grid-template-columns: 230px minmax(0, 1fr);
     min-height: calc(100vh - 64px);
-  }
-
-  aside {
-    padding: 12px 8px;
-    border-right: 1px solid var(--color-border);
-    background: var(--color-surface-subtle);
-  }
-
-  .aside-head {
-    justify-content: space-between;
-    padding: 0 4px 8px;
-  }
-
-  .folder {
-    width: 100%;
-    min-height: 36px;
-    border: 0;
-    background: transparent;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .folder.active {
-    background: var(--color-accent-surface);
-    color: var(--color-accent-text);
   }
 
   .file-pane {
@@ -510,7 +530,7 @@
     cursor: pointer;
   }
 
-  .commandbar input[type='file'] {
+  .commandbar input[type="file"] {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -615,13 +635,6 @@
 
     .workspace {
       display: block;
-    }
-
-    aside {
-      max-height: 190px;
-      overflow: auto;
-      border-right: 0;
-      border-bottom: 1px solid var(--color-border);
     }
 
     .file-pane {

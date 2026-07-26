@@ -1,29 +1,37 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any
 
-from .db_connection import connect, now, transaction
+from .api_models import TranscriptChunkRecord
+from .db_connection import connect, decode_record, now, transaction
+from .types import ErrorRecord, TranscriptSegment
+
+TRANSCRIPT_CHUNK_JSON_FIELDS = {"error": dict}
+
+
+def sync_asset_transcript_cache(conn: sqlite3.Connection, asset_id: str, timestamp: int) -> None:
+    """Keep the legacy asset JSON cache aligned with normalized chunks."""
+    conn.execute(
+        "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
+    )
 
 
 def reset_transcript_chunks(db_path: Path, asset_id: str) -> None:
     with transaction(db_path) as conn:
         conn.execute("DELETE FROM transcript_chunks WHERE asset_id = ?", (asset_id,))
-        conn.execute(
-            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-            ("[]", now(), asset_id),
-        )
+        sync_asset_transcript_cache(conn, asset_id, now())
 
 
 def upsert_transcript_chunk(
     db_path: Path,
     asset_id: str,
     chunk_index: int,
-    segment: dict[str, Any],
+    segment: TranscriptSegment,
     *,
     attempts: int,
     status: str = "success",
-    error: dict[str, Any] | None = None,
+    error: ErrorRecord | None = None,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -80,13 +88,10 @@ def upsert_transcript_chunk(
                 timestamp,
             ),
         )
-        conn.execute(
-            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
-        )
+        sync_asset_transcript_cache(conn, asset_id, timestamp)
 
 
-def list_transcript_chunks(db_path: Path, asset_id: str) -> list[dict[str, Any]]:
+def list_transcript_chunks(db_path: Path, asset_id: str) -> list[TranscriptSegment]:
     with connect(db_path) as conn:
         return list_transcript_chunks_from_conn(conn, asset_id)
 
@@ -94,7 +99,7 @@ def list_transcript_chunks(db_path: Path, asset_id: str) -> list[dict[str, Any]]
 def list_transcript_chunks_from_conn(
     conn: sqlite3.Connection,
     asset_id: str,
-) -> list[dict[str, Any]]:
+) -> list[TranscriptSegment]:
     rows = conn.execute(
         """
         SELECT *
@@ -104,10 +109,17 @@ def list_transcript_chunks_from_conn(
         """,
         (asset_id,),
     ).fetchall()
-    chunks = []
+    chunks: list[TranscriptSegment] = []
     for row in rows:
-        item = dict(row)
-        if item.get("error"):
-            item["error"] = json.loads(item["error"])
-        chunks.append(item)
+        record = decode_record(row, json_fields=TRANSCRIPT_CHUNK_JSON_FIELDS)
+        if record is None:
+            raise ValueError("transcript chunk record has an invalid shape")
+        try:
+            chunk = TranscriptChunkRecord.model_validate(record).model_dump(exclude={"asset_id"})
+            error = record.get("error")
+            if isinstance(error, dict) and "category" not in error and chunk["error"] is not None:
+                chunk["error"].pop("category", None)
+            chunks.append(chunk)
+        except ValueError as error:
+            raise ValueError("transcript chunk record has an invalid shape") from error
     return chunks

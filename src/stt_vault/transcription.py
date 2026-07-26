@@ -1,20 +1,66 @@
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Any
+from typing import BinaryIO, Protocol
 
 from openai import OpenAI
 
 from .media import extract_transcription_chunk
+from .types import SpeakerSegment, TranscriptChunk, TranscriptSegment
+
+ChunkExtractor = Callable[[Path, Path, float, float], Path]
+
+
+class TranscriptionResponse(Protocol):
+    text: str | None
+
+
+class AudioTranscriptions(Protocol):
+    def create(
+        self,
+        *,
+        file: BinaryIO,
+        model: str,
+        prompt: str | None = None,
+    ) -> TranscriptionResponse | dict[str, object]: ...
+
+
+class TranscriptionAudio(Protocol):
+    transcriptions: AudioTranscriptions
+
+
+class TranscriptionClient(Protocol):
+    audio: TranscriptionAudio
+
+
+class TranscriptionClientFactory(Protocol):
+    def __call__(self, *, api_key: str, base_url: str) -> TranscriptionClient: ...
+
+
+class Clock(Protocol):
+    def __call__(self) -> float: ...
+
+
+class Sleeper(Protocol):
+    def __call__(self, seconds: float) -> None: ...
+
+
+class ChunkDoneCallback(Protocol):
+    def __call__(self, index: int, result: TranscriptSegment) -> None: ...
+
+
+class ChunkRetryCallback(Protocol):
+    def __call__(self, index: int, attempt: int, error: Exception, retry_at: int) -> None: ...
 
 
 def build_chunks(
-    segments: list[dict[str, Any]],
+    segments: list[SpeakerSegment],
     *,
     max_seconds: float,
-) -> list[dict[str, Any]]:
-    chunks: list[dict[str, Any]] = []
+) -> list[TranscriptChunk]:
+    chunks: list[TranscriptChunk] = []
     chunk_index = 0
     for segment in segments:
         start = float(segment["start"])
@@ -36,13 +82,13 @@ def build_chunks(
 
 
 def build_transcription_plan(
-    diarization: dict[str, Any], *, max_seconds: float
-) -> list[dict[str, Any]]:
+    diarization: dict[str, list[SpeakerSegment]], *, max_seconds: float
+) -> list[TranscriptChunk]:
     return build_chunks(diarization["raw_segments"], max_seconds=max_seconds)
 
 
 def transcript_chunks_match_plan(
-    existing_chunks: list[dict[str, Any]], chunks: list[dict[str, Any]]
+    existing_chunks: list[TranscriptSegment], chunks: list[TranscriptChunk]
 ) -> bool:
     for existing in existing_chunks:
         index = existing.get("chunk_index")
@@ -71,10 +117,16 @@ class Transcriber:
         retry_seconds: int,
         max_retries: int,
         retry_backoff_seconds: list[int] | None = None,
-        on_chunk_done=None,
-        on_chunk_retry=None,
+        on_chunk_done: ChunkDoneCallback | None = None,
+        on_chunk_retry: ChunkRetryCallback | None = None,
+        client: TranscriptionClient | None = None,
+        client_factory: TranscriptionClientFactory = OpenAI,
+        chunk_extractor: ChunkExtractor = extract_transcription_chunk,
+        clock: Clock = time.time,
+        sleeper: Sleeper = time.sleep,
     ) -> None:
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = client or client_factory(api_key=api_key, base_url=base_url)
+        self.chunk_extractor = chunk_extractor
         self.model = model
         self.prompt = prompt
         self.concurrency = max(1, concurrency)
@@ -83,21 +135,23 @@ class Transcriber:
         self.retry_backoff_seconds = retry_backoff_seconds or [self.retry_seconds]
         self.on_chunk_done = on_chunk_done
         self.on_chunk_retry = on_chunk_retry
+        self.clock = clock
+        self.sleeper = sleeper
         self._pause_lock = threading.Lock()
         self._resume_at = 0.0
 
     def transcribe_chunks(
         self,
         media_path: Path,
-        chunks: list[dict[str, Any]],
+        chunks: list[TranscriptChunk],
         tmp_dir: Path,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TranscriptSegment]:
         if not chunks:
             return []
 
-        results: list[dict[str, Any]] = []
+        results: list[TranscriptSegment] = []
         chunk_iter = iter(enumerate(chunks))
-        pending: set[Future[dict[str, Any]]] = set()
+        pending: set[Future[TranscriptSegment]] = set()
 
         with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
             while True:
@@ -129,44 +183,15 @@ class Transcriber:
     def _transcribe_one(
         self,
         media_path: Path,
-        chunk: dict[str, Any],
+        chunk: TranscriptChunk,
         tmp_dir: Path,
         index: int,
-    ) -> dict[str, Any]:
+    ) -> TranscriptSegment:
         chunk_path = tmp_dir / f"chunk-{index:06d}.m4a"
         try:
             for attempt in range(1, self.max_retries + 1):
                 try:
-                    self._wait_for_pause()
-                    extract_transcription_chunk(
-                        media_path,
-                        chunk_path,
-                        float(chunk["start"]),
-                        float(chunk["end"]),
-                    )
-
-                    kwargs: dict[str, Any] = {"model": self.model}
-                    if self.prompt:
-                        kwargs["prompt"] = self.prompt
-
-                    with chunk_path.open("rb") as audio_file:
-                        response = self.client.audio.transcriptions.create(
-                            file=audio_file, **kwargs
-                        )
-
-                    text = getattr(response, "text", None)
-                    if text is None and isinstance(response, dict):
-                        text = response.get("text")
-
-                    result = {
-                        "start": chunk["start"],
-                        "end": chunk["end"],
-                        "chunk_start": chunk["start"],
-                        "chunk_end": chunk["end"],
-                        "speaker": chunk["speaker"],
-                        "text": (text or "").strip(),
-                        "attempts": attempt,
-                    }
+                    result = self._transcribe_attempt(media_path, chunk, chunk_path, attempt)
                     if self.on_chunk_done:
                         self.on_chunk_done(index, result)
                     return result
@@ -174,7 +199,7 @@ class Transcriber:
                     if attempt >= self.max_retries:
                         raise
                     delay = self._retry_delay(attempt)
-                    retry_at = int(time.time()) + delay
+                    retry_at = int(self.clock()) + delay
                     if self.on_chunk_retry:
                         self.on_chunk_retry(index, attempt, exc, retry_at)
                     self._pause_all(delay)
@@ -183,19 +208,55 @@ class Transcriber:
 
         raise RuntimeError("unreachable transcription retry state")
 
+    def _transcribe_attempt(
+        self,
+        media_path: Path,
+        chunk: TranscriptChunk,
+        chunk_path: Path,
+        attempt: int,
+    ) -> TranscriptSegment:
+        self._wait_for_pause()
+        self.chunk_extractor(
+            media_path,
+            chunk_path,
+            float(chunk["start"]),
+            float(chunk["end"]),
+        )
+
+        kwargs: dict[str, str] = {"model": self.model}
+        if self.prompt:
+            kwargs["prompt"] = self.prompt
+
+        with chunk_path.open("rb") as audio_file:
+            response = self.client.audio.transcriptions.create(file=audio_file, **kwargs)
+
+        text = getattr(response, "text", None)
+        if text is None and isinstance(response, dict):
+            text = response.get("text")
+
+        return {
+            "start": chunk["start"],
+            "end": chunk["end"],
+            "chunk_start": chunk["start"],
+            "chunk_end": chunk["end"],
+            "speaker": chunk["speaker"],
+            "text": (text or "").strip(),
+            "attempts": attempt,
+        }
+
     def _retry_delay(self, attempt: int) -> int:
         index = min(max(0, attempt - 1), len(self.retry_backoff_seconds) - 1)
         return self.retry_backoff_seconds[index]
 
     def _pause_all(self, delay: int) -> None:
         with self._pause_lock:
-            now = time.time()
+            now = self.clock()
             self._resume_at = max(self._resume_at, now + delay)
             sleep_for = max(0.0, self._resume_at - now)
-        time.sleep(sleep_for)
+        self.sleeper(sleep_for)
 
     def _wait_for_pause(self) -> None:
         with self._pause_lock:
-            sleep_for = max(0.0, self._resume_at - time.time())
+            sleep_for = max(0.0, self._resume_at - self.clock())
         if sleep_for > 0:
-            time.sleep(sleep_for)
+            self.sleeper(sleep_for)

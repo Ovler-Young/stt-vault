@@ -1,25 +1,25 @@
 <script lang="ts">
-  import { exportHref } from '../asset-page.helpers';
-  import FoldoutPanel from './FoldoutPanel.svelte';
+  import { exportHref } from "../asset-page.helpers";
+  import FoldoutPanel from "./FoldoutPanel.svelte";
 
-  export let assetId = '';
+  export let assetId = "";
   export let assetExports: Record<string, string> = {};
 
-  let downloadMessage = '';
+  let downloadMessage = "";
 
   function copyTextWithDocument(text: string) {
-    if (typeof document === 'undefined') return false;
-    const textarea = document.createElement('textarea');
+    if (typeof document === "undefined") return false;
+    const textarea = document.createElement("textarea");
     textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
     document.body.append(textarea);
     textarea.focus();
     textarea.select();
     textarea.setSelectionRange(0, text.length);
     try {
-      return document.execCommand('copy');
+      return document.execCommand("copy");
     } finally {
       textarea.remove();
     }
@@ -29,7 +29,8 @@
     // This deprecated API must run synchronously while the user gesture is active.
     if (copyTextWithDocument(text)) return true;
 
-    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false;
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText)
+      return false;
     try {
       await navigator.clipboard.writeText(text);
       return true;
@@ -41,10 +42,12 @@
   async function copyExportHref(event: MouseEvent, href: string) {
     event.preventDefault();
     try {
-      if (!(await copyText(href))) throw new Error('Clipboard access is unavailable');
-      downloadMessage = 'Download link copied';
+      if (!(await copyText(href)))
+        throw new Error("Clipboard access is unavailable");
+      downloadMessage = "Download link copied";
     } catch (err) {
-      downloadMessage = err instanceof Error ? `Copy failed: ${err.message}` : 'Copy failed';
+      downloadMessage =
+        err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed";
     }
   }
 </script>
@@ -53,9 +56,13 @@
   <div class="exports">
     {#each Object.keys(assetExports) as format}
       {@const href = exportHref(assetId, format)}
-      <a href={href} download on:contextmenu={(event) => copyExportHref(event, href)}>{format}</a>
+      <a {href} download on:contextmenu={(event) => copyExportHref(event, href)}
+        >{format}</a
+      >
     {/each}
-    {#if downloadMessage}<span class="download-message" aria-live="polite">{downloadMessage}</span>{/if}
+    {#if downloadMessage}<span class="download-message" aria-live="polite"
+        >{downloadMessage}</span
+      >{/if}
   </div>
 </FoldoutPanel>
 

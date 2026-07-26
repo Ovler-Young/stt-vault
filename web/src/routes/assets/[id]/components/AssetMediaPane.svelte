@@ -1,12 +1,15 @@
 <script lang="ts">
-  import SpeakerProgressBar from '$lib/SpeakerProgressBar.svelte';
-  import type { AudioTrack, AssetDetail } from '$lib/api';
-  import { audioTrackLabel, exportHref, mediaUrl } from '../asset-page.helpers';
-  import type { MaybePromise, SpeakerProgressBarHandle } from '../asset-page.types';
+  import SpeakerProgressBar from "$lib/SpeakerProgressBar.svelte";
+  import type { AudioTrack, AssetDetail } from "$lib/api";
+  import { audioTrackLabel, exportHref, mediaUrl } from "../asset-page.helpers";
+  import type {
+    MaybePromise,
+    SpeakerProgressBarHandle,
+  } from "../asset-page.types";
 
   export let asset: AssetDetail;
   export let audioTracks: AudioTrack[] = [];
-  export let selectedAudioTrack = 'default';
+  export let selectedAudioTrack = "default";
   export let playbackRate = 1;
   export let currentTime = 0;
   export let mediaElement: HTMLMediaElement | null = null;
@@ -24,7 +27,9 @@
   }
 
   function handlePlaybackRateChange(event: Event) {
-    onPlaybackRateChange(Number((event.currentTarget as HTMLSelectElement).value));
+    onPlaybackRateChange(
+      Number((event.currentTarget as HTMLSelectElement).value),
+    );
   }
 
   function handleTimelineSeek(event: CustomEvent<{ time: number }>) {
@@ -46,7 +51,7 @@
 >
   <track
     kind="captions"
-    src={asset.exports?.vtt ? exportHref(asset.id, 'vtt') : ''}
+    src={asset.exports?.vtt ? exportHref(asset.id, "vtt") : ""}
     srclang="en"
     label="Transcript"
     default
@@ -61,7 +66,9 @@
         <option value="default">Original playback</option>
         <option value="all">All tracks mixed</option>
         {#each audioTracks as track}
-          <option value={`${track.audio_index}`}>{audioTrackLabel(track)}</option>
+          <option value={`${track.audio_index}`}
+            >{audioTrackLabel(track)}</option
+          >
         {/each}
       </select>
     </label>

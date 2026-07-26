@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { VisualEvent } from '$lib/api';
-  import { formatTime } from '$lib/format';
-  import { activeVisualEventIndex, thumbnailUrl } from '../asset-page.helpers';
-  import type { MaybePromise } from '../asset-page.types';
+  import type { VisualEvent } from "$lib/api";
+  import { formatTime } from "$lib/format";
+  import { activeVisualEventIndex, thumbnailUrl } from "../asset-page.helpers";
+  import type { MaybePromise } from "../asset-page.types";
 
-  export let assetId = '';
+  export let assetId = "";
   export let events: VisualEvent[] = [];
   export let currentTime = 0;
-  export let message = '';
+  export let message = "";
   export let onDetect: () => MaybePromise = () => {};
   export let onSeek: (time: number) => void = () => {};
 
@@ -51,13 +51,22 @@
   }
 
   function scrollActiveSlideIntoView(index: number) {
-    if (!stripEl || thumbDragging || index < 0 || index === lastScrolledSlideIndex) return;
+    if (
+      !stripEl ||
+      thumbDragging ||
+      index < 0 ||
+      index === lastScrolledSlideIndex
+    )
+      return;
     lastScrolledSlideIndex = index;
     requestAnimationFrame(() => {
-      const item = stripEl?.querySelector<HTMLElement>(`[data-slide-index="${index}"]`);
+      const item = stripEl?.querySelector<HTMLElement>(
+        `[data-slide-index="${index}"]`,
+      );
       if (!stripEl || !item) return;
-      const target = item.offsetLeft - stripEl.clientWidth / 2 + item.clientWidth / 2;
-      stripEl.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+      const target =
+        item.offsetLeft - stripEl.clientWidth / 2 + item.clientWidth / 2;
+      stripEl.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
     });
   }
 </script>
@@ -90,7 +99,11 @@
           on:click={(clickEvent) => seekVisualEvent(clickEvent, event)}
           title={`${formatTime(event.timestamp)} · ${event.score.toFixed(1)}`}
         >
-          <img draggable="false" src={thumbnailUrl(assetId, event)} alt={formatTime(event.timestamp)} />
+          <img
+            draggable="false"
+            src={thumbnailUrl(assetId, event)}
+            alt={formatTime(event.timestamp)}
+          />
           <span>{formatTime(event.timestamp)}</span>
         </button>
       {/each}

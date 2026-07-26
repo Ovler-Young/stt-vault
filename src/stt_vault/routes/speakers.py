@@ -3,14 +3,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
 from .. import db
-from ..app_services import (
-    clean_display_name,
-    recompute_asset_speaker_matches,
-    rewrite_asset_exports,
-)
+from ..asset_exports import rewrite_asset_exports
 from ..auth import require_admin
 from ..requests import SpeakerMergeRequest, SpeakerNameRequest
 from ..settings import Settings
+from ..speaker_service import (
+    clean_display_name,
+    recompute_asset_speaker_matches,
+)
+from ..types import SpeakerRecord
 
 __all__ = ["register_speaker_routes"]
 
@@ -19,7 +20,7 @@ def register_speaker_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.get("/api/speakers")
-    def list_speakers(_: Annotated[None, Depends(require_admin)]) -> list[dict]:
+    def list_speakers(_: Annotated[None, Depends(require_admin)]) -> list[SpeakerRecord]:
         return db.list_speakers(settings.stt_db_path)
 
     @router.put("/api/speakers/{speaker_id}", dependencies=[Depends(require_admin)])

@@ -1,12 +1,19 @@
 <script lang="ts">
-  import type { TranscriptSegment } from '$lib/api';
-  import { formatTime } from '$lib/format';
-  import { activeTranscriptSegmentIndex, segmentMediaEnd, segmentMediaStart } from '../asset-page.helpers';
+  import type { TranscriptSegment } from "$lib/api";
+  import { formatTime } from "$lib/format";
+  import {
+    activeTranscriptSegmentIndex,
+    segmentMediaEnd,
+    segmentMediaStart,
+  } from "../asset-page.helpers";
 
   export let segments: TranscriptSegment[] = [];
   export let currentTime = 0;
   export let onSeek: (segment: TranscriptSegment) => void = () => {};
-  export let onEditSpeaker: (event: MouseEvent, segment: TranscriptSegment) => void = () => {};
+  export let onEditSpeaker: (
+    event: MouseEvent,
+    segment: TranscriptSegment,
+  ) => void = () => {};
 
   let transcriptEl: HTMLElement | null = null;
   let lastScrolledTranscriptIndex = -1;
@@ -15,14 +22,20 @@
   $: scrollActiveTranscriptIntoView(activeSegmentIndex);
 
   function isActive(segment: TranscriptSegment) {
-    return currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment);
+    return (
+      currentTime >= segmentMediaStart(segment) &&
+      currentTime < segmentMediaEnd(segment)
+    );
   }
 
   function scrollActiveTranscriptIntoView(index: number) {
-    if (!transcriptEl || index < 0 || index === lastScrolledTranscriptIndex) return;
+    if (!transcriptEl || index < 0 || index === lastScrolledTranscriptIndex)
+      return;
     lastScrolledTranscriptIndex = index;
     requestAnimationFrame(() => {
-      const item = transcriptEl?.querySelector<HTMLElement>(`[data-segment-index="${index}"]`);
+      const item = transcriptEl?.querySelector<HTMLElement>(
+        `[data-segment-index="${index}"]`,
+      );
       if (!transcriptEl || !item) return;
       const itemTop = item.offsetTop;
       const itemBottom = itemTop + item.offsetHeight;
@@ -31,7 +44,7 @@
       if (itemTop >= viewTop + 24 && itemBottom <= viewBottom - 24) return;
       transcriptEl.scrollTo({
         top: Math.max(0, itemTop - transcriptEl.clientHeight * 0.35),
-        behavior: 'smooth'
+        behavior: "smooth",
       });
     });
   }
@@ -48,7 +61,11 @@
       >
         <span class="row-head">
           <strong>{segment.speaker_name ?? segment.speaker}</strong>
-          <small>{formatTime(segmentMediaStart(segment))} - {formatTime(segmentMediaEnd(segment))}</small>
+          <small
+            >{formatTime(segmentMediaStart(segment))} - {formatTime(
+              segmentMediaEnd(segment),
+            )}</small
+          >
         </span>
         <span class="text">{segment.text}</span>
       </button>

@@ -82,6 +82,10 @@ class Settings(BaseSettings):
         return self.stt_data_dir / "uploads"
 
     @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+    @property
     def parsed_export_formats(self) -> list[str]:
         return [item.strip() for item in self.export_formats.split(",") if item.strip()]
 

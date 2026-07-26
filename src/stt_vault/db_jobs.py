@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .db_connection import connect, now, transaction
+from .db_connection import connect, decode_record, now, transaction
+from .process_diagnostics import format_diagnostic_text
+
+JOB_JSON_FIELDS = {"error": dict}
+EVENT_JSON_FIELDS = {"payload": dict}
 
 
 def list_jobs(db_path: Path) -> list[dict[str, Any]]:
@@ -239,6 +243,7 @@ def list_current_run_events(
 
 
 def mark_failed(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
+    error = _persisted_error_record(error)
     payload = json.dumps(error)
     timestamp = now()
     with transaction(db_path) as conn:
@@ -259,6 +264,7 @@ def mark_failed(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
 
 
 def mark_partial(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
+    error = _persisted_error_record(error)
     payload = json.dumps(error)
     timestamp = now()
     with transaction(db_path) as conn:
@@ -341,19 +347,13 @@ def mark_success(
 
 
 def _decode_job(row: Any) -> dict[str, Any]:
-    item = dict(row)
-    if item.get("error"):
-        item["error"] = json.loads(item["error"])
-    return item
+    return decode_record(row, json_fields=JOB_JSON_FIELDS) or {}
 
 
 def _decode_events(rows: list[Any]) -> list[dict[str, Any]]:
     events = []
     for row in reversed(rows):
-        item = dict(row)
-        if item.get("payload"):
-            item["payload"] = json.loads(item["payload"])
-        events.append(item)
+        events.append(decode_record(row, json_fields=EVENT_JSON_FIELDS) or {})
     return events
 
 
@@ -366,3 +366,14 @@ def _parse_lease_expiration(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _persisted_error_record(error: dict[str, Any]) -> dict[str, str]:
+    """Persist only a bounded, redacted failure category and message."""
+    category = error.get("category")
+    if not isinstance(category, str) or not category:
+        category = "processing"
+    message = error.get("message", "Asset processing failed")
+    if not isinstance(message, str):
+        message = "Asset processing failed"
+    return {"category": category[:64], "message": format_diagnostic_text(message)}

@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { fetchConfig } from '$lib/api';
-  import { getThemePreference, setThemePreference, type ThemePreference } from '$lib/theme';
+  import { onMount } from "svelte";
+  import { fetchConfig, type ApiConfig } from "$lib/api";
+  import {
+    getThemePreference,
+    setThemePreference,
+    themeOptions,
+    type ThemePreference,
+  } from "$lib/theme";
 
-  let config: Record<string, unknown> | null = null;
-  let error = '';
-  let theme: ThemePreference = 'system';
+  let config: ApiConfig | null = null;
+  let error = "";
+  let theme: ThemePreference = "system";
 
   onMount(async () => {
     theme = getThemePreference();
@@ -32,14 +37,14 @@
         <span>Theme</span>
       </div>
       <fieldset aria-label="Theme">
-        {#each ['system', 'light', 'dark'] as option}
+        {#each themeOptions as option}
           <label>
             <input
               type="radio"
               name="theme"
               value={option}
               checked={theme === option}
-              on:change={() => selectTheme(option as ThemePreference)}
+              on:change={() => selectTheme(option)}
             />
             {option[0].toUpperCase() + option.slice(1)}
           </label>

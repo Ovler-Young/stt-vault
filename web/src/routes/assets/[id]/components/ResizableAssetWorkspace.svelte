@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { clampMediaPaneWidth, PANE_DIVIDER_WIDTH } from '../asset-page.helpers';
+  import {
+    clampMediaPaneWidth,
+    PANE_DIVIDER_WIDTH,
+  } from "../asset-page.helpers";
 
   const paneResizeStep = 32;
 
@@ -7,14 +10,16 @@
   let mediaPaneWidth: number | null = null;
   let resizingPanes = false;
 
-  $: workspaceStyle = mediaPaneWidth === null ? '' : `--media-pane-width: ${mediaPaneWidth}px;`;
+  $: workspaceStyle =
+    mediaPaneWidth === null ? "" : `--media-pane-width: ${mediaPaneWidth}px;`;
 
   function startPaneResize(event: PointerEvent) {
     if (event.button !== 0 || !workspaceEl) return;
     event.preventDefault();
     resizingPanes = true;
     const target = event.currentTarget;
-    if (target instanceof HTMLElement) target.setPointerCapture(event.pointerId);
+    if (target instanceof HTMLElement)
+      target.setPointerCapture(event.pointerId);
     updateMediaPaneWidth(event.clientX);
   }
 
@@ -28,15 +33,20 @@
     if (!resizingPanes) return;
     resizingPanes = false;
     const target = event.currentTarget;
-    if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
+    if (
+      target instanceof HTMLElement &&
+      target.hasPointerCapture(event.pointerId)
+    ) {
       target.releasePointerCapture(event.pointerId);
     }
   }
 
   function handlePaneResizeKeydown(event: KeyboardEvent) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    resizeMediaPaneBy(event.key === 'ArrowLeft' ? -paneResizeStep : paneResizeStep);
+    resizeMediaPaneBy(
+      event.key === "ArrowLeft" ? -paneResizeStep : paneResizeStep,
+    );
   }
 
   function resizeMediaPaneBy(delta: number) {
@@ -56,7 +66,12 @@
   }
 </script>
 
-<section class:resizing={resizingPanes} class="workspace" style={workspaceStyle} bind:this={workspaceEl}>
+<section
+  class:resizing={resizingPanes}
+  class="workspace"
+  style={workspaceStyle}
+  bind:this={workspaceEl}
+>
   <div class="media-pane">
     <slot name="media" />
   </div>
@@ -86,7 +101,10 @@
     grid-template-columns:
       minmax(
         var(--media-pane-min),
-        min(var(--media-pane-width, 47vw), calc(100% - var(--pane-divider-width) - var(--transcript-pane-min)))
+        min(
+          var(--media-pane-width, 47vw),
+          calc(100% - var(--pane-divider-width) - var(--transcript-pane-min))
+        )
       )
       var(--pane-divider-width)
       minmax(var(--transcript-pane-min), 1fr);
@@ -118,7 +136,7 @@
   }
 
   .pane-divider::before {
-    content: '';
+    content: "";
     position: absolute;
     inset: 0 4px;
     border-radius: 4px;

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { AssetDetail } from '$lib/api';
-  import { formatTime } from '$lib/format';
-  import { progressText } from '../asset-page.helpers';
-  import type { MaybePromise } from '../asset-page.types';
+  import type { AssetDetail } from "$lib/api";
+  import { formatTime } from "$lib/format";
+  import { progressText } from "../asset-page.helpers";
+  import type { MaybePromise } from "../asset-page.types";
 
   export let asset: AssetDetail;
   export let onRetry: () => MaybePromise = () => {};
@@ -12,10 +12,13 @@
 <section class="asset-head">
   <div class="title">
     <h1>{asset.title || asset.filename}</h1>
-    <p>{asset.filename} · {asset.status} · {formatTime(asset.duration)} {#if progressText(asset)}· {progressText(asset)} chunks{/if}</p>
+    <p>
+      {asset.filename} · {asset.status} · {formatTime(asset.duration)}
+      {#if progressText(asset)}· {progressText(asset)} chunks{/if}
+    </p>
   </div>
   <div class="actions">
-    {#if asset.status === 'failed' || asset.status === 'partial'}
+    {#if asset.status === "failed" || asset.status === "partial"}
       <button on:click={() => void onRetry()}>Retry</button>
     {/if}
     <button class="danger" on:click={() => void onRemove()}>Delete</button>

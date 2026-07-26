@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
 
-  export let markdown = '';
+  export let markdown = "";
   export let onSeek: (time: number) => void = () => {};
 
   type RenderMarkdown = (value: string) => string;
@@ -10,21 +10,23 @@
   let renderMarkdown: RenderMarkdown | null = null;
   let summaryElement: HTMLElement;
 
-  $: renderedMarkdown = renderMarkdown ? renderMarkdown(markdown) : '';
+  $: renderedMarkdown = renderMarkdown ? renderMarkdown(markdown) : "";
 
   onMount(() => {
-    summaryElement.addEventListener('click', handleClick);
+    summaryElement.addEventListener("click", handleClick);
     void loadRenderer();
-    return () => summaryElement.removeEventListener('click', handleClick);
+    return () => summaryElement.removeEventListener("click", handleClick);
   });
 
   async function loadRenderer() {
     const [{ marked }, { default: DOMPurify }] = await Promise.all([
-      import('marked'),
-      import('dompurify')
+      import("marked"),
+      import("dompurify"),
     ]);
     renderMarkdown = (value) =>
-      DOMPurify.sanitize(marked.parse(linkifyTimestamps(value), { async: false }) as string);
+      DOMPurify.sanitize(
+        marked.parse(linkifyTimestamps(value), { async: false }) as string,
+      );
   }
 
   function linkifyTimestamps(value: string) {
@@ -35,17 +37,20 @@
   }
 
   function timestampToSeconds(value: string) {
-    const parts = value.split(':').map(Number);
+    const parts = value.split(":").map(Number);
     if (parts.some((part) => !Number.isInteger(part) || part < 0)) return null;
-    const [hours, minutes, seconds] = parts.length === 3 ? parts : [0, parts[0], parts[1]];
+    const [hours, minutes, seconds] =
+      parts.length === 3 ? parts : [0, parts[0], parts[1]];
     if (minutes > 59 || seconds > 59) return null;
     return hours * 3600 + minutes * 60 + seconds;
   }
 
   function handleClick(event: MouseEvent) {
-    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#timestamp="]');
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>(
+      'a[href^="#timestamp="]',
+    );
     if (!link || !summaryElement.contains(link)) return;
-    const timestamp = Number(link.hash.slice('#timestamp='.length));
+    const timestamp = Number(link.hash.slice("#timestamp=".length));
     if (!Number.isFinite(timestamp) || timestamp < 0) return;
     event.preventDefault();
     onSeek(timestamp);
@@ -81,7 +86,7 @@
     padding-left: 20px;
   }
 
-  .summary-markdown :global(a[href^='#timestamp=']) {
+  .summary-markdown :global(a[href^="#timestamp="]) {
     color: var(--color-accent);
     font-weight: 600;
     text-decoration: underline;

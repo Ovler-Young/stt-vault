@@ -1,18 +1,18 @@
-import adapter from '@sveltejs/adapter-static';
+import adapter from "@sveltejs/adapter-static";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   kit: {
     adapter: adapter({
-      fallback: '200.html'
+      fallback: "200.html",
     }),
     prerender: {
-      handleUnseenRoutes: 'ignore'
+      handleUnseenRoutes: "ignore",
     },
     paths: {
-      relative: false
-    }
-  }
+      relative: false,
+    },
+  },
 };
 
 export default config;

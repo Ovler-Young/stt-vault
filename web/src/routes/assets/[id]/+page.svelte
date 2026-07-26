@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
-  import { page } from '$app/stores';
+  import { onDestroy, onMount, tick } from "svelte";
+  import { page } from "$app/stores";
   import {
     deleteAsset,
     detectAssetVisualEvents,
@@ -8,59 +8,67 @@
     fetchAssetAudioTracks,
     recomputeAssetSpeakers,
     retryAsset,
-    summarizeAsset,
     saveAssetSpeaker,
     type AudioTrack,
     type AssetDetail,
-    type TranscriptSegment
-  } from '$lib/api';
-  import { localSpeakerRows, segmentMediaEnd, segmentMediaStart } from './asset-page.helpers';
-  import type { SpeakerEditor, SpeakerProgressBarHandle } from './asset-page.types';
-  import AssetDetailsFoldout from './components/AssetDetailsFoldout.svelte';
-  import AssetDownloadsFoldout from './components/AssetDownloadsFoldout.svelte';
-  import AssetEventsFoldout from './components/AssetEventsFoldout.svelte';
-  import AssetFoldoutGroup from './components/AssetFoldoutGroup.svelte';
-  import FoldoutPanel from './components/FoldoutPanel.svelte';
-  import AssetHeader from './components/AssetHeader.svelte';
-  import AssetMediaPane from './components/AssetMediaPane.svelte';
-  import AssetSpeakersFoldout from './components/AssetSpeakersFoldout.svelte';
-  import ResizableAssetWorkspace from './components/ResizableAssetWorkspace.svelte';
-  import SpeakerEditorPopover from './components/SpeakerEditorPopover.svelte';
-  import SummaryMarkdown from '$lib/SummaryMarkdown.svelte';
-  import TranscriptPane from './components/TranscriptPane.svelte';
-  import VisualEventsStrip from './components/VisualEventsStrip.svelte';
+    type TranscriptSegment,
+  } from "$lib/api";
+  import { localSpeakerRows, segmentMediaStart } from "./asset-page.helpers";
+  import { needsActivePolling } from "$lib/polling";
+  import {
+    adjacentSpeakerSegment,
+    boundedSeekTime,
+    nextSegment,
+    previousSegment,
+  } from "./asset-playback.controller";
+  import type {
+    SpeakerEditor,
+    SpeakerProgressBarHandle,
+  } from "./asset-page.types";
+  import AssetDetailsFoldout from "./components/AssetDetailsFoldout.svelte";
+  import AssetDownloadsFoldout from "./components/AssetDownloadsFoldout.svelte";
+  import AssetEventsFoldout from "./components/AssetEventsFoldout.svelte";
+  import AssetFoldoutGroup from "./components/AssetFoldoutGroup.svelte";
+  import AssetHeader from "./components/AssetHeader.svelte";
+  import AssetMediaPane from "./components/AssetMediaPane.svelte";
+  import AssetSpeakersFoldout from "./components/AssetSpeakersFoldout.svelte";
+  import ResizableAssetWorkspace from "./components/ResizableAssetWorkspace.svelte";
+  import SpeakerEditorPopover from "./components/SpeakerEditorPopover.svelte";
+  import AssetSummaryFoldout from "./components/AssetSummaryFoldout.svelte";
+  import TranscriptPane from "./components/TranscriptPane.svelte";
+  import VisualEventsStrip from "./components/VisualEventsStrip.svelte";
 
   let asset: AssetDetail | null = null;
-  let error = '';
+  let error = "";
   let mediaEl: HTMLMediaElement | null = null;
   let speakerProgressBar: SpeakerProgressBarHandle | null = null;
   let currentTime = 0;
   let poll: ReturnType<typeof setInterval> | null = null;
   let speakerDrafts: Record<string, string> = {};
-  let speakerMessage = '';
-  let visualMessage = '';
-  let summaryMessage = '';
+  let speakerMessage = "";
+  let visualMessage = "";
   let speakerEditor: SpeakerEditor | null = null;
-  let editorName = '';
+  let editorName = "";
   let audioTracks: AudioTrack[] = [];
-  let audioTracksAssetId = '';
-  let selectedAudioTrack = 'default';
+  let audioTracksAssetId = "";
+  let selectedAudioTrack = "default";
   let playbackRate = 1;
   let pendingMediaSeek: number | null = null;
   let playbackFrame: number | null = null;
-  let autoMatchedAssetId = '';
+  let autoMatchedAssetId = "";
 
-  $: assetId = $page.params.id ?? '';
+  $: assetId = $page.params.id ?? "";
   $: speakerRows = asset ? localSpeakerRows(asset) : [];
 
   onMount(async () => {
-    playbackRate = Number(localStorage.getItem('stt-vault-playback-rate') ?? 1) || 1;
-    document.addEventListener('keydown', handleGlobalKeydown);
+    playbackRate =
+      Number(localStorage.getItem("stt-vault-playback-rate") ?? 1) || 1;
+    document.addEventListener("keydown", handleGlobalKeydown);
     await load();
   });
 
   onDestroy(() => {
-    document.removeEventListener('keydown', handleGlobalKeydown);
+    document.removeEventListener("keydown", handleGlobalKeydown);
     if (poll) clearInterval(poll);
     stopPlaybackClock();
   });
@@ -75,29 +83,35 @@
           await recomputeAssetSpeakers(asset.id);
           asset = await fetchAsset(asset.id);
         } catch (matchError) {
-          speakerMessage = matchError instanceof Error ? matchError.message : String(matchError);
+          speakerMessage =
+            matchError instanceof Error
+              ? matchError.message
+              : String(matchError);
         }
       }
       await loadAudioTracks(asset.id);
       syncSpeakerDrafts();
       updatePolling();
-      error = '';
+      error = "";
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
   }
 
   function hasUnmatchedSpeakers(currentAsset: AssetDetail) {
-    if (currentAsset.status !== 'success' && currentAsset.status !== 'partial') return false;
+    if (currentAsset.status !== "success" && currentAsset.status !== "partial")
+      return false;
     return (currentAsset.transcript_segments ?? []).some((segment) => {
       const displayName = segment.speaker_name?.trim();
-      return /^SPEAKER_\d+$/.test(segment.speaker) && (!displayName || displayName === segment.speaker);
+      return (
+        /^SPEAKER_\d+$/.test(segment.speaker) &&
+        (!displayName || displayName === segment.speaker)
+      );
     });
   }
 
   function updatePolling() {
-    const shouldPoll =
-      asset?.status === 'queued' || asset?.status === 'processing' || asset?.summary_status === 'running';
+    const shouldPoll = asset ? needsActivePolling(asset) : false;
     if (shouldPoll && !poll) {
       poll = setInterval(load, 3000);
     } else if (!shouldPoll && poll) {
@@ -115,23 +129,15 @@
   async function remove() {
     if (!asset) return;
     await deleteAsset(asset.id);
-    location.href = '/';
+    location.href = "/";
   }
 
-  async function summarize() {
-    if (!asset) return;
-    summaryMessage = 'Generating summary';
-    try {
-      await summarizeAsset(asset.id);
-      await load();
-      summaryMessage = '';
-    } catch (err) {
-      await load();
-      summaryMessage = asset?.summary_error ? '' : err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  function seek(segment: Pick<TranscriptSegment, 'start' | 'end' | 'chunk_start' | 'chunk_end'>) {
+  function seek(
+    segment: Pick<
+      TranscriptSegment,
+      "start" | "end" | "chunk_start" | "chunk_end"
+    >,
+  ) {
     if (!mediaEl) return;
     mediaEl.currentTime = segmentMediaStart(segment);
     mediaEl.play().catch(() => {});
@@ -152,7 +158,7 @@
 
   function changePlaybackRate(nextPlaybackRate: number) {
     playbackRate = nextPlaybackRate;
-    localStorage.setItem('stt-vault-playback-rate', String(playbackRate));
+    localStorage.setItem("stt-vault-playback-rate", String(playbackRate));
     applyPlaybackRate();
   }
 
@@ -161,11 +167,11 @@
     try {
       audioTracks = await fetchAssetAudioTracks(nextAssetId);
       audioTracksAssetId = nextAssetId;
-      selectedAudioTrack = 'default';
+      selectedAudioTrack = "default";
     } catch {
       audioTracks = [];
       audioTracksAssetId = nextAssetId;
-      selectedAudioTrack = 'default';
+      selectedAudioTrack = "default";
     }
   }
 
@@ -210,52 +216,42 @@
 
   function seekRelative(delta: number) {
     if (!mediaEl) return;
-    const duration = Number.isFinite(mediaEl.duration) ? mediaEl.duration : asset?.duration ?? 0;
-    const nextTime = Math.min(duration, Math.max(0, mediaEl.currentTime + delta));
+    const duration = Number.isFinite(mediaEl.duration)
+      ? mediaEl.duration
+      : (asset?.duration ?? 0);
+    const nextTime = boundedSeekTime(mediaEl.currentTime, duration, delta);
     mediaEl.currentTime = nextTime;
     updateCurrentTime();
   }
 
   function seekNextSegment() {
-    const segments = asset?.transcript_segments ?? [];
-    const next = segments.find((segment) => segmentMediaStart(segment) > currentTime + 0.05);
+    const next = nextSegment(asset?.transcript_segments ?? [], currentTime);
     if (next) seek(next);
   }
 
   function seekPreviousSegment() {
-    const segments = asset?.transcript_segments ?? [];
-    const current = segments.find(
-      (segment) => currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment)
+    const previous = previousSegment(
+      asset?.transcript_segments ?? [],
+      currentTime,
     );
-    if (current && currentTime - segmentMediaStart(current) > 5) {
-      seek(current);
-      return;
-    }
-    const previous = [...segments].reverse().find((segment) => segmentMediaEnd(segment) < currentTime - 0.05);
     if (previous) seek(previous);
     else seekToTime(0);
   }
 
   function seekPreviousSpeakerSegment() {
-    const segments = asset?.transcript_segments ?? [];
-    const current = segments.find(
-      (segment) => currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment)
+    const previous = adjacentSpeakerSegment(
+      asset?.transcript_segments ?? [],
+      currentTime,
+      "previous",
     );
-    if (!current) return;
-    const previous = [...segments]
-      .reverse()
-      .find((segment) => segment.speaker === current.speaker && segmentMediaEnd(segment) < currentTime - 0.05);
     if (previous) seek(previous);
   }
 
   function seekNextSpeakerSegment() {
-    const segments = asset?.transcript_segments ?? [];
-    const current = segments.find(
-      (segment) => currentTime >= segmentMediaStart(segment) && currentTime < segmentMediaEnd(segment)
-    );
-    if (!current) return;
-    const next = segments.find(
-      (segment) => segment.speaker === current.speaker && segmentMediaStart(segment) > currentTime + 0.05
+    const next = adjacentSpeakerSegment(
+      asset?.transcript_segments ?? [],
+      currentTime,
+      "next",
     );
     if (next) seek(next);
   }
@@ -264,46 +260,46 @@
     const target = event.target as HTMLElement | null;
     if (shouldIgnorePlaybackKey(target)) return;
 
-    if (event.code === 'Space') {
+    if (event.code === "Space") {
       event.preventDefault();
       togglePlay();
-    } else if (event.code === 'ArrowRight') {
+    } else if (event.code === "ArrowRight") {
       event.preventDefault();
       seekRelative(5);
-    } else if (event.code === 'ArrowLeft') {
+    } else if (event.code === "ArrowLeft") {
       event.preventDefault();
       seekRelative(-5);
-    } else if (event.code === 'Comma') {
+    } else if (event.code === "Comma") {
       event.preventDefault();
       seekPreviousSegment();
-    } else if (event.code === 'Period') {
+    } else if (event.code === "Period") {
       event.preventDefault();
       seekNextSegment();
-    } else if (event.code === 'BracketLeft') {
+    } else if (event.code === "BracketLeft") {
       event.preventDefault();
       seekPreviousSpeakerSegment();
-    } else if (event.code === 'BracketRight') {
+    } else if (event.code === "BracketRight") {
       event.preventDefault();
       seekNextSpeakerSegment();
-    } else if (event.code === 'KeyK') {
+    } else if (event.code === "KeyK") {
       event.preventDefault();
       seekToTime(0);
-    } else if (event.code === 'KeyM' && mediaEl) {
+    } else if (event.code === "KeyM" && mediaEl) {
       event.preventDefault();
       mediaEl.muted = !mediaEl.muted;
-    } else if (event.code === 'KeyV') {
+    } else if (event.code === "KeyV") {
       event.preventDefault();
       speakerProgressBar?.centerOnTime(currentTime);
-    } else if (event.code === 'KeyW') {
+    } else if (event.code === "KeyW") {
       event.preventDefault();
       speakerProgressBar?.zoomAtTime(currentTime, 0.88);
-    } else if (event.code === 'KeyS') {
+    } else if (event.code === "KeyS") {
       event.preventDefault();
       speakerProgressBar?.zoomAtTime(currentTime, 1.12);
-    } else if (event.code === 'KeyA') {
+    } else if (event.code === "KeyA") {
       event.preventDefault();
       speakerProgressBar?.panByWindow(-0.12);
-    } else if (event.code === 'KeyD') {
+    } else if (event.code === "KeyD") {
       event.preventDefault();
       speakerProgressBar?.panByWindow(0.12);
     }
@@ -312,9 +308,15 @@
   function shouldIgnorePlaybackKey(target: HTMLElement | null) {
     if (!target) return false;
     const tagName = target.tagName;
-    if (target.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
-    if (tagName === 'BUTTON' && !target.closest('.transcript')) return true;
-    return tagName === 'A' || tagName === 'SUMMARY';
+    if (
+      target.isContentEditable ||
+      tagName === "INPUT" ||
+      tagName === "TEXTAREA" ||
+      tagName === "SELECT"
+    )
+      return true;
+    if (tagName === "BUTTON" && !target.closest(".transcript")) return true;
+    return tagName === "A" || tagName === "SUMMARY";
   }
 
   function syncSpeakerDrafts() {
@@ -337,7 +339,7 @@
       speakerEditor = null;
       await load();
     } catch (err) {
-      speakerMessage = '';
+      speakerMessage = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -349,7 +351,7 @@
       speakerMessage = `${result.assets} asset recomputed`;
       await load();
     } catch (err) {
-      speakerMessage = '';
+      speakerMessage = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -361,7 +363,7 @@
       visualMessage = `${result.events} slide frames detected`;
       await load();
     } catch (err) {
-      visualMessage = '';
+      visualMessage = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -369,13 +371,14 @@
   function openSpeakerEditor(event: MouseEvent, segment: TranscriptSegment) {
     event.preventDefault();
     const displayName = segment.speaker_name ?? segment.speaker;
-    speakerDrafts[segment.speaker] = speakerDrafts[segment.speaker] ?? displayName;
+    speakerDrafts[segment.speaker] =
+      speakerDrafts[segment.speaker] ?? displayName;
     editorName = speakerDrafts[segment.speaker];
     speakerEditor = {
       localSpeaker: segment.speaker,
       displayName,
       x: Math.min(event.clientX, window.innerWidth - 280),
-      y: Math.min(event.clientY, window.innerHeight - 150)
+      y: Math.min(event.clientY, window.innerHeight - 150),
     };
   }
 </script>
@@ -405,7 +408,7 @@
           onTimelineSeek={seekToTime}
         />
 
-        {#if asset.media_type === 'video'}
+        {#if asset.media_type === "video"}
           <VisualEventsStrip
             assetId={asset.id}
             events={asset.visual_events ?? []}
@@ -417,17 +420,15 @@
         {/if}
 
         <AssetFoldoutGroup>
-          {#if asset.status === 'success'}
-            <FoldoutPanel summary="Summary" open>
-              <button on:click={summarize}>Generate summary</button>
-              {#if summaryMessage}<p aria-live="polite">{summaryMessage}</p>{/if}
-              {#if asset.summary_text}<SummaryMarkdown markdown={asset.summary_text} onSeek={seekToTime} />{/if}
-              {#if asset.summary_error}<p class="error">{asset.summary_error}</p>{/if}
-            </FoldoutPanel>
+          {#if asset.status === "success"}
+            <AssetSummaryFoldout {asset} onUpdated={load} onSeek={seekToTime} />
           {/if}
           <AssetDetailsFoldout {asset} />
           {#if asset.exports}
-            <AssetDownloadsFoldout assetId={asset.id} assetExports={asset.exports} />
+            <AssetDownloadsFoldout
+              assetId={asset.id}
+              assetExports={asset.exports}
+            />
           {/if}
           {#if Object.keys(asset.speaker_centroids ?? {}).length}
             <AssetSpeakersFoldout
@@ -438,7 +439,10 @@
               onSave={saveSpeakerName}
             />
           {/if}
-          <AssetEventsFoldout events={asset.events ?? []} eventHistory={asset.event_history ?? []} />
+          <AssetEventsFoldout
+            events={asset.events ?? []}
+            eventHistory={asset.event_history ?? []}
+          />
         </AssetFoldoutGroup>
       </svelte:fragment>
 

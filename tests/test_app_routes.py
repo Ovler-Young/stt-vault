@@ -5,10 +5,18 @@ from types import SimpleNamespace
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from stt_vault import db
+from stt_vault.api_models import AssetResponse
 from stt_vault.app import create_app
 from stt_vault.settings import get_settings
+from stt_vault.summary_service import (
+    CompletedTranscriptRequiredError,
+    generate_asset_summary,
+    require_completed_transcript,
+)
+from stt_vault.upload_sessions import UploadSessionService
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
@@ -113,6 +121,46 @@ def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> Non
     assert config_response.json()["auth_required"] is True
 
 
+def test_asset_response_rejects_malformed_database_rows() -> None:
+    with pytest.raises(ValidationError):
+        AssetResponse.model_validate({"id": "asset-1", "filename": "clip.wav"})
+
+
+def test_asset_response_rejects_unknown_database_fields() -> None:
+    with pytest.raises(ValidationError):
+        AssetResponse.model_validate(
+            {
+                "id": "asset-1",
+                "filename": "clip.wav",
+                "media_type": "audio",
+                "status": "queued",
+                "created_at": 1,
+                "updated_at": 1,
+                "unexpected": "unvalidated",
+            }
+        )
+
+
+def test_asset_api_does_not_expose_persisted_secret_or_path(client: TestClient) -> None:
+    upload = client.post(
+        "/api/assets",
+        headers=auth_headers(client),
+        files={"file": ("clip.wav", b"audio", "audio/wav")},
+    )
+    asset_id = upload.json()["id"]
+    db.mark_failed(
+        get_settings().stt_db_path,
+        asset_id,
+        {"category": "provider", "message": "Bearer api-token /srv/private/clip.wav"},
+    )
+
+    response = client.get(f"/api/assets/{asset_id}", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    assert "api-token" not in response.text
+    assert "/srv/private/clip.wav" not in response.text
+
+
 def test_protected_media_gets_require_bearer_token(client: TestClient) -> None:
     missing_response = client.get("/api/assets/missing/media")
     authenticated_response = client.get(
@@ -156,6 +204,49 @@ def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient
         "status": "failed",
         "detail": "Relative path is invalid",
     }
+
+
+def test_single_upload_uses_shared_persistence_sequence(client: TestClient) -> None:
+    response = client.post(
+        "/api/assets",
+        headers=auth_headers(client),
+        files={"file": ("clip.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    asset_id = response.json()["id"]
+    asset = db.get_asset(get_settings().stt_db_path, asset_id)
+    assert asset is not None
+    assert asset["filename"] == "clip.wav"
+    assert Path(asset["original_path"]).read_bytes() == b"audio"
+    list_response = client.get("/api/assets", headers=auth_headers(client))
+    detail_response = client.get(f"/api/assets/{asset_id}", headers=auth_headers(client))
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert AssetResponse.model_validate(list_response.json()[0]).id == asset_id
+    assert AssetResponse.model_validate(detail_response.json()).id == asset_id
+
+
+def test_audio_probe_error_does_not_disclose_paths_or_credentials(
+    client: TestClient, monkeypatch
+) -> None:
+    response = client.post(
+        "/api/assets",
+        headers=auth_headers(client),
+        files={"file": ("clip.wav", b"audio", "audio/wav")},
+    )
+    asset_id = response.json()["id"]
+
+    def fail_probe(_path: Path) -> list[object]:
+        raise RuntimeError("/private/clip.wav token=secret")
+
+    monkeypatch.setattr("stt_vault.routes.asset_media.ffprobe_audio_streams", fail_probe)
+    probe_response = client.get(
+        f"/api/assets/{asset_id}/audio-tracks", headers=auth_headers(client)
+    )
+
+    assert probe_response.status_code == 400
+    assert probe_response.json() == {"detail": "Could not probe audio tracks"}
 
 
 def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> None:
@@ -214,14 +305,94 @@ def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> 
     assert client.get(f"/api/uploads/{upload_id}", headers=headers).status_code == 404
 
 
+def test_upload_size_limit_uses_one_megabyte_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MAX_UPLOAD_MB", "1")
+    app = create_test_app(monkeypatch, tmp_path)
+    test_client = TestClient(app)
+    try:
+        headers = auth_headers(test_client)
+        exact_limit = test_client.post(
+            "/api/uploads",
+            headers=headers,
+            json={"filename": "limit.wav", "size": 1024 * 1024},
+        )
+        over_limit = test_client.post(
+            "/api/uploads",
+            headers=headers,
+            json={"filename": "too-large.wav", "size": 1024 * 1024 + 1},
+        )
+    finally:
+        test_client.close()
+        get_settings.cache_clear()
+
+    assert exact_limit.status_code == 200
+    assert over_limit.status_code == 413
+
+
 def test_summary_requires_completed_transcript(client: TestClient) -> None:
     response = client.post("/api/assets/missing/summary", headers=auth_headers(client))
     assert response.status_code == 404
 
 
+def test_completed_transcript_precondition_is_shared_by_service_and_endpoint(
+    client: TestClient,
+) -> None:
+    asset = {"status": "processing", "transcript_segments": []}
+
+    with pytest.raises(CompletedTranscriptRequiredError):
+        require_completed_transcript(asset)
+
+    db_path = get_settings().stt_db_path
+    db.create_asset(db_path, "incomplete", "clip.wav", "audio", db_path.parent / "clip.wav")
+    response = client.post("/api/assets/incomplete/summary", headers=auth_headers(client))
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "A completed transcript is required"}
+
+
+def test_upload_session_completion_restores_temp_file_when_database_write_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = SimpleNamespace(
+        stt_db_path=tmp_path / "app.sqlite3",
+        uploads_dir=tmp_path / "uploads",
+        media_dir=tmp_path / "media",
+    )
+    temp_path = settings.uploads_dir / "upload.part"
+    temp_path.parent.mkdir(parents=True)
+    temp_path.write_bytes(b"upload")
+    upload = {
+        "id": "upload-1",
+        "filename": "clip.wav",
+        "total_size": 6,
+        "offset": 6,
+        "temp_path": str(temp_path),
+    }
+    stored_path = settings.media_dir / "asset-1" / "original.wav"
+    stored_path.parent.mkdir(parents=True)
+
+    monkeypatch.setattr("stt_vault.upload_sessions.db.get_upload_session", lambda *_args: upload)
+    monkeypatch.setattr(
+        "stt_vault.upload_sessions.move_upload",
+        lambda *_args: ("asset-1", stored_path, "audio"),
+    )
+    monkeypatch.setattr(
+        "stt_vault.upload_sessions.db.complete_upload_session",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+    stored_path.write_bytes(b"upload")
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        UploadSessionService(settings).complete("upload-1")
+
+    assert temp_path.read_bytes() == b"upload"
+    assert not (settings.media_dir / "asset-1").exists()
+
+
 def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
     client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeCompletions:
         def __init__(self) -> None:
@@ -256,7 +427,6 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
         def __init__(self, **_kwargs) -> None:
             self.chat = SimpleNamespace(completions=completions)
 
-    monkeypatch.setattr("stt_vault.summary_service.OpenAI", FakeOpenAI)
     db_path = get_settings().stt_db_path
     db.create_asset(db_path, "asset-1", "clip.mp4", "video", db_path.parent / "clip.mp4")
     db.upsert_transcript_chunk(
@@ -282,17 +452,21 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
     with db.transaction(db_path) as conn:
         conn.execute("UPDATE assets SET status = 'success' WHERE id = 'asset-1'")
 
-    response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
+    result = generate_asset_summary(
+        get_settings(),
+        "asset-1",
+        client_factory=FakeOpenAI,
+    )
     asset = db.get_asset(db_path, "asset-1")
 
-    assert response.status_code == 200
-    assert response.json()["title"] == "Friday release approved"
-    assert response.json()["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
+    assert result["title"] == "Friday release approved"
+    assert result["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
     assert "response_format" not in completions.calls[0]
     assert "[SPEAKER_00 00:00-00:02] Ship Friday." in completions.calls[0]["messages"][1]["content"]
-    assert "[SPEAKER_01 (Alice) 00:02-00:04] I approve." in completions.calls[0][
-        "messages"
-    ][1]["content"]
+    assert (
+        "[SPEAKER_01 (Alice) 00:02-00:04] I approve."
+        in completions.calls[0]["messages"][1]["content"]
+    )
     assert asset is not None
     assert asset["title"] == "Friday release approved"
     assert "## Summary\n\nThe team approved a Friday release." in asset["summary_text"]

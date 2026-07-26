@@ -1,20 +1,20 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
   import {
     deleteSpeaker,
     fetchSpeakers,
     mergeSpeaker,
     recomputeAllSpeakers,
     renameSpeaker,
-    type Speaker
-  } from '$lib/api';
-  import { formatDate } from '$lib/format';
+    type Speaker,
+  } from "$lib/api";
+  import { formatDate } from "$lib/format";
 
   let speakers: Speaker[] = [];
   let drafts: Record<string, string> = {};
   let mergeTargets: Record<string, string> = {};
-  let error = '';
-  let message = '';
+  let error = "";
+  let message = "";
 
   onMount(load);
 
@@ -24,7 +24,7 @@
       for (const speaker of speakers) {
         drafts[speaker.id] = drafts[speaker.id] ?? speaker.display_name;
       }
-      error = '';
+      error = "";
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -38,7 +38,7 @@
       message = `${updated.display_name} saved`;
       await load();
     } catch (err) {
-      message = '';
+      message = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -51,7 +51,7 @@
       message = `${speaker.display_name} deleted`;
       await load();
     } catch (err) {
-      message = '';
+      message = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -61,7 +61,8 @@
     if (!targetId || targetId === source.id) return;
     const target = speakers.find((speaker) => speaker.id === targetId);
     if (!target) return;
-    if (!confirm(`Merge ${source.display_name} into ${target.display_name}?`)) return;
+    if (!confirm(`Merge ${source.display_name} into ${target.display_name}?`))
+      return;
     try {
       const updated = await mergeSpeaker(target.id, source.id);
       delete drafts[source.id];
@@ -69,7 +70,7 @@
       message = `${source.display_name} merged into ${updated.display_name}`;
       await load();
     } catch (err) {
-      message = '';
+      message = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -80,7 +81,7 @@
       message = `${result.assets} assets recomputed`;
       await load();
     } catch (err) {
-      message = '';
+      message = "";
       error = err instanceof Error ? err.message : String(err);
     }
   }
@@ -103,7 +104,11 @@
         <div class="speaker-row">
           <div>
             <strong>{speaker.display_name}</strong>
-            <small>{speaker.id} · {speaker.sample_count} samples · {formatDate(speaker.updated_at)}</small>
+            <small
+              >{speaker.id} · {speaker.sample_count} samples · {formatDate(
+                speaker.updated_at,
+              )}</small
+            >
           </div>
           <input bind:value={drafts[speaker.id]} />
           <button on:click={() => save(speaker)}>Save</button>
@@ -113,8 +118,12 @@
               <option value={candidate.id}>{candidate.display_name}</option>
             {/each}
           </select>
-          <button disabled={!mergeTargets[speaker.id]} on:click={() => merge(speaker)}>Merge</button>
-          <button class="danger" on:click={() => remove(speaker)}>Delete</button>
+          <button
+            disabled={!mergeTargets[speaker.id]}
+            on:click={() => merge(speaker)}>Merge</button
+          >
+          <button class="danger" on:click={() => remove(speaker)}>Delete</button
+          >
         </div>
       {:else}
         <p class="muted">No speakers saved yet.</p>
@@ -159,7 +168,9 @@
 
   .speaker-row {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) minmax(180px, 260px) auto minmax(150px, 220px) auto auto;
+    grid-template-columns:
+      minmax(180px, 1fr) minmax(180px, 260px) auto minmax(150px, 220px)
+      auto auto;
     gap: 8px;
     align-items: center;
     border: 1px solid var(--color-border);

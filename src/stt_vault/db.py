@@ -12,7 +12,7 @@ from .db_assets import (
     update_asset_summary,
     update_diarization_metadata,
 )
-from .db_connection import connect, now, row_to_dict, transaction
+from .db_connection import connect, decode_record, now, row_to_dict, transaction
 from .db_folders import (
     create_folder,
     delete_folder,
@@ -75,6 +75,7 @@ __all__ = [
     "claim_next_job",
     "complete_upload_session",
     "connect",
+    "decode_record",
     "create_asset",
     "create_folder",
     "create_upload_session",

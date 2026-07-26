@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -5,27 +6,31 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .. import db
-from ..app_services import stream_process_stdout
 from ..auth import require_admin, require_resource_access
 from ..media import ffprobe_audio_streams, playback_media_stream_command
+from ..media_streaming import stream_process_stdout
 from ..settings import Settings
+from ..types import AudioStream
 
 __all__ = ["register_asset_media_routes"]
+logger = logging.getLogger(__name__)
 
 
 def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.get("/api/assets/{asset_id}/audio-tracks")
-    def get_audio_tracks(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> list[dict]:
+    def get_audio_tracks(
+        asset_id: str, _: Annotated[None, Depends(require_admin)]
+    ) -> list[AudioStream]:
         asset = db.get_asset(settings.stt_db_path, asset_id)
         if asset is None:
             raise HTTPException(status_code=404, detail="Asset not found")
         try:
             return ffprobe_audio_streams(Path(asset["original_path"]))
         except Exception as exc:
-            detail = f"Could not probe audio tracks: {exc}"
-            raise HTTPException(status_code=400, detail=detail) from exc
+            logger.exception("audio track probe failed", extra={"asset_id": asset_id})
+            raise HTTPException(status_code=400, detail="Could not probe audio tracks") from exc
 
     @router.get("/api/assets/{asset_id}/media", response_model=None)
     def get_media(
@@ -43,7 +48,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return StreamingResponse(
-            stream_process_stdout(command),
+            stream_process_stdout(command, asset_id=asset_id),
             media_type="video/mp4",
             headers={"Accept-Ranges": "none"},
         )

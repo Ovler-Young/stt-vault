@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { TranscriptSegment } from '$lib/api';
-  import { formatTime } from '$lib/format';
+  import type { TranscriptSegment } from "$lib/api";
+  import { formatTime } from "$lib/format";
   import {
     segmentPosition,
     speakerColor,
     type TimelineHover,
-    type TimelineRow
-  } from '$lib/speakerTimeline';
+    type TimelineRow,
+  } from "$lib/speakerTimeline";
 
   export let row: TimelineRow;
   export let segments: TranscriptSegment[] = [];
@@ -16,7 +16,7 @@
   export let currentTime = 0;
   export let progressPercent = 0;
   export let showProgress = true;
-  export let ariaLabel = 'Speaker timeline';
+  export let ariaLabel = "Speaker timeline";
   export let title: string | undefined = undefined;
   export let hovered: TimelineHover | null = null;
   export let dragging = false;
@@ -35,6 +35,8 @@
   $: boundedZoomWindowWidth = Math.min(100 - zoomWindowLeft, zoomWindowWidth);
 </script>
 
+<!-- The timeline needs pointer gestures beyond native slider behavior; the supplied keyboard handler
+     provides the equivalent keyboard operation for this composite slider. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
@@ -59,7 +61,12 @@
 >
   <svg aria-hidden="true">
     {#each segments as segment}
-      {@const position = segmentPosition(segment, effectiveDuration, windowStart, windowEnd)}
+      {@const position = segmentPosition(
+        segment,
+        effectiveDuration,
+        windowStart,
+        windowEnd,
+      )}
       {#if segment.end > segment.start && position}
         <rect
           x={`${position.x}%`}
@@ -78,12 +85,15 @@
   {/if}
 
   {#if showZoomWindow}
-    <div class="zoom-window" style={`left:${zoomWindowLeft}%; width:${boundedZoomWindowWidth}%`}></div>
+    <div
+      class="zoom-window"
+      style={`left:${zoomWindowLeft}%; width:${boundedZoomWindowWidth}%`}
+    ></div>
   {/if}
 
   {#if hovered?.row === row}
     <div class="hover-tip" style={`left:${hovered.x}px`}>
-      <strong>{hovered.speaker ?? 'Silence'}</strong>
+      <strong>{hovered.speaker ?? "Silence"}</strong>
       <span>{formatTime(hovered.time)}</span>
     </div>
   {/if}

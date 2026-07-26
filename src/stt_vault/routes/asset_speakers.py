@@ -1,16 +1,16 @@
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
 from .. import db
-from ..app_services import (
+from ..asset_exports import rewrite_asset_exports
+from ..auth import require_admin
+from ..requests import SpeakerNameRequest
+from ..settings import Settings
+from ..speaker_service import (
     clean_display_name,
     count_local_speaker_segments,
     recompute_asset_speaker_matches,
     resolve_speaker_id,
-    rewrite_asset_exports,
 )
-from ..auth import require_admin
-from ..requests import SpeakerNameRequest
-from ..settings import Settings
 
 __all__ = ["register_asset_speaker_routes"]
 

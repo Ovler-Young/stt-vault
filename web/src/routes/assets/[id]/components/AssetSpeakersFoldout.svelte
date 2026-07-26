@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { formatTime } from '$lib/format';
-  import type { LocalSpeakerRow, MaybePromise } from '../asset-page.types';
-  import FoldoutPanel from './FoldoutPanel.svelte';
+  import { formatTime } from "$lib/format";
+  import type { LocalSpeakerRow, MaybePromise } from "../asset-page.types";
+  import FoldoutPanel from "./FoldoutPanel.svelte";
 
   export let rows: LocalSpeakerRow[] = [];
   export let speakerDrafts: Record<string, string> = {};
-  export let speakerMessage = '';
+  export let speakerMessage = "";
   export let onRecompute: () => MaybePromise = () => {};
   export let onSave: (localSpeaker: string) => MaybePromise = () => {};
 </script>
@@ -22,8 +22,10 @@
           {#if speaker.firstStart !== null && speaker.lastEnd !== null}
             · {formatTime(speaker.firstStart)} - {formatTime(speaker.lastEnd)}
           {/if}
-          {#if speaker.speakerId} · {speaker.speakerId}{/if}
-          {#if speaker.similarity !== null} · match {speaker.similarity.toFixed(3)}{/if}
+          {#if speaker.speakerId}
+            · {speaker.speakerId}{/if}
+          {#if speaker.similarity !== null}
+            · match {speaker.similarity.toFixed(3)}{/if}
         </small>
         <button on:click={() => void onSave(speaker.localSpeaker)}>Save</button>
       </div>

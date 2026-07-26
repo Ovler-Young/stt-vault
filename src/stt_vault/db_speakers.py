@@ -1,21 +1,18 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any
 
-from .db_connection import connect, now, transaction
-from .db_transcripts import list_transcript_chunks_from_conn
+from .db_connection import connect, decode_record, now, transaction
+from .db_transcripts import sync_asset_transcript_cache
+from .types import KnownSpeaker, SpeakerMatch, SpeakerRecord
+
+SPEAKER_JSON_FIELDS = {"centroid": list}
 
 
-def list_speakers(db_path: Path) -> list[dict[str, Any]]:
+def list_speakers(db_path: Path) -> list[KnownSpeaker]:
     with connect(db_path) as conn:
         rows = conn.execute("SELECT * FROM speakers ORDER BY display_name").fetchall()
-    speakers = []
-    for row in rows:
-        item = dict(row)
-        item["centroid"] = json.loads(item["centroid"])
-        speakers.append(item)
-    return speakers
+    return [_known_speaker(decode_record(row, json_fields=SPEAKER_JSON_FIELDS)) for row in rows]
 
 
 def list_asset_ids_with_speaker_centroids(db_path: Path) -> list[str]:
@@ -31,17 +28,15 @@ def list_asset_ids_with_speaker_centroids(db_path: Path) -> list[str]:
     return [row["id"] for row in rows]
 
 
-def get_speaker(db_path: Path, speaker_id: str) -> dict[str, Any] | None:
+def get_speaker(db_path: Path, speaker_id: str) -> SpeakerRecord | None:
     with connect(db_path) as conn:
         row = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
     if row is None:
         return None
-    item = dict(row)
-    item["centroid"] = json.loads(item["centroid"])
-    return item
+    return decode_record(row, json_fields=SPEAKER_JSON_FIELDS)
 
 
-def find_speaker_by_display_name(db_path: Path, display_name: str) -> dict[str, Any] | None:
+def find_speaker_by_display_name(db_path: Path, display_name: str) -> SpeakerRecord | None:
     with connect(db_path) as conn:
         row = conn.execute(
             "SELECT * FROM speakers WHERE lower(display_name) = lower(?)",
@@ -49,9 +44,7 @@ def find_speaker_by_display_name(db_path: Path, display_name: str) -> dict[str, 
         ).fetchone()
     if row is None:
         return None
-    item = dict(row)
-    item["centroid"] = json.loads(item["centroid"])
-    return item
+    return decode_record(row, json_fields=SPEAKER_JSON_FIELDS)
 
 
 def upsert_speaker(
@@ -65,7 +58,7 @@ def upsert_speaker(
     with transaction(db_path) as conn:
         existing = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
         if existing is not None:
-            existing_centroid = json.loads(existing["centroid"])
+            existing_centroid = decode_record(existing, json_fields=SPEAKER_JSON_FIELDS)["centroid"]
             existing_count = max(1, int(existing["sample_count"]))
             incoming_count = max(1, sample_count)
             if len(existing_centroid) == len(centroid):
@@ -124,8 +117,8 @@ def merge_speakers(db_path: Path, source_speaker_id: str, target_speaker_id: str
         if source is None or target is None:
             raise KeyError(source_speaker_id if source is None else target_speaker_id)
 
-        source_centroid = json.loads(source["centroid"])
-        target_centroid = json.loads(target["centroid"])
+        source_centroid = decode_record(source, json_fields=SPEAKER_JSON_FIELDS)["centroid"]
+        target_centroid = decode_record(target, json_fields=SPEAKER_JSON_FIELDS)["centroid"]
         source_count = max(1, int(source["sample_count"]))
         target_count = max(1, int(target["sample_count"]))
         merged_centroid = target_centroid
@@ -168,10 +161,7 @@ def merge_speakers(db_path: Path, source_speaker_id: str, target_speaker_id: str
         )
         for row in rows:
             asset_id = row["asset_id"]
-            conn.execute(
-                "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
-            )
+            sync_asset_transcript_cache(conn, asset_id, timestamp)
 
 
 def delete_speaker(db_path: Path, speaker_id: str) -> None:
@@ -195,10 +185,7 @@ def delete_speaker(db_path: Path, speaker_id: str) -> None:
         )
         for row in rows:
             asset_id = row["asset_id"]
-            conn.execute(
-                "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
-            )
+            sync_asset_transcript_cache(conn, asset_id, timestamp)
 
 
 def relabel_asset_speaker(
@@ -222,16 +209,13 @@ def relabel_asset_speaker(
             """,
             (speaker_id, display_name, similarity, timestamp, asset_id, local_speaker),
         )
-        conn.execute(
-            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
-        )
+        sync_asset_transcript_cache(conn, asset_id, timestamp)
 
 
 def relabel_asset_speakers(
     db_path: Path,
     asset_id: str,
-    matches: dict[str, dict[str, Any]],
+    matches: dict[str, SpeakerMatch],
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -254,10 +238,7 @@ def relabel_asset_speakers(
                     local_speaker,
                 ),
             )
-        conn.execute(
-            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
-        )
+        sync_asset_transcript_cache(conn, asset_id, timestamp)
 
 
 def list_asset_ids_for_speaker(db_path: Path, speaker_id: str) -> list[str]:
@@ -280,7 +261,23 @@ def refresh_asset_transcripts_for_speaker_from_conn(
     ).fetchall()
     for row in rows:
         asset_id = row["asset_id"]
-        conn.execute(
-            "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(list_transcript_chunks_from_conn(conn, asset_id)), timestamp, asset_id),
-        )
+        sync_asset_transcript_cache(conn, asset_id, timestamp)
+
+
+def _known_speaker(record: dict[str, object] | None) -> KnownSpeaker:
+    if record is None:
+        raise ValueError("speaker record was missing")
+    speaker_id = record.get("id")
+    display_name = record.get("display_name")
+    centroid = record.get("centroid")
+    if not isinstance(speaker_id, str) or not isinstance(display_name, str):
+        raise ValueError("speaker record has invalid identity fields")
+    if not isinstance(centroid, list) or any(
+        isinstance(value, bool) or not isinstance(value, int | float) for value in centroid
+    ):
+        raise ValueError("speaker record has an invalid centroid")
+    return {
+        "id": speaker_id,
+        "display_name": display_name,
+        "centroid": [float(value) for value in centroid],
+    }

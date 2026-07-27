@@ -1,3 +1,4 @@
+from .db_asset_relocation import move_asset
 from .db_assets import (
     apply_ai_speaker_names,
     clear_cleanup_task,
@@ -17,9 +18,7 @@ from .db_folders import (
     create_folder,
     delete_folder,
     get_folder,
-    list_folder_tree,
     list_folders,
-    move_asset,
     move_folder,
     rename_folder,
 )
@@ -62,6 +61,7 @@ from .db_uploads import (
     update_upload_offset,
 )
 from .db_visual_events import list_visual_events, replace_visual_events
+from .folder_tree import list_folder_tree
 
 __all__ = [
     "add_event",

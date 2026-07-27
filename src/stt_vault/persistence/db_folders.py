@@ -1,28 +1,13 @@
 import sqlite3
 from pathlib import Path
-from typing import TypedDict
 from uuid import uuid4
 
-from pydantic import ValidationError
+from stt_vault.core.api_models import FolderResponse
 
-from stt_vault.core.api_models import (
-    FolderAssetSummary,
-    FolderResponse,
-    FolderTreeNodeResponse,
-    FolderTreeResponse,
-)
+from .db_connection import connect, now, transaction
+from .folder_records import FolderDataIntegrityError, decode_folder, get_required_folder
 
-from .db_connection import connect, now, row_to_dict, transaction
-
-
-class AssetMoveResult(TypedDict):
-    id: str
-    parent_folder_id: str | None
-    updated_at: int
-
-
-class FolderDataIntegrityError(RuntimeError):
-    """Raised when persisted folder data cannot form a valid response tree."""
+__all__ = ["FolderDataIntegrityError"]
 
 
 def create_folder(
@@ -35,7 +20,7 @@ def create_folder(
     folder_id = uuid4().hex
     timestamp = now()
     with transaction(db_path) as conn:
-        _require_folder(conn, parent_id)
+        get_required_folder(conn, parent_id)
         conn.execute(
             """
             INSERT INTO folders (id, name, parent_id, created_at, updated_at)
@@ -58,7 +43,7 @@ def get_folder(db_path: Path, folder_id: str) -> FolderResponse | None:
             "SELECT id, name, parent_id, created_at, updated_at FROM folders WHERE id = ?",
             (folder_id,),
         ).fetchone()
-    return _decode_folder(row) if row is not None else None
+    return decode_folder(row) if row is not None else None
 
 
 def list_folders(db_path: Path) -> list[FolderResponse]:
@@ -70,60 +55,7 @@ def list_folders(db_path: Path) -> list[FolderResponse]:
             ORDER BY created_at ASC, id ASC
             """
         ).fetchall()
-    return [_decode_folder(row) for row in rows]
-
-
-def list_folder_tree(db_path: Path) -> FolderTreeResponse:
-    with connect(db_path) as conn:
-        folder_rows = conn.execute(
-            """
-            SELECT id, name, parent_id, created_at, updated_at
-            FROM folders
-            ORDER BY created_at ASC, id ASC
-            """
-        ).fetchall()
-        asset_rows = conn.execute(
-            """
-            SELECT id, filename, title, recorded_at, media_type, duration, status, error,
-                   summary_status, parent_folder_id, created_at, updated_at
-            FROM assets
-            ORDER BY COALESCE(recorded_at, created_at) DESC, created_at DESC, id DESC
-            """
-        ).fetchall()
-
-    folders = [_decode_folder(row) for row in folder_rows]
-    by_id = {
-        folder.id: FolderTreeNodeResponse(
-            **folder.model_dump(),
-            children=[],
-            assets=[],
-        )
-        for folder in folders
-    }
-    roots: list[FolderTreeNodeResponse] = []
-    for folder in folders:
-        node = by_id[folder.id]
-        if folder.parent_id is None:
-            roots.append(node)
-            continue
-        parent = by_id.get(folder.parent_id)
-        if parent is None:
-            raise FolderDataIntegrityError("Folder references an unknown parent")
-        parent.children.append(node)
-
-    _validate_tree_reachability(roots, set(by_id))
-
-    root_assets: list[FolderAssetSummary] = []
-    for row in asset_rows:
-        asset = _decode_folder_asset(row)
-        if asset.parent_folder_id is None:
-            root_assets.append(asset)
-            continue
-        parent = by_id.get(asset.parent_folder_id)
-        if parent is None:
-            raise FolderDataIntegrityError("Asset references an unknown folder")
-        parent.assets.append(asset)
-    return FolderTreeResponse(folders=roots, assets=root_assets)
+    return [decode_folder(row) for row in rows]
 
 
 def move_folder(
@@ -133,8 +65,8 @@ def move_folder(
 ) -> FolderResponse:
     timestamp = now()
     with transaction(db_path) as conn:
-        folder = _require_folder(conn, folder_id)
-        _require_folder(conn, parent_id)
+        folder = get_required_folder(conn, folder_id)
+        get_required_folder(conn, parent_id)
         if folder_id == parent_id:
             raise ValueError("A folder cannot be moved into itself")
         if parent_id is not None and _is_descendant(conn, folder_id, parent_id):
@@ -150,7 +82,7 @@ def rename_folder(db_path: Path, folder_id: str, name: str) -> FolderResponse:
     normalized_name = _normalize_name(name)
     timestamp = now()
     with transaction(db_path) as conn:
-        folder = _require_folder(conn, folder_id)
+        folder = get_required_folder(conn, folder_id)
         conn.execute(
             "UPDATE folders SET name = ?, updated_at = ? WHERE id = ?",
             (normalized_name, timestamp, folder_id),
@@ -160,7 +92,7 @@ def rename_folder(db_path: Path, folder_id: str, name: str) -> FolderResponse:
 
 def delete_folder(db_path: Path, folder_id: str) -> None:
     with transaction(db_path) as conn:
-        _require_folder(conn, folder_id)
+        get_required_folder(conn, folder_id)
         has_child = conn.execute(
             "SELECT 1 FROM folders WHERE parent_id = ? LIMIT 1",
             (folder_id,),
@@ -172,78 +104,6 @@ def delete_folder(db_path: Path, folder_id: str) -> None:
         if has_child is not None or has_asset is not None:
             raise ValueError("Folder is not empty")
         conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
-
-
-def move_asset(
-    db_path: Path,
-    asset_id: str,
-    parent_folder_id: str | None,
-) -> AssetMoveResult:
-    timestamp = now()
-    with transaction(db_path) as conn:
-        asset = conn.execute(
-            "SELECT id FROM assets WHERE id = ?",
-            (asset_id,),
-        ).fetchone()
-        if asset is None:
-            raise KeyError(asset_id)
-        _require_folder(conn, parent_folder_id)
-        conn.execute(
-            "UPDATE assets SET parent_folder_id = ?, updated_at = ? WHERE id = ?",
-            (parent_folder_id, timestamp, asset_id),
-        )
-    return {"id": asset_id, "parent_folder_id": parent_folder_id, "updated_at": timestamp}
-
-
-def _require_folder(
-    conn: sqlite3.Connection,
-    folder_id: str | None,
-) -> FolderResponse | None:
-    if folder_id is None:
-        return None
-    row = conn.execute(
-        "SELECT id, name, parent_id, created_at, updated_at FROM folders WHERE id = ?",
-        (folder_id,),
-    ).fetchone()
-    if row is None:
-        raise KeyError(folder_id)
-    return _decode_folder(row)
-
-
-def _decode_folder(row: sqlite3.Row) -> FolderResponse:
-    record = row_to_dict(row)
-    if record is None:
-        raise FolderDataIntegrityError("Folder record was missing")
-    try:
-        return FolderResponse.model_validate(record)
-    except ValidationError as exc:
-        raise FolderDataIntegrityError("Folder record is invalid") from exc
-
-
-def _decode_folder_asset(row: sqlite3.Row) -> FolderAssetSummary:
-    try:
-        record = row_to_dict(row)
-        if record is None:
-            raise FolderDataIntegrityError("Folder asset record was missing")
-        return FolderAssetSummary.model_validate(record)
-    except (ValidationError, ValueError) as exc:
-        raise FolderDataIntegrityError("Folder asset record is invalid") from exc
-
-
-def _validate_tree_reachability(
-    roots: list[FolderTreeNodeResponse],
-    expected_ids: set[str],
-) -> None:
-    reachable_ids: set[str] = set()
-    pending = list(roots)
-    while pending:
-        node = pending.pop()
-        if node.id in reachable_ids:
-            raise FolderDataIntegrityError("Folder appears more than once in the tree")
-        reachable_ids.add(node.id)
-        pending.extend(node.children)
-    if reachable_ids != expected_ids:
-        raise FolderDataIntegrityError("Folder tree contains a cycle or unreachable folder")
 
 
 def _is_descendant(conn: sqlite3.Connection, folder_id: str, candidate_id: str) -> bool:

@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
@@ -8,12 +9,14 @@ from stt_vault.core.api_models import (
     FolderTreeResponse,
 )
 from stt_vault.core.auth import require_admin
+from stt_vault.core.logging_config import log_exception_diagnostic
 from stt_vault.core.requests import FolderCreateRequest, FolderMoveRequest, FolderRenameRequest
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
 from stt_vault.persistence.db_folders import FolderDataIntegrityError
 
 __all__ = ["register_folder_routes"]
+logger = logging.getLogger(__name__)
 
 
 def register_folder_routes(app: FastAPI, settings: Settings) -> None:
@@ -23,8 +26,8 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
     def list_folder_tree(_: Annotated[None, Depends(require_admin)]) -> FolderTreeResponse:
         try:
             return db.list_folder_tree(settings.stt_db_path)
-        except FolderDataIntegrityError:
-            raise HTTPException(status_code=500, detail="Folder data is invalid") from None
+        except FolderDataIntegrityError as exc:
+            _raise_folder_integrity_error(exc, operation="list")
 
     @router.post(
         "/api/folders",
@@ -40,8 +43,8 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
             )
         except KeyError:
             raise HTTPException(status_code=404, detail="Parent folder not found") from None
-        except FolderDataIntegrityError:
-            raise HTTPException(status_code=500, detail="Folder data is invalid") from None
+        except FolderDataIntegrityError as exc:
+            _raise_folder_integrity_error(exc, operation="create", folder_id=payload.parent_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -53,8 +56,8 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
     def move_folder(folder_id: str, payload: FolderMoveRequest) -> FolderResponse:
         try:
             return db.move_folder(settings.stt_db_path, folder_id, payload.parent_id)
-        except FolderDataIntegrityError:
-            raise HTTPException(status_code=500, detail="Folder data is invalid") from None
+        except FolderDataIntegrityError as exc:
+            _raise_folder_integrity_error(exc, operation="move", folder_id=folder_id)
         except KeyError as exc:
             detail = "Folder not found" if exc.args[0] == folder_id else "Parent folder not found"
             raise HTTPException(status_code=404, detail=detail) from None
@@ -69,8 +72,8 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
     def rename_folder(folder_id: str, payload: FolderRenameRequest) -> FolderResponse:
         try:
             return db.rename_folder(settings.stt_db_path, folder_id, payload.name)
-        except FolderDataIntegrityError:
-            raise HTTPException(status_code=500, detail="Folder data is invalid") from None
+        except FolderDataIntegrityError as exc:
+            _raise_folder_integrity_error(exc, operation="rename", folder_id=folder_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Folder not found") from None
         except ValueError as exc:
@@ -84,8 +87,8 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
     def delete_folder(folder_id: str) -> FolderDeleteResponse:
         try:
             db.delete_folder(settings.stt_db_path, folder_id)
-        except FolderDataIntegrityError:
-            raise HTTPException(status_code=500, detail="Folder data is invalid") from None
+        except FolderDataIntegrityError as exc:
+            _raise_folder_integrity_error(exc, operation="delete", folder_id=folder_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Folder not found") from None
         except ValueError as exc:
@@ -93,3 +96,19 @@ def register_folder_routes(app: FastAPI, settings: Settings) -> None:
         return FolderDeleteResponse(status="deleted")
 
     app.include_router(router)
+
+
+def _raise_folder_integrity_error(
+    error: FolderDataIntegrityError,
+    *,
+    operation: str,
+    folder_id: str | None = None,
+) -> None:
+    log_exception_diagnostic(
+        logger,
+        "folder data integrity check failed",
+        error,
+        event_name="folders.data_integrity_error",
+        context={"operation": operation, "folder_id": folder_id},
+    )
+    raise HTTPException(status_code=500, detail="Folder data is invalid") from None

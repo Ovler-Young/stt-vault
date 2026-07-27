@@ -1,10 +1,14 @@
+import json
+import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
+from stt_vault.core.logging_config import StructuredFormatter
 from stt_vault.core.settings import get_settings
 from stt_vault.persistence import db
 from stt_vault.persistence.db_folders import FolderDataIntegrityError
@@ -231,3 +235,48 @@ def test_folder_tree_route_rejects_cycles(
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Folder data is invalid"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload", "db_function", "operation"),
+    [
+        ("GET", "/api/folders", None, "list_folder_tree", "list"),
+        ("POST", "/api/folders", {"name": "Folder"}, "create_folder", "create"),
+        (
+            "POST",
+            "/api/folders/folder-1/move",
+            {"parent_id": None},
+            "move_folder",
+            "move",
+        ),
+        ("PUT", "/api/folders/folder-1", {"name": "Folder"}, "rename_folder", "rename"),
+        ("DELETE", "/api/folders/folder-1", None, "delete_folder", "delete"),
+    ],
+)
+def test_folder_integrity_errors_log_redacted_operation_diagnostics(
+    folder_client: tuple[TestClient, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    method: str,
+    path: str,
+    payload: dict[str, str | None] | None,
+    db_function: str,
+    operation: str,
+) -> None:
+    client, headers = folder_client
+
+    def raise_integrity_error(*_args: object, **_kwargs: object) -> NoReturn:
+        raise FolderDataIntegrityError("password=private-value at /srv/private/folders.sqlite3")
+
+    monkeypatch.setattr(db, db_function, raise_integrity_error)
+
+    with caplog.at_level(logging.ERROR, logger="stt_vault.routes.folders"):
+        response = client.request(method, path, headers=headers, json=payload)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Folder data is invalid"}
+    event = json.loads(StructuredFormatter().format(caplog.records[-1]))
+    assert event["event_name"] == "folders.data_integrity_error"
+    assert event["operation"] == operation
+    assert event["cause"] == "[redacted] at [path]"
+    assert "private-value" not in json.dumps(event)

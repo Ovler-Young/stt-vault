@@ -10,6 +10,7 @@ from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, Trans
 from stt_vault.persistence import db
 from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
 
+from .worker_failure import classify_worker_failure
 from .worker_models import PreparedAsset
 
 logger = logging.getLogger(__name__)
@@ -88,12 +89,10 @@ class CompletionPersistence:
         prepared: PreparedAsset,
         transcript_segments: list[TranscriptSegment],
         exports: ExportPaths,
+        error: Exception,
     ) -> None:
         self.persist_success(asset_id, prepared, transcript_segments, exports)
-        self.repository.mark_partial(
-            asset_id,
-            {"category": "provider", "message": "Transcription could not complete"},
-        )
+        self.repository.mark_partial(asset_id, classify_worker_failure(error))
 
 
 class SummaryFollowup:
@@ -160,6 +159,6 @@ class CompletionStage:
         prepared: PreparedAsset,
         transcript_segments: list[TranscriptSegment],
         exports: ExportPaths,
-        _error: Exception,
+        error: Exception,
     ) -> None:
-        self.persistence.persist_partial(asset_id, prepared, transcript_segments, exports)
+        self.persistence.persist_partial(asset_id, prepared, transcript_segments, exports, error)

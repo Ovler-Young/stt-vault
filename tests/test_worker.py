@@ -10,8 +10,8 @@ from stt_vault.core.logging_config import StructuredFormatter
 from stt_vault.processing.diarization import DiarizerManager
 from stt_vault.processing.summary_service import generate_asset_summary
 from stt_vault.workers.worker import Worker
-from stt_vault.workers.worker_completion import CompletionStage
-from stt_vault.workers.worker_failure import WorkerFailureHandler
+from stt_vault.workers.worker_completion import CompletionPersistence, CompletionStage
+from stt_vault.workers.worker_failure import WorkerFailureHandler, classify_worker_failure
 from stt_vault.workers.worker_models import PreparedAsset
 
 
@@ -99,6 +99,44 @@ def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
         "generate-summary",
     ]
     assert calls[0][1][1]["transcript_segments"] == [{"text": "hello"}]
+
+
+def test_partial_completion_persists_classified_failure_without_exception_details() -> None:
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.partial_errors: list[dict[str, str]] = []
+
+        def mark_success(self, _asset_id: str, **_values: object) -> None:
+            pass
+
+        def mark_partial(self, _asset_id: str, error: dict[str, str]) -> None:
+            self.partial_errors.append(error)
+
+    settings = SimpleNamespace(stt_db_path=Path("app.sqlite3"))
+    repository = FakeRepository()
+    stage = CompletionStage(
+        settings,
+        persistence=CompletionPersistence(settings, repository=repository),
+    )
+
+    stage.complete_partial(
+        "asset-1",
+        PreparedAsset(
+            wav_path=Path("audio.wav"),
+            duration=12.0,
+            diarization_stats={},
+            raw_segments=[],
+            merged_segments=[],
+            speaker_centroids={},
+        ),
+        transcript_segments=[{"text": "partial"}],
+        exports={"srt": "asset.srt"},
+        error=OSError("failed at /srv/private/clip.wav token=secret-value"),
+    )
+
+    assert repository.partial_errors == [
+        {"category": "filesystem", "message": "A local processing operation failed"}
+    ]
 
 
 def test_batched_diarization_logs_json_without_provider_console_output(
@@ -235,12 +273,12 @@ def test_worker_uses_named_injected_stage_factories() -> None:
     assert worker.completion is completion_stage
 
 
-def test_worker_failure_handler_classifies_persisted_errors() -> None:
-    assert WorkerFailureHandler._classify(OSError("/srv/private/clip.wav")) == {
+def test_classify_worker_failure_returns_safe_persisted_errors() -> None:
+    assert classify_worker_failure(OSError("/srv/private/clip.wav")) == {
         "category": "filesystem",
         "message": "A local processing operation failed",
     }
-    assert WorkerFailureHandler._classify(RuntimeError("processing failed")) == {
+    assert classify_worker_failure(RuntimeError("processing failed")) == {
         "category": "processing",
         "message": "Asset processing failed",
     }

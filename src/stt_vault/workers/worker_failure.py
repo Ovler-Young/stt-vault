@@ -8,6 +8,15 @@ from stt_vault.core.types import ErrorRecord
 logger = logging.getLogger(__name__)
 
 
+def classify_worker_failure(error: Exception) -> ErrorRecord:
+    module = error.__class__.__module__
+    if module.startswith(("openai", "httpx", "requests")):
+        return {"category": "provider", "message": "An external provider request failed"}
+    if isinstance(error, OSError):
+        return {"category": "filesystem", "message": "A local processing operation failed"}
+    return {"category": "processing", "message": "Asset processing failed"}
+
+
 class FailureRepository(Protocol):
     def mark_failed(self, asset_id: str, error: ErrorRecord) -> None: ...
 
@@ -27,7 +36,7 @@ class WorkerFailureHandler:
             event_name="worker.job_failed",
             context=job_log_context(self.settings.stt_db_path, asset_id),
         )
-        record = self._classify(error)
+        record = classify_worker_failure(error)
         log_exception_diagnostic(
             logger,
             "worker failure categorized",
@@ -36,12 +45,3 @@ class WorkerFailureHandler:
             context=job_log_context(self.settings.stt_db_path, asset_id),
         )
         self.repository.mark_failed(asset_id, record)
-
-    @staticmethod
-    def _classify(error: Exception) -> ErrorRecord:
-        module = error.__class__.__module__
-        if module.startswith(("openai", "httpx", "requests")):
-            return {"category": "provider", "message": "An external provider request failed"}
-        if isinstance(error, OSError):
-            return {"category": "filesystem", "message": "A local processing operation failed"}
-        return {"category": "processing", "message": "Asset processing failed"}

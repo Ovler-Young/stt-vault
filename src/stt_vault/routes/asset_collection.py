@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Uplo
 
 from stt_vault.core.api_models import AssetResponse, JobResponse
 from stt_vault.core.auth import require_admin
+from stt_vault.core.logging_config import log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
 from stt_vault.processing.media import store_upload
@@ -43,10 +44,13 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
                 results.append(
                     {"path": relative_path, "status": "failed", "detail": str(exc.detail)}
                 )
-            except Exception:
-                logger.exception(
+            except Exception as exc:
+                log_exception_diagnostic(
+                    logger,
                     "batch upload failed",
-                    extra={"event_name": "upload.batch_item_failed", "upload_path": relative_path},
+                    exc,
+                    event_name="upload.batch_item_failed",
+                    context={"upload_path": relative_path},
                 )
                 results.append(
                     {"path": relative_path, "status": "failed", "detail": "Upload failed"}
@@ -86,9 +90,12 @@ async def _store_uploaded_file(file: UploadFile, filename: str, settings: Settin
             raise
         return asset_id
     except Exception as exc:
-        logger.exception(
+        log_exception_diagnostic(
+            logger,
             "upload persistence failed",
-            extra={"event_name": "upload.persistence_failed", "upload_filename": filename},
+            exc,
+            event_name="upload.persistence_failed",
+            context={"upload_filename": filename},
         )
         raise HTTPException(status_code=500, detail="Upload could not be stored") from exc
     finally:

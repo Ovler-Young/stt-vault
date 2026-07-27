@@ -1,23 +1,19 @@
-import logging
 import threading
 import uuid
 from collections.abc import Callable
 from typing import Protocol
 
-from stt_vault.core.logging_config import job_log_context
-from stt_vault.core.process_diagnostics import format_diagnostic_text
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, ErrorRecord, ExportPaths, TranscriptSegment
 from stt_vault.processing.diarization import DiarizerManager
 
 from .worker_completion import CompletionStage
 from .worker_exports import TranscriptExportStage, VisualEventStage
+from .worker_failure import WorkerFailureHandler
 from .worker_media import DiarizationStage, MediaPreparationStage
 from .worker_models import PreparedAsset
 from .worker_transcription import TranscriptionStage
 from .worker_workspace import ProcessingWorkspace
-
-logger = logging.getLogger(__name__)
 
 
 class WorkerRepository(Protocol):
@@ -105,6 +101,7 @@ class Worker:
         self.transcription = transcription_stage_factory(settings)
         self.transcript_exports = transcript_export_stage_factory(settings)
         self.completion = completion_stage_factory(settings)
+        self.failures = WorkerFailureHandler(settings, self.repository)
 
     def start(self) -> None:
         self.thread.start()
@@ -134,14 +131,7 @@ class Worker:
             try:
                 self.process_asset(asset_id)
             except Exception as exc:
-                logger.exception(
-                    "worker job failed",
-                    extra={
-                        **job_log_context(self.settings.stt_db_path, asset_id),
-                        "event_name": "worker.job_failed",
-                    },
-                )
-                self.repository.mark_failed(asset_id, _failure_record(self.settings, asset_id, exc))
+                self.failures.handle(asset_id, exc)
             finally:
                 claim_stop_event.set()
                 claim_renewer.join()
@@ -194,26 +184,3 @@ class Worker:
         )
         exports.update(self.visual_events.detect(asset_id, asset))
         return exports
-
-
-def _failure_record(settings: Settings, asset_id: str, error: Exception) -> ErrorRecord:
-    module = error.__class__.__module__
-    if module.startswith(("openai", "httpx", "requests")):
-        category = "provider"
-        message = "An external provider request failed"
-    elif isinstance(error, OSError):
-        category = "filesystem"
-        message = "A local processing operation failed"
-    else:
-        category = "processing"
-        message = "Asset processing failed"
-    # Keep the redacted cause in filtered logs only; persisted records are user-facing.
-    logger.error(
-        "worker failure categorized",
-        extra={
-            **job_log_context(settings.stt_db_path, asset_id),
-            "event_name": "worker.failure_categorized",
-            "cause": format_diagnostic_text(str(error)),
-        },
-    )
-    return {"category": category, "message": message}

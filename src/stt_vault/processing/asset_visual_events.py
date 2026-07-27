@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, ExportPaths, VisualEvent
 from stt_vault.persistence import db
@@ -50,12 +50,14 @@ def detect_asset_visual_events(
         )
         db.update_asset_exports(settings.stt_db_path, asset["id"], exports)
         return events
-    except Exception:
-        logger.exception(
+    except Exception as error:
+        log_exception_diagnostic(
+            logger,
             "manual visual-event detection failed",
-            extra={
+            error,
+            event_name="visual.manual_detection_failed",
+            context={
                 **job_log_context(settings.stt_db_path, asset["id"]),
-                "event_name": "visual.manual_detection_failed",
                 "return_code": None,
             },
         )

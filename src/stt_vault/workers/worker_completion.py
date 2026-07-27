@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from stt_vault.core.api_models import JsonValue
-from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
 from stt_vault.persistence import db
@@ -113,13 +113,13 @@ class SummaryFollowup:
     def generate(self, asset_id: str) -> None:
         try:
             self.summary_generator(self.settings, asset_id)
-        except Exception:
-            logger.exception(
+        except Exception as error:
+            log_exception_diagnostic(
+                logger,
                 "automatic summary generation failed",
-                extra={
-                    **job_log_context(self.settings.stt_db_path, asset_id),
-                    "event_name": "worker.summary_generation_failed",
-                },
+                error,
+                event_name="worker.summary_generation_failed",
+                context=job_log_context(self.settings.stt_db_path, asset_id),
             )
             self.repository.add_event(
                 asset_id,

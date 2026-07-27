@@ -5,6 +5,10 @@ from pathlib import Path
 
 from .process_diagnostics import format_diagnostic_text
 
+_STANDARD_LOG_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
+_RESERVED_EXTRA_FIELDS = _STANDARD_LOG_RECORD_FIELDS | {"asctime", "message"}
+_DIAGNOSTIC_FIELDS = frozenset({"event_name", "cause", "error_type"})
+
 
 def job_log_context(db_path: Path, asset_id: str) -> dict[str, str | None]:
     """Correlate a worker log record with its persisted job when available."""
@@ -12,6 +16,37 @@ def job_log_context(db_path: Path, asset_id: str) -> dict[str, str | None]:
 
     job = db.get_job(db_path, asset_id)
     return {"asset_id": asset_id, "job_id": job.id if job is not None else None}
+
+
+def log_exception_diagnostic(
+    logger: logging.Logger,
+    message: str,
+    error: Exception,
+    *,
+    event_name: str,
+    context: Mapping[str, object] | None = None,
+) -> None:
+    """Log a bounded, redacted exception summary without its traceback."""
+    logger.error(
+        message,
+        extra={
+            **_diagnostic_context(context),
+            "event_name": event_name,
+            "cause": format_diagnostic_text(str(error)),
+            "error_type": error.__class__.__name__,
+        },
+    )
+
+
+def _diagnostic_context(context: Mapping[str, object] | None) -> dict[str, object]:
+    """Exclude log-record and diagnostic fields that caller context cannot own."""
+    if context is None:
+        return {}
+    return {
+        key: value
+        for key, value in context.items()
+        if key not in _RESERVED_EXTRA_FIELDS and key not in _DIAGNOSTIC_FIELDS
+    }
 
 
 class StructuredFormatter(logging.Formatter):
@@ -38,7 +73,6 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(event, default=str)
 
 
-_STANDARD_LOG_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 MAX_CONTEXT_DEPTH = 4
 MAX_CONTEXT_ITEMS = 50
 

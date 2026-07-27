@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Protocol
 
-from stt_vault.core.logging_config import job_log_context
+from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.process_diagnostics import format_diagnostic_text
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import (
@@ -121,12 +121,12 @@ class VisualEventStage:
                 )
             }
         except Exception as error:
-            logger.exception(
+            log_exception_diagnostic(
+                logger,
                 "slide-change detection failed",
-                extra={
-                    **job_log_context(self.settings.stt_db_path, asset_id),
-                    "event_name": "worker.visual_detection_failed",
-                },
+                error,
+                event_name="worker.visual_detection_failed",
+                context=job_log_context(self.settings.stt_db_path, asset_id),
             )
             self.repository.add_event(
                 asset_id,

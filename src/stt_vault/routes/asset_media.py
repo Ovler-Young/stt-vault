@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
 from stt_vault.core.auth import require_admin, require_resource_access
+from stt_vault.core.logging_config import log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AudioStream
 from stt_vault.processing.media import ffprobe_audio_streams, playback_media_stream_command
@@ -28,7 +29,13 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         try:
             return ffprobe_audio_streams(Path(asset["original_path"]))
         except Exception as exc:
-            logger.exception("audio track probe failed", extra={"asset_id": asset_id})
+            log_exception_diagnostic(
+                logger,
+                "audio track probe failed",
+                exc,
+                event_name="media.audio_track_probe_failed",
+                context={"asset_id": asset_id},
+            )
             raise HTTPException(status_code=400, detail="Could not probe audio tracks") from exc
 
     @router.get("/api/assets/{asset_id}/media", response_model=None)

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
+from stt_vault.core.api_models import UploadCompletionResponse
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import UploadResponse, UploadSessionRecord
 from stt_vault.persistence.db_uploads import (
@@ -73,7 +74,7 @@ class UploadSessionService:
         upload["offset"] = next_offset
         return upload_response(upload)
 
-    def complete(self, upload_id: str) -> dict[str, str]:
+    def complete(self, upload_id: str) -> UploadCompletionResponse:
         upload = self.require(upload_id)
         total_size = int(upload["total_size"])
         if int(upload["offset"]) != total_size:
@@ -93,7 +94,7 @@ class UploadSessionService:
                 stored_path.replace(temp_path)
             shutil.rmtree(self.settings.media_dir / asset_id, ignore_errors=True)
             raise
-        return {"id": asset_id, "status": "queued"}
+        return UploadCompletionResponse(id=asset_id, status="queued")
 
     def require(self, upload_id: str) -> UploadSessionRecord:
         upload = get_upload_session(self.settings.stt_db_path, upload_id)

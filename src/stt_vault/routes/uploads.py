@@ -3,6 +3,7 @@ import re
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 
+from stt_vault.core.api_models import UploadCompletionResponse
 from stt_vault.core.auth import require_admin
 from stt_vault.core.requests import UploadCreateRequest
 from stt_vault.core.settings import Settings
@@ -40,8 +41,8 @@ def register_upload_routes(app: FastAPI, settings: Settings) -> None:
             start, end, total = _parse_content_range(content_range)
             return await sessions.append(upload_id, start, end, total, request.stream())
 
-    @router.post("/api/uploads/{upload_id}/complete")
-    async def complete_upload(upload_id: str) -> dict[str, str]:
+    @router.post("/api/uploads/{upload_id}/complete", response_model=UploadCompletionResponse)
+    async def complete_upload(upload_id: str) -> UploadCompletionResponse:
         async with _upload_lock(upload_id):
             return sessions.complete(upload_id)
 

@@ -73,6 +73,11 @@ class AssetRetryResponse(ApiRecord):
     status: Literal["queued"]
 
 
+class UploadCompletionResponse(ApiRecord):
+    id: str
+    status: Literal["queued"]
+
+
 class AssetMoveResponse(ApiRecord):
     id: str
     parent_folder_id: str | None

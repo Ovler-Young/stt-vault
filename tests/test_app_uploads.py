@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NoReturn
 
 import pytest
@@ -7,10 +8,11 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from stt_vault.core.api_models import AssetResponse
+from stt_vault.core.api_models import AssetResponse, UploadCompletionResponse
 from stt_vault.core.app import create_app
 from stt_vault.core.settings import get_settings
 from stt_vault.persistence import db
+from stt_vault.services.upload_sessions import UploadSessionService
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
@@ -80,8 +82,8 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def api_route_pairs(app) -> list[tuple[str, str]]:
-    pairs = []
+def api_routes(app) -> list[APIRoute]:
+    api_routes = []
     routes = list(app.routes)
     for route in routes:
         original_router = getattr(route, "original_router", None)
@@ -90,10 +92,27 @@ def api_route_pairs(app) -> list[tuple[str, str]]:
             continue
         if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
             continue
+        api_routes.append(route)
+    return api_routes
+
+
+def api_route_pairs(app) -> list[tuple[str, str]]:
+    pairs = []
+    for route in api_routes(app):
         for method in sorted(route.methods or []):
             if method != "HEAD":
                 pairs.append((method, route.path))
     return pairs
+
+
+def test_upload_completion_route_declares_named_response_model(client: TestClient) -> None:
+    completion_route = next(
+        route
+        for route in api_routes(client.app)
+        if route.path == "/api/uploads/{upload_id}/complete" and "POST" in (route.methods or set())
+    )
+
+    assert completion_route.response_model is UploadCompletionResponse
 
 
 def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient) -> None:
@@ -243,12 +262,58 @@ def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> 
     assert final_response.status_code == 200
     assert final_response.json()["offset"] == 10
     assert complete_response.status_code == 200
+    completion = UploadCompletionResponse.model_validate(complete_response.json())
+    assert (
+        complete_response.json()
+        == completion.model_dump()
+        == {
+            "id": completion.id,
+            "status": "queued",
+        }
+    )
     asset = db.get_asset(get_settings().stt_db_path, complete_response.json()["id"])
     assert asset is not None
     assert asset["filename"] == "2026-07-15_12-57-52.mp4"
     assert asset["recorded_at"] == 1_784_120_272
     assert Path(asset["original_path"]).read_bytes() == b"firstfinal"
     assert client.get(f"/api/uploads/{upload_id}", headers=headers).status_code == 404
+
+
+def test_upload_session_completion_returns_named_response(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = SimpleNamespace(
+        stt_db_path=tmp_path / "app.sqlite3",
+        uploads_dir=tmp_path / "uploads",
+        media_dir=tmp_path / "media",
+    )
+    temp_path = settings.uploads_dir / "upload.part"
+    temp_path.parent.mkdir(parents=True)
+    temp_path.write_bytes(b"upload")
+    upload = {
+        "id": "upload-1",
+        "filename": "clip.wav",
+        "total_size": 6,
+        "offset": 6,
+        "temp_path": str(temp_path),
+    }
+    stored_path = settings.media_dir / "asset-1" / "original.wav"
+
+    monkeypatch.setattr(
+        "stt_vault.services.upload_sessions.get_upload_session", lambda *_args: upload
+    )
+    monkeypatch.setattr(
+        "stt_vault.services.upload_sessions.move_upload",
+        lambda *_args: ("asset-1", stored_path, "audio"),
+    )
+    monkeypatch.setattr(
+        "stt_vault.services.upload_sessions.complete_upload_session", lambda *_args: None
+    )
+
+    completion = UploadSessionService(settings).complete("upload-1")
+
+    assert isinstance(completion, UploadCompletionResponse)
+    assert completion.model_dump() == {"id": "asset-1", "status": "queued"}
 
 
 def test_upload_size_limit_uses_one_megabyte_boundary(

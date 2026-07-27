@@ -122,7 +122,7 @@ export type UploadProgress = {
   uploaded: number;
   total: number;
 };
-export type UploadCompletion = { id: string; status: string };
+export type UploadCompletion = { id: string; status: "queued" };
 export type UploadEntry = { file: File; path: string };
 export type BatchUploadResult = {
   path: string;

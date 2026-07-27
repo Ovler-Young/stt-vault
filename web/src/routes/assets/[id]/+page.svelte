@@ -25,17 +25,7 @@
     SpeakerControlsHandle,
     SpeakerProgressBarHandle,
   } from "./asset-page.types";
-  import AssetDetailsFoldout from "./components/AssetDetailsFoldout.svelte";
-  import AssetDownloadsFoldout from "./components/AssetDownloadsFoldout.svelte";
-  import AssetEventsFoldout from "./components/AssetEventsFoldout.svelte";
-  import AssetFoldoutGroup from "./components/AssetFoldoutGroup.svelte";
-  import AssetHeader from "./components/AssetHeader.svelte";
-  import AssetMediaPane from "./components/AssetMediaPane.svelte";
-  import AssetSpeakerControls from "./components/AssetSpeakerControls.svelte";
-  import ResizableAssetWorkspace from "./components/ResizableAssetWorkspace.svelte";
-  import AssetSummaryFoldout from "./components/AssetSummaryFoldout.svelte";
-  import TranscriptPane from "./components/TranscriptPane.svelte";
-  import VisualEventsStrip from "./components/VisualEventsStrip.svelte";
+  import AssetPageShell from "./components/AssetPageShell.svelte";
 
   let asset: AssetDetail | null = null;
   let error = "";
@@ -309,107 +299,31 @@
   }
 </script>
 
-<main>
-  {#if error}<p class="error">{error}</p>{/if}
-
-  {#if asset}
-    <AssetHeader {asset} onRetry={retry} onRemove={remove} />
-
-    <ResizableAssetWorkspace>
-      <svelte:fragment slot="media">
-        <AssetMediaPane
-          {asset}
-          {audioTracks}
-          {selectedAudioTrack}
-          {playbackRate}
-          {currentTime}
-          bind:mediaElement={mediaEl}
-          bind:progressBar={speakerProgressBar}
-          onTimeUpdate={updateCurrentTime}
-          onStartClock={startPlaybackClock}
-          onStopClock={stopPlaybackClock}
-          onRestoreMediaSeek={restoreMediaSeek}
-          onAudioTrackChange={changeAudioTrack}
-          onPlaybackRateChange={changePlaybackRate}
-          onTimelineSeek={seekToTime}
-        />
-
-        {#if asset.media_type === "video"}
-          <VisualEventsStrip
-            assetId={asset.id}
-            events={asset.visual_events ?? []}
-            {currentTime}
-            message={visualMessage}
-            onDetect={detectVisualEvents}
-            onSeek={seekToTime}
-          />
-        {/if}
-
-        <AssetFoldoutGroup>
-          {#if asset.status === "success"}
-            <AssetSummaryFoldout {asset} onUpdated={load} onSeek={seekToTime} />
-          {/if}
-          <AssetDetailsFoldout {asset} />
-          {#if asset.exports}
-            <AssetDownloadsFoldout
-              assetId={asset.id}
-              assetExports={asset.exports}
-            />
-          {/if}
-          <AssetSpeakerControls
-            bind:this={speakerControls}
-            {asset}
-            initialMessage={speakerMatchMessage}
-            onReload={load}
-            onError={(message) => (error = message)}
-          />
-          <AssetEventsFoldout
-            events={asset.events ?? []}
-            eventHistory={asset.event_history ?? []}
-          />
-        </AssetFoldoutGroup>
-      </svelte:fragment>
-
-      <TranscriptPane
-        slot="transcript"
-        segments={asset.transcript_segments ?? []}
-        {currentTime}
-        onSeek={seek}
-        onEditSpeaker={(event, segment) =>
-          speakerControls?.editSpeaker(event, segment)}
-      />
-    </ResizableAssetWorkspace>
-  {/if}
-</main>
-
-<style>
-  main {
-    box-sizing: border-box;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 8px;
-    height: 100vh;
-    overflow: hidden;
-    padding: 10px;
-  }
-
-  .error {
-    color: var(--color-danger);
-    margin: 0;
-  }
-
-  @media (max-width: 980px) {
-    main {
-      height: 100vh;
-      min-height: 0;
-      overflow: hidden;
-      padding: 8px;
-    }
-  }
-
-  @media (max-width: 760px) {
-    main {
-      height: calc(100vh - 54px);
-    }
-  }
-</style>
+<AssetPageShell
+  {asset}
+  {error}
+  {audioTracks}
+  {selectedAudioTrack}
+  {playbackRate}
+  {currentTime}
+  {visualMessage}
+  {speakerMatchMessage}
+  bind:mediaElement={mediaEl}
+  bind:progressBar={speakerProgressBar}
+  bind:speakerControls
+  onRetry={retry}
+  onRemove={remove}
+  onTimeUpdate={updateCurrentTime}
+  onStartClock={startPlaybackClock}
+  onStopClock={stopPlaybackClock}
+  onRestoreMediaSeek={restoreMediaSeek}
+  onAudioTrackChange={changeAudioTrack}
+  onPlaybackRateChange={changePlaybackRate}
+  onTimelineSeek={seekToTime}
+  onDetectVisualEvents={detectVisualEvents}
+  onLoad={load}
+  onError={(message) => (error = message)}
+  onTranscriptSeek={seek}
+  onEditSpeaker={(event, segment) =>
+    speakerControls?.editSpeaker(event, segment)}
+/>

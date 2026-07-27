@@ -9,7 +9,8 @@ from stt_vault.core.types import AssetRecord, CleanupTask, ExportPaths, SpeakerS
 from stt_vault.processing.ai_content import is_local_speaker_label, is_usable_speaker_name
 
 from .db_connection import connect, now, row_to_dict, transaction
-from .db_jobs import get_job, list_current_run_events, list_events
+from .db_job_events import list_current_run_events, list_events
+from .db_job_records import get_job
 from .db_transcripts import list_transcript_chunks, sync_asset_transcript_cache
 from .db_visual_events import list_visual_events
 

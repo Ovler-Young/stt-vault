@@ -8,6 +8,7 @@ from stt_vault.core.auth import require_admin
 from stt_vault.core.requests import AssetMoveRequest
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
+from stt_vault.persistence.db_asset_relocation import AssetNotFoundError
 
 from .asset_lookup import get_asset_or_404
 
@@ -52,6 +53,8 @@ def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
             return AssetMoveResponse.model_validate(
                 db.move_asset(settings.stt_db_path, asset_id, payload.parent_folder_id)
             )
+        except AssetNotFoundError:
+            raise HTTPException(status_code=404, detail="Asset not found") from None
         except KeyError:
             raise HTTPException(status_code=404, detail="Folder not found") from None
 

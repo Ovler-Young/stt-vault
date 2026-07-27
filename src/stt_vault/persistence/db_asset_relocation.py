@@ -5,6 +5,10 @@ from .db_connection import now, transaction
 from .folder_records import get_required_folder
 
 
+class AssetNotFoundError(KeyError):
+    """Raised when the asset to relocate is absent at move time."""
+
+
 class AssetMoveResult(TypedDict):
     id: str
     parent_folder_id: str | None
@@ -23,7 +27,7 @@ def move_asset(
             (asset_id,),
         ).fetchone()
         if asset is None:
-            raise KeyError(asset_id)
+            raise AssetNotFoundError(asset_id)
         get_required_folder(conn, parent_folder_id)
         conn.execute(
             "UPDATE assets SET parent_folder_id = ?, updated_at = ? WHERE id = ?",

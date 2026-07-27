@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from stt_vault.core.app import create_app
 from stt_vault.core.settings import get_settings
 from stt_vault.persistence import db
+from stt_vault.routes import asset_lifecycle
 
 
 @pytest.fixture
@@ -145,6 +146,58 @@ def test_speaker_and_lifecycle_routes_reject_missing_rows(
     assert asset.json() == {"detail": "Asset not found"}
     assert cleanup.status_code == 404
     assert cleanup.json() == {"detail": "Cleanup task not found"}
+
+
+def test_asset_move_distinguishes_a_disappearing_asset_from_a_missing_folder(
+    route_client: tuple[TestClient, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, headers = route_client
+    settings = get_settings()
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-disappears",
+        "recording.wav",
+        "audio",
+        settings.media_dir / "asset-disappears" / "recording.wav",
+    )
+    original_get_asset_or_404 = asset_lifecycle.get_asset_or_404
+
+    def get_asset_then_delete(db_path: Path, asset_id: str):
+        asset = original_get_asset_or_404(db_path, asset_id)
+        db.delete_asset_with_cleanup_task(
+            db_path,
+            asset_id,
+            settings.media_dir / asset_id,
+            settings.exports_dir / asset_id,
+        )
+        return asset
+
+    monkeypatch.setattr(asset_lifecycle, "get_asset_or_404", get_asset_then_delete)
+    disappeared = client.post(
+        "/api/assets/asset-disappears/move",
+        headers=headers,
+        json={"parent_folder_id": None},
+    )
+    monkeypatch.setattr(asset_lifecycle, "get_asset_or_404", original_get_asset_or_404)
+
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-folder",
+        "recording.wav",
+        "audio",
+        settings.media_dir / "asset-folder" / "recording.wav",
+    )
+    missing_folder = client.post(
+        "/api/assets/asset-folder/move",
+        headers=headers,
+        json={"parent_folder_id": "missing-folder"},
+    )
+
+    assert disappeared.status_code == 404
+    assert disappeared.json() == {"detail": "Asset not found"}
+    assert missing_folder.status_code == 404
+    assert missing_folder.json() == {"detail": "Folder not found"}
 
 
 def test_speaker_rename_rejects_a_missing_post_mutation_row(

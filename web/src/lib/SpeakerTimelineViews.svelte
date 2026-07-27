@@ -97,8 +97,10 @@
       class="zoom-reset"
       type="button"
       title={zoomWindowLabel}
-      on:click={onReset}>Reset</button
+      on:click={onReset}
     >
+      Reset
+    </button>
   {/if}
 </div>
 

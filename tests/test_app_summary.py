@@ -143,14 +143,14 @@ def test_upload_session_completion_restores_temp_file_when_database_write_fails(
     stored_path.parent.mkdir(parents=True)
 
     monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.db.get_upload_session", lambda *_args: upload
+        "stt_vault.services.upload_sessions.get_upload_session", lambda *_args: upload
     )
     monkeypatch.setattr(
         "stt_vault.services.upload_sessions.move_upload",
         lambda *_args: ("asset-1", stored_path, "audio"),
     )
     monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.db.complete_upload_session",
+        "stt_vault.services.upload_sessions.complete_upload_session",
         lambda *_args: (_ for _ in ()).throw(RuntimeError("database unavailable")),
     )
     stored_path.write_bytes(b"upload")

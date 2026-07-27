@@ -4,7 +4,8 @@ from pathlib import Path
 from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, ExportPaths, VisualEvent
-from stt_vault.persistence import db
+from stt_vault.persistence.db_assets import update_asset_exports
+from stt_vault.persistence.db_visual_events import replace_visual_events
 
 from .visual import (
     CommandRunner,
@@ -35,7 +36,7 @@ def detect_asset_visual_events(
             threshold=settings.visual_change_threshold,
             min_gap_seconds=settings.visual_min_gap_seconds,
         )
-        db.replace_visual_events(settings.stt_db_path, asset["id"], events)
+        replace_visual_events(settings.stt_db_path, asset["id"], events)
         write_visual_event_thumbnails(
             Path(asset["original_path"]),
             settings.exports_dir,
@@ -48,7 +49,7 @@ def detect_asset_visual_events(
         exports["visual_events"] = write_visual_events_export(
             settings.exports_dir, asset["id"], events
         )
-        db.update_asset_exports(settings.stt_db_path, asset["id"], exports)
+        update_asset_exports(settings.stt_db_path, asset["id"], exports)
         return events
     except Exception as error:
         log_exception_diagnostic(

@@ -6,7 +6,12 @@ from fastapi import HTTPException
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import UploadResponse, UploadSessionRecord
-from stt_vault.persistence import db
+from stt_vault.persistence.db_uploads import (
+    complete_upload_session,
+    create_upload_session,
+    get_upload_session,
+    update_upload_offset,
+)
 from stt_vault.processing.media import move_upload
 
 
@@ -15,7 +20,7 @@ class UploadSessionService:
         self.settings = settings
 
     def create(self, filename: str, total_size: int) -> UploadResponse:
-        upload = db.create_upload_session(
+        upload = create_upload_session(
             self.settings.stt_db_path, filename, total_size, self.settings.uploads_dir
         )
         return upload_response(upload)
@@ -64,7 +69,7 @@ class UploadSessionService:
                 output.truncate(expected_offset)
                 raise
         next_offset = end + 1
-        db.update_upload_offset(self.settings.stt_db_path, upload_id, next_offset)
+        update_upload_offset(self.settings.stt_db_path, upload_id, next_offset)
         upload["offset"] = next_offset
         return upload_response(upload)
 
@@ -80,7 +85,7 @@ class UploadSessionService:
             self.settings.media_dir, upload["filename"], temp_path
         )
         try:
-            db.complete_upload_session(
+            complete_upload_session(
                 self.settings.stt_db_path, upload_id, asset_id, media_type, stored_path
             )
         except Exception:
@@ -91,7 +96,7 @@ class UploadSessionService:
         return {"id": asset_id, "status": "queued"}
 
     def require(self, upload_id: str) -> UploadSessionRecord:
-        upload = db.get_upload_session(self.settings.stt_db_path, upload_id)
+        upload = get_upload_session(self.settings.stt_db_path, upload_id)
         if upload is None:
             raise HTTPException(status_code=404, detail="Upload not found")
         return upload

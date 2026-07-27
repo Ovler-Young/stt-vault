@@ -1,12 +1,12 @@
 from stt_vault.core.settings import Settings
-from stt_vault.persistence import db
+from stt_vault.persistence.db_assets import get_asset, update_asset_exports
 
 from .exports import write_exports
 
 
 def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:
     for asset_id in asset_ids:
-        asset = db.get_asset(settings.stt_db_path, asset_id, include_event_history=False)
+        asset = get_asset(settings.stt_db_path, asset_id, include_event_history=False)
         if asset is None:
             continue
 
@@ -23,4 +23,4 @@ def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:
             raw_segments,
             settings.parsed_export_formats,
         )
-        db.update_asset_exports(settings.stt_db_path, asset_id, exports)
+        update_asset_exports(settings.stt_db_path, asset_id, exports)

@@ -155,6 +155,24 @@ def test_single_upload_preserves_storage_http_error(
     assert response.json() == {"detail": "Upload is too large"}
 
 
+def test_single_upload_maps_storage_failure_to_generic_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr("stt_vault.routes.asset_collection.store_upload", fail_upload)
+
+    response = client.post(
+        "/api/assets",
+        headers=auth_headers(client),
+        files={"file": ("clip.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Upload could not be stored"}
+
+
 def test_audio_probe_error_does_not_disclose_paths_or_credentials(
     client: TestClient, monkeypatch
 ) -> None:

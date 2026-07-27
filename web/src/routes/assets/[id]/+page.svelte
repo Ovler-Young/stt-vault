@@ -9,13 +9,11 @@
   import {
     deleteAsset,
     detectAssetVisualEvents,
-    fetchAsset,
     fetchAssetAudioTracks,
-    recomputeAssetSpeakers,
     retryAsset,
-    saveAssetSpeaker,
   } from "$lib/api-endpoints";
-  import { localSpeakerRows, segmentMediaStart } from "./asset-page.helpers";
+  import { loadAssetWithSpeakerMatching } from "./asset-load.controller";
+  import { segmentMediaStart } from "./asset-page.helpers";
   import { needsActivePolling } from "$lib/polling";
   import {
     adjacentSpeakerSegment,
@@ -24,7 +22,7 @@
     previousSegment,
   } from "./asset-playback.controller";
   import type {
-    SpeakerEditor,
+    SpeakerControlsHandle,
     SpeakerProgressBarHandle,
   } from "./asset-page.types";
   import AssetDetailsFoldout from "./components/AssetDetailsFoldout.svelte";
@@ -33,9 +31,8 @@
   import AssetFoldoutGroup from "./components/AssetFoldoutGroup.svelte";
   import AssetHeader from "./components/AssetHeader.svelte";
   import AssetMediaPane from "./components/AssetMediaPane.svelte";
-  import AssetSpeakersFoldout from "./components/AssetSpeakersFoldout.svelte";
+  import AssetSpeakerControls from "./components/AssetSpeakerControls.svelte";
   import ResizableAssetWorkspace from "./components/ResizableAssetWorkspace.svelte";
-  import SpeakerEditorPopover from "./components/SpeakerEditorPopover.svelte";
   import AssetSummaryFoldout from "./components/AssetSummaryFoldout.svelte";
   import TranscriptPane from "./components/TranscriptPane.svelte";
   import VisualEventsStrip from "./components/VisualEventsStrip.svelte";
@@ -46,11 +43,9 @@
   let speakerProgressBar: SpeakerProgressBarHandle | null = null;
   let currentTime = 0;
   let poll: ReturnType<typeof setInterval> | null = null;
-  let speakerDrafts: Record<string, string> = {};
-  let speakerMessage = "";
   let visualMessage = "";
-  let speakerEditor: SpeakerEditor | null = null;
-  let editorName = "";
+  let speakerMatchMessage = "";
+  let speakerControls: SpeakerControlsHandle | null = null;
   let audioTracks: AudioTrack[] = [];
   let audioTracksAssetId = "";
   let selectedAudioTrack = "default";
@@ -60,7 +55,6 @@
   let autoMatchedAssetId = "";
 
   $: assetId = $page.params.id ?? "";
-  $: speakerRows = asset ? localSpeakerRows(asset) : [];
 
   onMount(async () => {
     playbackRate =
@@ -78,38 +72,19 @@
   async function load() {
     try {
       if (!assetId) return;
-      asset = await fetchAsset(assetId);
-      if (asset.id !== autoMatchedAssetId && hasUnmatchedSpeakers(asset)) {
-        autoMatchedAssetId = asset.id;
-        try {
-          await recomputeAssetSpeakers(asset.id);
-          asset = await fetchAsset(asset.id);
-        } catch (matchError) {
-          speakerMessage =
-            matchError instanceof Error
-              ? matchError.message
-              : String(matchError);
-        }
-      }
+      const loaded = await loadAssetWithSpeakerMatching(
+        assetId,
+        autoMatchedAssetId,
+      );
+      asset = loaded.asset;
+      autoMatchedAssetId = loaded.autoMatchedAssetId;
+      speakerMatchMessage = loaded.speakerMatchError ?? "";
       await loadAudioTracks(asset.id);
-      syncSpeakerDrafts();
       updatePolling();
       error = "";
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
-  }
-
-  function hasUnmatchedSpeakers(currentAsset: AssetDetail) {
-    if (currentAsset.status !== "success" && currentAsset.status !== "partial")
-      return false;
-    return (currentAsset.transcript_segments ?? []).some((segment) => {
-      const displayName = segment.speaker_name?.trim();
-      return (
-        /^SPEAKER_\d+$/.test(segment.speaker) &&
-        (!displayName || displayName === segment.speaker)
-      );
-    });
   }
 
   function updatePolling() {
@@ -321,43 +296,6 @@
     return tagName === "A" || tagName === "SUMMARY";
   }
 
-  function syncSpeakerDrafts() {
-    if (!asset) return;
-    for (const row of localSpeakerRows(asset)) {
-      if (!(row.localSpeaker in speakerDrafts)) {
-        speakerDrafts[row.localSpeaker] = row.displayName;
-      }
-    }
-  }
-
-  async function saveSpeakerName(localSpeaker: string, displayName?: string) {
-    if (!asset) return;
-    const nextName = (displayName ?? speakerDrafts[localSpeaker])?.trim();
-    if (!nextName) return;
-    try {
-      const speaker = await saveAssetSpeaker(asset.id, localSpeaker, nextName);
-      speakerDrafts[localSpeaker] = speaker.display_name;
-      speakerMessage = `${localSpeaker} saved as ${speaker.display_name}`;
-      speakerEditor = null;
-      await load();
-    } catch (err) {
-      speakerMessage = "";
-      error = err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  async function recomputeSpeakers() {
-    if (!asset) return;
-    try {
-      const result = await recomputeAssetSpeakers(asset.id);
-      speakerMessage = `${result.assets} asset recomputed`;
-      await load();
-    } catch (err) {
-      speakerMessage = "";
-      error = err instanceof Error ? err.message : String(err);
-    }
-  }
-
   async function detectVisualEvents() {
     if (!asset) return;
     try {
@@ -368,20 +306,6 @@
       visualMessage = "";
       error = err instanceof Error ? err.message : String(err);
     }
-  }
-
-  function openSpeakerEditor(event: MouseEvent, segment: TranscriptSegment) {
-    event.preventDefault();
-    const displayName = segment.speaker_name ?? segment.speaker;
-    speakerDrafts[segment.speaker] =
-      speakerDrafts[segment.speaker] ?? displayName;
-    editorName = speakerDrafts[segment.speaker];
-    speakerEditor = {
-      localSpeaker: segment.speaker,
-      displayName,
-      x: Math.min(event.clientX, window.innerWidth - 280),
-      y: Math.min(event.clientY, window.innerHeight - 150),
-    };
   }
 </script>
 
@@ -432,15 +356,13 @@
               assetExports={asset.exports}
             />
           {/if}
-          {#if Object.keys(asset.speaker_centroids ?? {}).length}
-            <AssetSpeakersFoldout
-              rows={speakerRows}
-              bind:speakerDrafts
-              {speakerMessage}
-              onRecompute={recomputeSpeakers}
-              onSave={saveSpeakerName}
-            />
-          {/if}
+          <AssetSpeakerControls
+            bind:this={speakerControls}
+            {asset}
+            initialMessage={speakerMatchMessage}
+            onReload={load}
+            onError={(message) => (error = message)}
+          />
           <AssetEventsFoldout
             events={asset.events ?? []}
             eventHistory={asset.event_history ?? []}
@@ -453,18 +375,10 @@
         segments={asset.transcript_segments ?? []}
         {currentTime}
         onSeek={seek}
-        onEditSpeaker={openSpeakerEditor}
+        onEditSpeaker={(event, segment) =>
+          speakerControls?.editSpeaker(event, segment)}
       />
     </ResizableAssetWorkspace>
-
-    {#if speakerEditor}
-      <SpeakerEditorPopover
-        editor={speakerEditor}
-        bind:editorName
-        onSave={saveSpeakerName}
-        onCancel={() => (speakerEditor = null)}
-      />
-    {/if}
   {/if}
 </main>
 

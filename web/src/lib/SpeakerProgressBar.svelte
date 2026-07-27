@@ -2,7 +2,7 @@
   import { createEventDispatcher, onDestroy } from "svelte";
   import type { TranscriptSegment } from "$lib/api-types";
   import { formatTime } from "$lib/format";
-  import SpeakerTimelineRow from "$lib/SpeakerTimelineRow.svelte";
+  import SpeakerTimelineViews from "$lib/SpeakerTimelineViews.svelte";
   import {
     clampTimelineWindow,
     clampRatio,
@@ -11,12 +11,19 @@
     eventTimeFromClientX,
     hoverTipX,
     panTimelineWindow,
-    segmentAt,
-    zoomWindowAround,
     type TimelineHover,
     type TimelineRow,
     type TimelineWindow,
+    zoomWindowAround,
   } from "$lib/speakerTimeline";
+  import {
+    doubleClickTimelineWindow,
+    draggedTimelineWindow,
+    keyboardTimelineWindow,
+    seekTimeForTimelineEvent,
+    timelineHover,
+    wheelTimelineWindow,
+  } from "$lib/speakerTimeline.interactions";
 
   export let segments: TranscriptSegment[] = [];
   export let duration: number | null = null;
@@ -87,27 +94,6 @@
     zoomEnd = 1;
   }
 
-  function zoomAround(center: number, scale: number) {
-    const nextWindow = zoomWindowAround(
-      { start: zoomStart, end: zoomEnd },
-      center,
-      scale,
-      minZoomSize,
-    );
-    zoomStart = nextWindow.start;
-    zoomEnd = nextWindow.end;
-  }
-
-  function panWindow(delta: number) {
-    const nextWindow = panTimelineWindow(
-      { start: zoomStart, end: zoomEnd },
-      delta,
-      minZoomSize,
-    );
-    zoomStart = nextWindow.start;
-    zoomEnd = nextWindow.end;
-  }
-
   export function centerOnTime(time: number) {
     if (!effectiveDuration) return;
     const currentSize = zoomEnd - zoomStart;
@@ -117,11 +103,29 @@
 
   export function zoomAtTime(time: number, scale: number) {
     if (!effectiveDuration) return;
-    zoomAround(time / effectiveDuration, scale);
+    setTimelineWindow(
+      zoomWindowAround(
+        { start: zoomStart, end: zoomEnd },
+        time / effectiveDuration,
+        scale,
+        minZoomSize,
+      ),
+    );
   }
 
   export function panByWindow(delta: number) {
-    panWindow(delta * zoomSize);
+    setTimelineWindow(
+      panTimelineWindow(
+        { start: zoomStart, end: zoomEnd },
+        delta * zoomSize,
+        minZoomSize,
+      ),
+    );
+  }
+
+  function setTimelineWindow(window: TimelineWindow) {
+    zoomStart = window.start;
+    zoomEnd = window.end;
   }
 
   function handleClick(
@@ -134,8 +138,7 @@
       return;
     }
     const time = eventTime(event, windowStart, windowEnd);
-    const segment = segmentAt(segments, time);
-    dispatch("seek", { time: segment?.start ?? time });
+    dispatch("seek", { time: seekTimeForTimelineEvent(segments, time) });
   }
 
   function handleContextMenu(
@@ -154,18 +157,15 @@
   ) {
     if (!effectiveDuration) return;
     const time = eventTime(event, windowStart, windowEnd);
-    const segment = segmentAt(segments, time);
-    const fullStart = segment
-      ? segment.start / effectiveDuration
-      : time / effectiveDuration;
-    const fullEnd = segment ? segment.end / effectiveDuration : fullStart;
-    const center = (fullStart + fullEnd) / 2;
-    const segmentWidth = Math.max(fullEnd - fullStart, 0.015);
-    const nextWidth = Math.max(
-      0.02,
-      Math.min(0.35, segmentWidth * 4, zoomSize * 0.55),
+    setTimelineWindow(
+      doubleClickTimelineWindow(
+        segments,
+        time,
+        effectiveDuration,
+        { start: zoomStart, end: zoomEnd },
+        minZoomSize,
+      ),
     );
-    setZoomWindow(center - nextWidth / 2, center + nextWidth / 2);
   }
 
   function handleWheel(
@@ -175,37 +175,35 @@
   ) {
     if (!effectiveDuration) return;
     event.preventDefault();
-    const ratio = eventTime(event, windowStart, windowEnd) / effectiveDuration;
-    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) && isZoomed) {
-      panWindow(event.deltaX * wheelPanSensitivity * zoomSize);
-      return;
-    }
-    zoomAround(ratio, 1 + event.deltaY * wheelZoomSensitivity);
+    setTimelineWindow(
+      wheelTimelineWindow(
+        { start: zoomStart, end: zoomEnd },
+        eventTime(event, windowStart, windowEnd) / effectiveDuration,
+        event.deltaX,
+        event.deltaY,
+        isZoomed,
+        minZoomSize,
+        wheelZoomSensitivity,
+        wheelPanSensitivity,
+      ),
+    );
   }
 
   function handleKeydown(event: KeyboardEvent) {
     if (!effectiveDuration) return;
-    const currentRatio = clampRatio(currentTime / effectiveDuration);
-    if (event.code === "KeyW") {
+    const nextWindow = keyboardTimelineWindow(
+      event.code,
+      currentTime,
+      effectiveDuration,
+      { start: zoomStart, end: zoomEnd },
+      minZoomSize,
+      keyZoomStep,
+      keyPanStep,
+    );
+    if (nextWindow) {
       event.preventDefault();
       event.stopPropagation();
-      zoomAround(currentRatio, 1 - keyZoomStep);
-    } else if (event.code === "KeyS") {
-      event.preventDefault();
-      event.stopPropagation();
-      zoomAround(currentRatio, 1 + keyZoomStep);
-    } else if (event.code === "KeyA") {
-      event.preventDefault();
-      event.stopPropagation();
-      panWindow(-keyPanStep * zoomSize);
-    } else if (event.code === "KeyD") {
-      event.preventDefault();
-      event.stopPropagation();
-      panWindow(keyPanStep * zoomSize);
-    } else if (event.code === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      resetZoom();
+      setTimelineWindow(nextWindow);
     }
   }
 
@@ -229,9 +227,9 @@
     if (!dragActive) return;
     const dx = event.clientX - dragStartX;
     if (Math.abs(dx) > 3) dragMoved = true;
-    const currentSize = dragStartZoom.end - dragStartZoom.start;
-    const delta = -(dx / dragContainerWidth) * currentSize;
-    setZoomWindow(dragStartZoom.start + delta, dragStartZoom.end + delta);
+    setTimelineWindow(
+      draggedTimelineWindow(dragStartZoom, dx, dragContainerWidth, minZoomSize),
+    );
   }
 
   function handleDocumentMouseUp() {
@@ -254,120 +252,43 @@
     windowEnd: number,
   ) {
     const time = eventTime(event, windowStart, windowEnd);
-    const segment = segmentAt(segments, time);
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    hovered = {
+    hovered = timelineHover(
       row,
-      x: hoverTipX(event.clientX, rect.left, rect.width),
+      hoverTipX(event.clientX, rect.left, rect.width),
       time,
-      speaker: segment?.speaker_name ?? segment?.speaker ?? null,
-    };
+      segments,
+    );
   }
 </script>
 
 {#if effectiveDuration > 0 && segments.length}
-  <div class="speaker-progress-stack" class:dragging={dragActive}>
-    <SpeakerTimelineRow
-      row="zoom"
-      {segments}
-      {effectiveDuration}
-      windowStart={zoomStart}
-      windowEnd={zoomEnd}
-      {currentTime}
-      progressPercent={zoomProgressPercent}
-      showProgress={zoomProgressInWindow}
-      ariaLabel="Selected speaker timeline window"
-      title={zoomWindowLabel}
-      {hovered}
-      dragging={dragActive}
-      onRowClick={(event) => handleClick(event, zoomStart, zoomEnd)}
-      onRowContextMenu={(event) => handleContextMenu(event, zoomStart, zoomEnd)}
-      onRowKeydown={handleKeydown}
-      onRowMouseDown={handleMouseDown}
-      onRowMouseMove={(event) =>
-        handleMouseMove(event, "zoom", zoomStart, zoomEnd)}
-      onRowMouseLeave={() => (hovered = null)}
-      onRowDoubleClick={(event) => handleDoubleClick(event, zoomStart, zoomEnd)}
-      onRowWheel={(event) => handleWheel(event, zoomStart, zoomEnd)}
-    />
-
-    <SpeakerTimelineRow
-      row="full"
-      {segments}
-      {effectiveDuration}
-      windowStart={fullTimelineWindow.start}
-      windowEnd={fullTimelineWindow.end}
-      {currentTime}
-      progressPercent={fullProgressPercent}
-      ariaLabel="Full speaker timeline"
-      {hovered}
-      dragging={dragActive}
-      showZoomWindow={isZoomed}
-      {zoomWindowLeft}
-      {zoomWindowWidth}
-      onRowClick={(event) =>
-        handleClick(event, fullTimelineWindow.start, fullTimelineWindow.end)}
-      onRowContextMenu={(event) =>
-        handleContextMenu(
-          event,
-          fullTimelineWindow.start,
-          fullTimelineWindow.end,
-        )}
-      onRowKeydown={handleKeydown}
-      onRowMouseDown={handleMouseDown}
-      onRowMouseMove={(event) =>
-        handleMouseMove(
-          event,
-          "full",
-          fullTimelineWindow.start,
-          fullTimelineWindow.end,
-        )}
-      onRowMouseLeave={() => (hovered = null)}
-      onRowDoubleClick={(event) =>
-        handleDoubleClick(
-          event,
-          fullTimelineWindow.start,
-          fullTimelineWindow.end,
-        )}
-      onRowWheel={(event) =>
-        handleWheel(event, fullTimelineWindow.start, fullTimelineWindow.end)}
-    />
-
-    {#if isZoomed}
-      <button
-        class="zoom-reset"
-        type="button"
-        title={zoomWindowLabel}
-        on:click={resetZoom}>Reset</button
-      >
-    {/if}
-  </div>
+  <SpeakerTimelineViews
+    {segments}
+    {effectiveDuration}
+    zoomWindow={{ start: zoomStart, end: zoomEnd }}
+    {fullTimelineWindow}
+    {currentTime}
+    {zoomProgressPercent}
+    {fullProgressPercent}
+    {zoomProgressInWindow}
+    {isZoomed}
+    {zoomWindowLeft}
+    {zoomWindowWidth}
+    {zoomWindowLabel}
+    {hovered}
+    dragging={dragActive}
+    onClick={(event, window) => handleClick(event, window.start, window.end)}
+    onContextMenu={(event, window) =>
+      handleContextMenu(event, window.start, window.end)}
+    onKeydown={handleKeydown}
+    onMouseDown={handleMouseDown}
+    onMouseMove={(event, row, window) =>
+      handleMouseMove(event, row, window.start, window.end)}
+    onMouseLeave={() => (hovered = null)}
+    onDoubleClick={(event, window) =>
+      handleDoubleClick(event, window.start, window.end)}
+    onWheel={(event, window) => handleWheel(event, window.start, window.end)}
+    onReset={resetZoom}
+  />
 {/if}
-
-<style>
-  .speaker-progress-stack {
-    display: grid;
-    gap: 5px;
-    position: relative;
-    width: 100%;
-    margin-top: 6px;
-    overflow: visible;
-    user-select: none;
-  }
-
-  .zoom-reset {
-    justify-self: end;
-    border: 1px solid var(--color-border-muted);
-    border-radius: 6px;
-    background: var(--color-surface);
-    color: var(--color-text);
-    padding: 2px 6px;
-    font-size: 11px;
-    line-height: 1.3;
-    cursor: pointer;
-  }
-
-  .zoom-reset:hover {
-    background: var(--color-surface-muted);
-  }
-</style>

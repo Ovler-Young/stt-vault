@@ -98,6 +98,7 @@
     font-size: 12px;
   }
   .empty {
+    margin: 0;
     padding: 24px 4px;
   }
   .danger {

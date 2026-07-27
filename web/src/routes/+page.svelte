@@ -396,4 +396,6 @@
   {/if}
 </main>
 
-<style src="./home-page.css"></style>
+<style>
+  @import "./home-page.css";
+</style>

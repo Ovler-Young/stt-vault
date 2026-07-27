@@ -6,7 +6,7 @@ from .exports import write_exports
 
 def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:
     for asset_id in asset_ids:
-        asset = db.get_asset(settings.stt_db_path, asset_id)
+        asset = db.get_asset(settings.stt_db_path, asset_id, include_event_history=False)
         if asset is None:
             continue
 

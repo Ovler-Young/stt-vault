@@ -25,7 +25,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
     def get_audio_tracks(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[AudioStream]:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         try:
             return ffprobe_audio_streams(Path(asset["original_path"]))
         except Exception as exc:
@@ -44,7 +44,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         _: Annotated[None, Depends(require_resource_access)],
         audio_track: str | None = None,
     ) -> FileResponse | StreamingResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         if not audio_track or audio_track == "default":
             return FileResponse(asset["original_path"], filename=asset["filename"])
         try:
@@ -63,7 +63,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         format_name: str,
         _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         if not asset.get("exports") or format_name not in asset["exports"]:
             raise HTTPException(status_code=404, detail="Export not found")
         return FileResponse(asset["exports"][format_name])

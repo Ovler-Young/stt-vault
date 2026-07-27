@@ -23,12 +23,12 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
     def get_visual_events(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[VisualEvent]:
-        get_asset_or_404(settings.stt_db_path, asset_id)
+        get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         return db.list_visual_events(settings.stt_db_path, asset_id)
 
     @router.post("/api/assets/{asset_id}/visual-events", dependencies=[Depends(require_admin)])
     def detect_visual_events(asset_id: str) -> dict[str, int]:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         events = detect_asset_visual_events(settings, asset)
         return {"events": len(events)}
 
@@ -38,7 +38,7 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
         event_index: int,
         _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         events = db.list_visual_events(settings.stt_db_path, asset_id)
         if event_index < 0 or event_index >= len(events):
             raise HTTPException(status_code=404, detail="Visual event not found")

@@ -25,7 +25,7 @@ class SqliteWorkerRepository:
         db.mark_failed(self.db_path, asset_id, error)
 
     def get_asset(self, asset_id: str) -> AssetRecord | None:
-        return db.get_asset(self.db_path, asset_id)
+        return db.get_asset(self.db_path, asset_id, include_event_history=False)
 
     def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]:
         return db.list_transcript_chunks(self.db_path, asset_id)

@@ -96,6 +96,8 @@ def test_sqlite_worker_repository_delegates_operations_with_its_database_path(
         "apply_ai_speaker_names",
     ]
     assert all(args[0] == db_path for _name, args, _kwargs in calls)
+    get_asset_call = next((args, kwargs) for name, args, kwargs in calls if name == "get_asset")
+    assert get_asset_call == ((db_path, "asset-1"), {"include_event_history": False})
 
 
 def test_worker_components_keep_explicit_repository_injection(tmp_path: Path) -> None:

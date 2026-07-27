@@ -52,7 +52,7 @@ def recompute_asset_speaker_matches(settings: Settings, asset_ids: list[str]) ->
     updated_asset_ids = []
     known_speakers = db.list_speakers(settings.stt_db_path)
     for asset_id in dict.fromkeys(asset_ids):
-        asset = db.get_asset(settings.stt_db_path, asset_id)
+        asset = db.get_asset(settings.stt_db_path, asset_id, include_event_history=False)
         if asset is None:
             continue
 

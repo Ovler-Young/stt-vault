@@ -33,7 +33,7 @@ def register_asset_speaker_routes(app: FastAPI, settings: Settings) -> None:
         payload: SpeakerNameRequest,
     ) -> SpeakerResponse:
         display_name = clean_display_name(payload.display_name)
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
 
         centroids = asset.get("speaker_centroids") or {}
         centroid = centroids.get(local_speaker)
@@ -70,7 +70,7 @@ def register_asset_speaker_routes(app: FastAPI, settings: Settings) -> None:
         response_model=SpeakerRecomputeResponse,
     )
     def recompute_asset_speakers(asset_id: str) -> SpeakerRecomputeResponse:
-        get_asset_or_404(settings.stt_db_path, asset_id)
+        get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         updated_asset_ids = recompute_asset_speaker_matches(settings, [asset_id])
         rewrite_asset_exports(settings, updated_asset_ids)
         return SpeakerRecomputeResponse(assets=len(updated_asset_ids))

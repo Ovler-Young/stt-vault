@@ -44,7 +44,7 @@ def register_asset_summary_routes(app: FastAPI, settings: Settings) -> None:
 
     @router.post("/api/assets/{asset_id}/summary", dependencies=[Depends(require_admin)])
     def summarize_asset(asset_id: str) -> dict[str, object]:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         try:
             require_completed_transcript(asset)
             return generate_asset_summary(settings, asset_id, asset)

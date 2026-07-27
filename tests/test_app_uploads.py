@@ -1,7 +1,9 @@
 from collections.abc import Iterator
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
+from fastapi import HTTPException
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
@@ -135,6 +137,24 @@ def test_single_upload_uses_shared_persistence_sequence(client: TestClient) -> N
     assert AssetResponse.model_validate(detail_response.json()).id == asset_id
 
 
+def test_single_upload_preserves_storage_http_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
+        raise HTTPException(status_code=413, detail="Upload is too large")
+
+    monkeypatch.setattr("stt_vault.routes.asset_collection.store_upload", reject_upload)
+
+    response = client.post(
+        "/api/assets",
+        headers=auth_headers(client),
+        files={"file": ("clip.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Upload is too large"}
+
+
 def test_audio_probe_error_does_not_disclose_paths_or_credentials(
     client: TestClient, monkeypatch
 ) -> None:
@@ -221,6 +241,11 @@ def test_upload_size_limit_uses_one_megabyte_boundary(
     test_client = TestClient(app)
     try:
         headers = auth_headers(test_client)
+        direct_upload = test_client.post(
+            "/api/assets",
+            headers=headers,
+            files={"file": ("too-large.wav", b"x" * (1024 * 1024 + 1), "audio/wav")},
+        )
         exact_limit = test_client.post(
             "/api/uploads",
             headers=headers,
@@ -235,5 +260,7 @@ def test_upload_size_limit_uses_one_megabyte_boundary(
         test_client.close()
         get_settings.cache_clear()
 
+    assert direct_upload.status_code == 413
+    assert direct_upload.json() == {"detail": "Upload is too large"}
     assert exact_limit.status_code == 200
     assert over_limit.status_code == 413

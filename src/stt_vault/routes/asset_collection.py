@@ -89,6 +89,8 @@ async def _store_uploaded_file(file: UploadFile, filename: str, settings: Settin
             shutil.rmtree(settings.media_dir / asset_id, ignore_errors=True)
             raise
         return asset_id
+    except HTTPException:
+        raise
     except Exception as exc:
         log_exception_diagnostic(
             logger,

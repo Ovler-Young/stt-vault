@@ -7,7 +7,7 @@ from stt_vault.core.api_models import JsonValue
 from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
-from stt_vault.persistence import db
+from stt_vault.persistence.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
 
 from .worker_failure import classify_worker_failure
@@ -39,22 +39,6 @@ class CompletionRepository(Protocol):
     ) -> None: ...
 
 
-class SqliteCompletionRepository:
-    def __init__(self, settings: Settings) -> None:
-        self.db_path = settings.stt_db_path
-
-    def mark_success(self, asset_id: str, **values: object) -> None:
-        db.mark_success(self.db_path, asset_id, **values)
-
-    def mark_partial(self, asset_id: str, error: ErrorRecord) -> None:
-        db.mark_partial(self.db_path, asset_id, error)
-
-    def add_event(
-        self, asset_id: str, level: str, stage: str, message: str, payload: ErrorRecord
-    ) -> None:
-        db.add_event(self.db_path, asset_id, level, stage, message, payload)
-
-
 class CompletionPersistence:
     """Persist terminal job state independently from optional post-processing."""
 
@@ -62,7 +46,7 @@ class CompletionPersistence:
         self, settings: Settings, *, repository: CompletionRepository | None = None
     ) -> None:
         self.settings = settings
-        self.repository = repository or SqliteCompletionRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def persist_success(
         self,
@@ -107,7 +91,7 @@ class SummaryFollowup:
     ) -> None:
         self.settings = settings
         self.summary_generator = summary_generator
-        self.repository = repository or SqliteCompletionRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def generate(self, asset_id: str) -> None:
         try:

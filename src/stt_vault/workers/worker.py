@@ -5,6 +5,7 @@ from typing import Protocol
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, ErrorRecord, ExportPaths, TranscriptSegment
+from stt_vault.persistence.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import DiarizerManager
 
 from .worker_completion import CompletionStage
@@ -28,36 +29,6 @@ class WorkerRepository(Protocol):
     def get_asset(self, asset_id: str) -> AssetRecord | None: ...
 
     def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]: ...
-
-
-class SqliteWorkerRepository:
-    def __init__(self, settings: Settings) -> None:
-        self.db_path = settings.stt_db_path
-
-    def claim_next_job(self, owner: str, lease_seconds: int) -> str | None:
-        from stt_vault.persistence import db
-
-        return db.claim_next_job(self.db_path, owner, lease_seconds)
-
-    def renew_job_claim(self, asset_id: str, owner: str, lease_seconds: int) -> bool:
-        from stt_vault.persistence import db
-
-        return db.renew_job_claim(self.db_path, asset_id, owner, lease_seconds)
-
-    def mark_failed(self, asset_id: str, error: ErrorRecord) -> None:
-        from stt_vault.persistence import db
-
-        db.mark_failed(self.db_path, asset_id, error)
-
-    def get_asset(self, asset_id: str) -> AssetRecord | None:
-        from stt_vault.persistence import db
-
-        return db.get_asset(self.db_path, asset_id)
-
-    def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]:
-        from stt_vault.persistence import db
-
-        return db.list_transcript_chunks(self.db_path, asset_id)
 
 
 def create_diarizer(settings: Settings) -> DiarizerManager:
@@ -90,7 +61,7 @@ class Worker:
         repository: WorkerRepository | None = None,
     ) -> None:
         self.settings = settings
-        self.repository = repository or SqliteWorkerRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
         self.stop_event = threading.Event()
         self.claim_owner = uuid.uuid4().hex
         self.thread = threading.Thread(target=self.run, name="stt-vault-worker", daemon=True)

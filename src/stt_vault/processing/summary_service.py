@@ -4,6 +4,7 @@ from openai import OpenAI
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, TranscriptSegment
+from stt_vault.persistence.worker_repository import SqliteWorkerRepository
 
 from .ai_content import (
     build_content_analysis_prompt,
@@ -64,28 +65,6 @@ class SummaryRepository(Protocol):
     ) -> dict[str, str]: ...
 
 
-class SqliteSummaryRepository:
-    def __init__(self, settings: Settings) -> None:
-        self.db_path = settings.stt_db_path
-
-    def get_asset(self, asset_id: str) -> AssetRecord | None:
-        from stt_vault.persistence import db
-
-        return db.get_asset(self.db_path, asset_id)
-
-    def update_asset_summary(self, asset_id: str, **kwargs: str | None) -> None:
-        from stt_vault.persistence import db
-
-        db.update_asset_summary(self.db_path, asset_id, **kwargs)
-
-    def apply_ai_speaker_names(
-        self, asset_id: str, speaker_names: dict[str, str]
-    ) -> dict[str, str]:
-        from stt_vault.persistence import db
-
-        return db.apply_ai_speaker_names(self.db_path, asset_id, speaker_names)
-
-
 class CompletedTranscriptRequiredError(ValueError):
     pass
 
@@ -112,7 +91,7 @@ def generate_asset_summary(
     client_factory: SummaryClientFactory = OpenAI,
     repository: SummaryRepository | None = None,
 ) -> SummaryGenerationResult:
-    repository = repository or SqliteSummaryRepository(settings)
+    repository = repository or SqliteWorkerRepository(settings.stt_db_path)
     current_asset = asset or repository.get_asset(asset_id)
     if current_asset is None:
         raise KeyError(asset_id)

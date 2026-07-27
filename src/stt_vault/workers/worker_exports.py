@@ -12,7 +12,7 @@ from stt_vault.core.types import (
     TranscriptSegment,
     VisualEvent,
 )
-from stt_vault.persistence import db
+from stt_vault.persistence.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.exports import write_exports
 from stt_vault.processing.visual import (
     CommandRunner,
@@ -38,26 +38,10 @@ class ExportRepository(Protocol):
     ) -> None: ...
 
 
-class SqliteExportRepository:
-    def __init__(self, settings: Settings) -> None:
-        self.db_path = settings.stt_db_path
-
-    def update_stage(self, asset_id: str, stage: str) -> None:
-        db.update_stage(self.db_path, asset_id, stage)
-
-    def replace_visual_events(self, asset_id: str, events: list[VisualEvent]) -> None:
-        db.replace_visual_events(self.db_path, asset_id, events)
-
-    def add_event(
-        self, asset_id: str, level: str, stage: str, message: str, payload: EventPayload
-    ) -> None:
-        db.add_event(self.db_path, asset_id, level, stage, message, payload)
-
-
 class TranscriptExportStage:
     def __init__(self, settings: Settings, *, repository: ExportRepository | None = None) -> None:
         self.settings = settings
-        self.repository = repository or SqliteExportRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def write(
         self,
@@ -93,7 +77,7 @@ class VisualEventStage:
         self.settings = settings
         self.thumbnail_runner = thumbnail_runner
         self.thumbnail_extractor = thumbnail_extractor
-        self.repository = repository or SqliteExportRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def detect(self, asset_id: str, asset: AssetRecord) -> ExportPaths:
         if asset.get("media_type") != "video":

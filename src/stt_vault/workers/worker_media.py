@@ -5,7 +5,7 @@ from typing import Protocol
 from stt_vault.core.api_models import JsonValue
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, SpeakerSegment
-from stt_vault.persistence import db
+from stt_vault.persistence.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import DiarizerManager
 from stt_vault.processing.media import ffprobe_duration, to_wav_16k_mono
 
@@ -28,17 +28,6 @@ class MediaRepository(Protocol):
     ) -> None: ...
 
 
-class SqliteMediaRepository:
-    def __init__(self, settings: Settings) -> None:
-        self.db_path = settings.stt_db_path
-
-    def update_stage(self, asset_id: str, stage: str) -> None:
-        db.update_stage(self.db_path, asset_id, stage)
-
-    def update_diarization_metadata(self, asset_id: str, **metadata: object) -> None:
-        db.update_diarization_metadata(self.db_path, asset_id, **metadata)
-
-
 class MediaPreparationStage:
     def __init__(
         self,
@@ -51,7 +40,7 @@ class MediaPreparationStage:
         self.settings = settings
         self.probe_duration = probe_duration
         self.normalize_audio = normalize_audio
-        self.repository = repository or SqliteMediaRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def prepare(self, asset_id: str, asset: AssetRecord) -> tuple[Path, float]:
         original_path = Path(asset["original_path"])
@@ -73,7 +62,7 @@ class DiarizationStage:
     ) -> None:
         self.settings = settings
         self.diarizer = diarizer
-        self.repository = repository or SqliteMediaRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def diarize(self, asset_id: str, wav_path: Path, duration: float) -> PreparedAsset:
         self.repository.update_stage(asset_id, "identifying speakers")

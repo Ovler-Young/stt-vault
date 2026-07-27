@@ -4,6 +4,7 @@ from typing import Protocol
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, TranscriptSegment
+from stt_vault.persistence.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import match_speakers
 from stt_vault.processing.transcription import (
     Transcriber,
@@ -41,61 +42,12 @@ class TranscriptionRepository(Protocol):
     def update_progress(self, asset_id: str, **kwargs: int | None) -> None: ...
 
 
-class SqliteTranscriptionRepository:
-    def __init__(self, settings: Settings) -> None:
-        self.db_path = settings.stt_db_path
-
-    def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]:
-        from stt_vault.persistence import db
-
-        return db.list_transcript_chunks(self.db_path, asset_id)
-
-    def reset_transcript_chunks(self, asset_id: str) -> None:
-        from stt_vault.persistence import db
-
-        db.reset_transcript_chunks(self.db_path, asset_id)
-
-    def upsert_transcript_chunk(
-        self, asset_id: str, index: int, result: TranscriptSegment, *, attempts: int
-    ) -> None:
-        from stt_vault.persistence import db
-
-        db.upsert_transcript_chunk(self.db_path, asset_id, index, result, attempts=attempts)
-
-    def list_speakers(self) -> list[dict[str, object]]:
-        from stt_vault.persistence import db
-
-        return db.list_speakers(self.db_path)
-
-    def update_stage(self, asset_id: str, stage: str) -> None:
-        from stt_vault.persistence import db
-
-        db.update_stage(self.db_path, asset_id, stage)
-
-    def add_event(
-        self,
-        asset_id: str,
-        level: str,
-        stage: str,
-        message: str,
-        payload: dict[str, object] | None = None,
-    ) -> None:
-        from stt_vault.persistence import db
-
-        db.add_event(self.db_path, asset_id, level, stage, message, payload)
-
-    def update_progress(self, asset_id: str, **kwargs: int | None) -> None:
-        from stt_vault.persistence import db
-
-        db.update_progress(self.db_path, asset_id, **kwargs)
-
-
 class TranscriptChunkPersistence:
     def __init__(
         self, settings: Settings, repository: TranscriptionRepository | None = None
     ) -> None:
         self.settings = settings
-        self.repository = repository or SqliteTranscriptionRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def prepare_work(
         self, asset_id: str, prepared: PreparedAsset
@@ -140,7 +92,7 @@ class SpeakerReconciler:
         self, settings: Settings, repository: TranscriptionRepository | None = None
     ) -> None:
         self.settings = settings
-        self.repository = repository or SqliteTranscriptionRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def reconcile(
         self, prepared: PreparedAsset, segments: list[TranscriptSegment]
@@ -158,7 +110,7 @@ class TranscriptionProgressEvents:
         self, settings: Settings, repository: TranscriptionRepository | None = None
     ) -> None:
         self.settings = settings
-        self.repository = repository or SqliteTranscriptionRepository(settings)
+        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
 
     def start(self, asset_id: str, work: TranscriptionWork, *, plan_changed: bool) -> None:
         self.repository.update_stage(asset_id, "transcribing speech")
@@ -238,7 +190,7 @@ class TranscriptionStage:
     ) -> None:
         self.settings = settings
         self.transcriber_factory = transcriber_factory
-        repository = repository or SqliteTranscriptionRepository(settings)
+        repository = repository or SqliteWorkerRepository(settings.stt_db_path)
         self.chunk_persistence = chunk_persistence or TranscriptChunkPersistence(
             settings, repository
         )

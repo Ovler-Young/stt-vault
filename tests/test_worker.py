@@ -80,7 +80,7 @@ def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "stt_vault.workers.worker_completion.db.mark_success",
+        "stt_vault.persistence.worker_repository.db.mark_success",
         lambda _db_path, asset_id, **kwargs: calls.append(("asset-success", (asset_id, kwargs))),
     )
 

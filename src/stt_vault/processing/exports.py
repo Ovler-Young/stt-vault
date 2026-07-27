@@ -2,7 +2,7 @@ import html
 import json
 from pathlib import Path
 
-from stt_vault.core.types import SpeakerSegment, TranscriptSegment
+from stt_vault.core.types import ExportPaths, SpeakerSegment, TranscriptSegment
 
 
 def write_exports(
@@ -12,10 +12,10 @@ def write_exports(
     transcript_segments: list[TranscriptSegment],
     raw_segments: list[SpeakerSegment],
     formats: list[str],
-) -> dict[str, str]:
+) -> ExportPaths:
     target = export_dir / asset_id
     target.mkdir(parents=True, exist_ok=True)
-    outputs: dict[str, str] = {}
+    outputs: ExportPaths = {}
 
     if "json" in formats:
         path = target / "transcript.json"

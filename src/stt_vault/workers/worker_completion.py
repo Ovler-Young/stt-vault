@@ -1,9 +1,12 @@
 import logging
 from collections.abc import Callable
+from pathlib import Path
+from typing import Protocol
 
+from stt_vault.core.api_models import JsonValue
 from stt_vault.core.logging_config import job_log_context
 from stt_vault.core.settings import Settings
-from stt_vault.core.types import TranscriptSegment
+from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
 from stt_vault.persistence import db
 from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
 
@@ -13,21 +16,61 @@ logger = logging.getLogger(__name__)
 SummaryGenerator = Callable[[Settings, str], SummaryGenerationResult]
 
 
+class CompletionRepository(Protocol):
+    def mark_success(
+        self,
+        asset_id: str,
+        *,
+        wav_path: Path,
+        duration: float,
+        diarization_stats: dict[str, JsonValue],
+        raw_segments: list[SpeakerSegment],
+        merged_segments: list[SpeakerSegment],
+        speaker_centroids: dict[str, list[float]],
+        transcript_segments: list[TranscriptSegment],
+        exports: ExportPaths,
+    ) -> None: ...
+
+    def mark_partial(self, asset_id: str, error: ErrorRecord) -> None: ...
+
+    def add_event(
+        self, asset_id: str, level: str, stage: str, message: str, payload: ErrorRecord
+    ) -> None: ...
+
+
+class SqliteCompletionRepository:
+    def __init__(self, settings: Settings) -> None:
+        self.db_path = settings.stt_db_path
+
+    def mark_success(self, asset_id: str, **values: object) -> None:
+        db.mark_success(self.db_path, asset_id, **values)
+
+    def mark_partial(self, asset_id: str, error: ErrorRecord) -> None:
+        db.mark_partial(self.db_path, asset_id, error)
+
+    def add_event(
+        self, asset_id: str, level: str, stage: str, message: str, payload: ErrorRecord
+    ) -> None:
+        db.add_event(self.db_path, asset_id, level, stage, message, payload)
+
+
 class CompletionPersistence:
     """Persist terminal job state independently from optional post-processing."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, *, repository: CompletionRepository | None = None
+    ) -> None:
         self.settings = settings
+        self.repository = repository or SqliteCompletionRepository(settings)
 
     def persist_success(
         self,
         asset_id: str,
         prepared: PreparedAsset,
         transcript_segments: list[TranscriptSegment],
-        exports: dict[str, str],
+        exports: ExportPaths,
     ) -> None:
-        db.mark_success(
-            self.settings.stt_db_path,
+        self.repository.mark_success(
             asset_id,
             wav_path=prepared.wav_path,
             duration=prepared.duration,
@@ -44,11 +87,10 @@ class CompletionPersistence:
         asset_id: str,
         prepared: PreparedAsset,
         transcript_segments: list[TranscriptSegment],
-        exports: dict[str, str],
+        exports: ExportPaths,
     ) -> None:
         self.persist_success(asset_id, prepared, transcript_segments, exports)
-        db.mark_partial(
-            self.settings.stt_db_path,
+        self.repository.mark_partial(
             asset_id,
             {"category": "provider", "message": "Transcription could not complete"},
         )
@@ -58,10 +100,15 @@ class SummaryFollowup:
     """Run automatic summaries after completion without changing terminal job state."""
 
     def __init__(
-        self, settings: Settings, *, summary_generator: SummaryGenerator = generate_asset_summary
+        self,
+        settings: Settings,
+        *,
+        summary_generator: SummaryGenerator = generate_asset_summary,
+        repository: CompletionRepository | None = None,
     ) -> None:
         self.settings = settings
         self.summary_generator = summary_generator
+        self.repository = repository or SqliteCompletionRepository(settings)
 
     def generate(self, asset_id: str) -> None:
         try:
@@ -74,8 +121,7 @@ class SummaryFollowup:
                     "event_name": "worker.summary_generation_failed",
                 },
             )
-            db.add_event(
-                self.settings.stt_db_path,
+            self.repository.add_event(
                 asset_id,
                 "warning",
                 "summarizing content",
@@ -103,7 +149,7 @@ class CompletionStage:
         asset_id: str,
         prepared: PreparedAsset,
         transcript_segments: list[TranscriptSegment],
-        exports: dict[str, str],
+        exports: ExportPaths,
     ) -> None:
         self.persistence.persist_success(asset_id, prepared, transcript_segments, exports)
         self.summary_followup.generate(asset_id)
@@ -113,7 +159,7 @@ class CompletionStage:
         asset_id: str,
         prepared: PreparedAsset,
         transcript_segments: list[TranscriptSegment],
-        exports: dict[str, str],
+        exports: ExportPaths,
         _error: Exception,
     ) -> None:
         self.persistence.persist_partial(asset_id, prepared, transcript_segments, exports)

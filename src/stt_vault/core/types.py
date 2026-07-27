@@ -8,6 +8,21 @@ class ErrorRecord(TypedDict, total=False):
     message: str
 
 
+class EventPayload(ErrorRecord, total=False):
+    cause: str
+
+
+class ExportPaths(TypedDict, total=False):
+    json: str
+    whisper_json: str
+    ai_text: str
+    srt: str
+    vtt: str
+    hyperaudio_html: str
+    rttm: str
+    visual_events: str
+
+
 class SpeakerSegment(TypedDict):
     start: float
     end: float
@@ -65,7 +80,7 @@ class AssetRecord(TypedDict, total=False):
     updated_at: int
     error: ErrorRecord | None
     diarization_stats: dict[str, JsonValue] | None
-    exports: dict[str, str]
+    exports: ExportPaths
     raw_segments: list[SpeakerSegment]
     merged_segments: list[SpeakerSegment]
     transcript_segments: list[TranscriptSegment]

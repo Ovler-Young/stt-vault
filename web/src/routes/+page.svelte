@@ -24,9 +24,8 @@
     moveAsset,
     moveFolder,
     renameFolder,
-    uploadAsset,
-    uploadAssetBatch,
   } from "$lib/api-endpoints";
+  import { uploadAsset, uploadAssetBatch } from "$lib/api/uploads";
   import { formatDate, formatRecordedAt, formatTime } from "$lib/format";
   import { hasActivePolling } from "$lib/polling";
   import FolderSidebar from "./components/FolderSidebar.svelte";

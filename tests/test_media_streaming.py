@@ -62,6 +62,7 @@ def test_stream_process_stdout_logs_bounded_failure_diagnostics(caplog) -> None:
         record for record in caplog.records if record.message == "media streaming process failed"
     )
     assert record.return_code == 1
+    assert record.event_name == "media.stream_failed"
     assert record.command == "ffmpeg"
     assert "secret" not in record.stderr
     assert "[redacted]" in record.stderr

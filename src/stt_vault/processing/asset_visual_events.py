@@ -3,7 +3,7 @@ from pathlib import Path
 
 from stt_vault.core.logging_config import job_log_context
 from stt_vault.core.settings import Settings
-from stt_vault.core.types import AssetRecord, VisualEvent
+from stt_vault.core.types import AssetRecord, ExportPaths, VisualEvent
 from stt_vault.persistence import db
 
 from .visual import (
@@ -44,7 +44,7 @@ def detect_asset_visual_events(
             runner=thumbnail_runner,
             extractor=thumbnail_extractor,
         )
-        exports = dict(asset.get("exports") or {})
+        exports: ExportPaths = dict(asset.get("exports") or {})
         exports["visual_events"] = write_visual_events_export(
             settings.exports_dir, asset["id"], events
         )

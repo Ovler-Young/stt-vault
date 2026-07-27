@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from stt_vault.core.api_models import AssetResponse, JsonValue
-from stt_vault.core.types import AssetRecord, CleanupTask, SpeakerSegment
+from stt_vault.core.types import AssetRecord, CleanupTask, ExportPaths, SpeakerSegment
 from stt_vault.processing.ai_content import is_local_speaker_label, is_usable_speaker_name
 
 from .db_connection import connect, now, row_to_dict, transaction
@@ -156,7 +156,7 @@ def update_diarization_metadata(
         )
 
 
-def update_asset_exports(db_path: Path, asset_id: str, exports: dict[str, str]) -> None:
+def update_asset_exports(db_path: Path, asset_id: str, exports: ExportPaths) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
         conn.execute(

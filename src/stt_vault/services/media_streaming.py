@@ -43,6 +43,7 @@ def stream_process_stdout(
             logger.error(
                 "media streaming process failed",
                 extra={
+                    "event_name": "media.stream_failed",
                     "asset_id": asset_id,
                     "job_id": None,
                     "return_code": return_code,

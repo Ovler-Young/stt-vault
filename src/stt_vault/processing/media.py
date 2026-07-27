@@ -43,22 +43,25 @@ def asset_dir(data_media_dir: Path, asset_id: str) -> Path:
     return data_media_dir / asset_id
 
 
-def store_upload(data_media_dir: Path, filename: str, source_path: Path) -> tuple[str, Path, str]:
+def upload_destination(data_media_dir: Path, filename: str) -> tuple[str, Path, Path, str]:
     asset_id = new_asset_id()
     target_dir = asset_dir(data_media_dir, asset_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
     stored_path = target_dir / safe_filename(filename)
+    return asset_id, target_dir, stored_path, media_type_for_filename(filename)
+
+
+def store_upload(data_media_dir: Path, filename: str, source_path: Path) -> tuple[str, Path, str]:
+    asset_id, target_dir, stored_path, media_type = upload_destination(data_media_dir, filename)
+    target_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source_path, stored_path)
-    return asset_id, stored_path, media_type_for_filename(filename)
+    return asset_id, stored_path, media_type
 
 
 def move_upload(data_media_dir: Path, filename: str, source_path: Path) -> tuple[str, Path, str]:
-    asset_id = new_asset_id()
-    target_dir = asset_dir(data_media_dir, asset_id)
+    asset_id, target_dir, stored_path, media_type = upload_destination(data_media_dir, filename)
     target_dir.mkdir(parents=True, exist_ok=True)
-    stored_path = target_dir / safe_filename(filename)
     source_path.replace(stored_path)
-    return asset_id, stored_path, media_type_for_filename(filename)
+    return asset_id, stored_path, media_type
 
 
 def ffprobe_duration(input_path: Path, *, runner: CommandRunner = subprocess.run) -> float:

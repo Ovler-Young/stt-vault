@@ -102,8 +102,9 @@ docker compose logs --tail=200 stt-vault
 docker compose exec stt-vault python -c 'import os, sqlite3; connection = sqlite3.connect(os.environ["STT_DB_PATH"]); print(*connection.execute("SELECT level, stage, message, created_at FROM job_events ORDER BY id DESC LIMIT 50"), sep="\\n")'
 ```
 
-Log records include `asset_id`, `job_id`, process return codes, and bounded diagnostics. Credentials
-and filesystem paths are redacted. The API and database retain only categorized user-facing failures.
+Log records include stable `event_name` values such as `media.stream_failed`, `asset_id`, `job_id`,
+process return codes, and bounded diagnostics. Credentials and filesystem paths are redacted. The API
+and database retain only categorized user-facing failures.
 
 ## Development
 
@@ -136,9 +137,9 @@ backend test suite are the configured backend quality checks.
 
 ## Architecture
 
-- `core/app.py` creates the FastAPI application, owns service lifetime, and registers route groups from `routes/`: system/auth, assets, uploads, folders, speakers, media, visual events, and asset-speaker actions. `core/` also contains settings, logging, diagnostics, shared types, authentication, and API request/response models.
+- `core/app.py` composes the FastAPI application, configures its lifecycle, and registers route groups from `routes/`. `core/` owns settings, logging, diagnostics, shared types, authentication, and API request/response models. Route modules own HTTP parsing and response contracts.
 - `workers/worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `workers/worker_media.py`, `workers/worker_transcription.py`, `workers/worker_exports.py`, and `workers/worker_completion.py` own the stage boundaries.
-- `persistence/` owns SQLite connection, schema, and repositories. `processing/` contains media, diarization, transcription, visual, export, summary, and content analysis behavior. `services/` owns upload-session, media-streaming, and speaker services.
+- `persistence/` owns SQLite connection, schema, and repositories. `processing/` owns media, diarization, transcription, visual detection, export rendering, summary, and content analysis. `services/` owns upload-session coordination, media-stream process handling, and speaker operations. `web/src/lib/api-endpoints.ts` owns ordinary frontend endpoint wrappers; `web/src/lib/api/uploads.ts` owns upload-session and chunk transfer behavior.
 - `web/src/routes/` contains SvelteKit pages. The asset-detail page composes media, transcript, foldout, summary, and speaker components; playback navigation is isolated in its controller. Shared API types and UI utilities are in `web/src/lib/`.
 
 ## Notes

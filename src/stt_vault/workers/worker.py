@@ -7,7 +7,7 @@ from typing import Protocol
 from stt_vault.core.logging_config import job_log_context
 from stt_vault.core.process_diagnostics import format_diagnostic_text
 from stt_vault.core.settings import Settings
-from stt_vault.core.types import AssetRecord, ErrorRecord, TranscriptSegment
+from stt_vault.core.types import AssetRecord, ErrorRecord, ExportPaths, TranscriptSegment
 from stt_vault.processing.diarization import DiarizerManager
 
 from .worker_completion import CompletionStage
@@ -188,7 +188,7 @@ class Worker:
         segments: list[TranscriptSegment],
         *,
         partial: bool,
-    ) -> dict[str, str]:
+    ) -> ExportPaths:
         exports = self.transcript_exports.write(
             asset_id, asset, prepared, segments, partial=partial
         )

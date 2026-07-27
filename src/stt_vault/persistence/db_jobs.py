@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from stt_vault.core.api_models import EventResponse, JobResponse
+from stt_vault.core.api_models import EventResponse, JobResponse, JsonValue
 from stt_vault.core.process_diagnostics import format_diagnostic_text
+from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
 
 from .db_connection import connect, decode_record, now, transaction
 
@@ -177,7 +178,7 @@ def add_event(
     level: str,
     stage: str | None,
     message: str,
-    payload: dict[str, Any] | None = None,
+    payload: dict[str, JsonValue] | None = None,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -244,7 +245,7 @@ def list_current_run_events(
     return _decode_events(rows)
 
 
-def mark_failed(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
+def mark_failed(db_path: Path, asset_id: str, error: ErrorRecord) -> None:
     error = _persisted_error_record(error)
     payload = json.dumps(error)
     timestamp = now()
@@ -265,7 +266,7 @@ def mark_failed(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
     add_event(db_path, asset_id, "error", "failed", error.get("message", "Job failed"), error)
 
 
-def mark_partial(db_path: Path, asset_id: str, error: dict[str, Any]) -> None:
+def mark_partial(db_path: Path, asset_id: str, error: ErrorRecord) -> None:
     error = _persisted_error_record(error)
     payload = json.dumps(error)
     timestamp = now()
@@ -299,12 +300,12 @@ def mark_success(
     *,
     wav_path: Path,
     duration: float,
-    diarization_stats: dict[str, Any],
-    raw_segments: list[dict[str, Any]],
-    merged_segments: list[dict[str, Any]],
+    diarization_stats: dict[str, JsonValue],
+    raw_segments: list[SpeakerSegment],
+    merged_segments: list[SpeakerSegment],
     speaker_centroids: dict[str, list[float]],
-    transcript_segments: list[dict[str, Any]],
-    exports: dict[str, str],
+    transcript_segments: list[TranscriptSegment],
+    exports: ExportPaths,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -376,7 +377,7 @@ def _parse_lease_expiration(value: Any) -> int | None:
         return None
 
 
-def _persisted_error_record(error: dict[str, Any]) -> dict[str, str]:
+def _persisted_error_record(error: ErrorRecord) -> ErrorRecord:
     """Persist only a bounded, redacted failure category and message."""
     category = error.get("category")
     if not isinstance(category, str) or not category:

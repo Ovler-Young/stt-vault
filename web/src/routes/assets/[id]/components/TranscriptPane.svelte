@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TranscriptSegment } from "$lib/api";
+  import type { TranscriptSegment } from "$lib/api-types";
   import { formatTime } from "$lib/format";
   import {
     activeTranscriptSegmentIndex,

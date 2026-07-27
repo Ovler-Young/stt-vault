@@ -10,11 +10,65 @@ from pydantic import ValidationError
 from stt_vault.core.api_models import DiarizationResult
 from stt_vault.core.logging_config import StructuredFormatter
 from stt_vault.processing.diarization import DiarizerManager
+from stt_vault.processing.summary_service import generate_asset_summary
 from stt_vault.workers.worker import Worker
 from stt_vault.workers.worker_completion import CompletionStage
 from stt_vault.workers.worker_exports import VisualEventStage
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.workers.worker_transcription import TranscriptionStage
+
+
+def test_summary_generation_uses_injected_repository() -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeRepository:
+        def get_asset(self, asset_id: str):
+            calls.append(("get", asset_id))
+            return {
+                "status": "success",
+                "transcript_segments": [
+                    {"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00", "text": "Hello"}
+                ],
+            }
+
+        def update_asset_summary(self, asset_id: str, **kwargs):
+            calls.append(("summary", (asset_id, kwargs)))
+
+        def apply_ai_speaker_names(self, asset_id: str, speaker_names: dict[str, str]):
+            calls.append(("speakers", (asset_id, speaker_names)))
+            return speaker_names
+
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=(
+                                '{"title":"Hello","content_summary":"Greeting","highlights":[]}'
+                            )
+                        )
+                    )
+                ]
+            )
+
+    settings = SimpleNamespace(
+        openai_speaker_name_confidence=0.9,
+        openai_api_key="",
+        openai_base_url="",
+        openai_summary_model="model",
+    )
+    result = generate_asset_summary(
+        settings,
+        "asset-1",
+        repository=FakeRepository(),
+        client_factory=lambda **_kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=FakeCompletions())
+        ),
+    )
+
+    assert result["title"] == "Hello"
+    assert [name for name, _payload in calls] == ["get", "summary", "speakers", "summary"]
 
 
 def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
@@ -25,7 +79,7 @@ def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "stt_vault.workers.worker.db.mark_success",
+        "stt_vault.workers.worker_completion.db.mark_success",
         lambda _db_path, asset_id, **kwargs: calls.append(("asset-success", (asset_id, kwargs))),
     )
 
@@ -114,17 +168,13 @@ def test_worker_process_asset_orchestrates_stage_services(monkeypatch, tmp_path:
     worker.completion = SimpleNamespace(
         complete=lambda asset_id, stage_prepared, segments, exports: calls.append("complete")
     )
-    monkeypatch.setattr(
-        "stt_vault.workers.worker.db.get_asset",
-        lambda _db_path, _asset_id: {
+    worker.repository = SimpleNamespace(
+        get_asset=lambda _asset_id: {
             "id": "asset-1",
             "filename": "clip.wav",
             "original_path": str(tmp_path / "clip.wav"),
         },
-    )
-    monkeypatch.setattr(
-        "stt_vault.workers.worker.db.list_transcript_chunks",
-        lambda _db_path, _asset_id: [],
+        list_transcript_chunks=lambda _asset_id: [],
     )
 
     worker.process_asset("asset-1")
@@ -169,6 +219,7 @@ def test_worker_uses_named_injected_stage_factories() -> None:
             calls.append("completion"),
             completion_stage,
         )[1],
+        repository=SimpleNamespace(),
     )
 
     assert calls == [
@@ -371,6 +422,7 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
         chunk_persistence=FakeChunkPersistence(),
         speaker_reconciler=FakeSpeakerReconciler(),
         progress_events=FakeProgressEvents(),
+        repository=SimpleNamespace(),
     )
 
     segments, error = stage.transcribe(

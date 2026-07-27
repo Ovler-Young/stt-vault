@@ -1,15 +1,16 @@
 import html
 import json
 from pathlib import Path
-from typing import Any
+
+from stt_vault.core.types import SpeakerSegment, TranscriptSegment
 
 
 def write_exports(
     export_dir: Path,
     asset_id: str,
     filename: str,
-    transcript_segments: list[dict[str, Any]],
-    raw_segments: list[dict[str, Any]],
+    transcript_segments: list[TranscriptSegment],
+    raw_segments: list[SpeakerSegment],
     formats: list[str],
 ) -> dict[str, str]:
     target = export_dir / asset_id
@@ -68,7 +69,7 @@ def write_exports(
     return outputs
 
 
-def to_srt(segments: list[dict[str, Any]]) -> str:
+def to_srt(segments: list[TranscriptSegment]) -> str:
     blocks = []
     for index, segment in enumerate(segments, start=1):
         speaker = segment.get("speaker_name") or segment["speaker"]
@@ -84,7 +85,7 @@ def to_srt(segments: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks) + "\n"
 
 
-def to_ai_text(segments: list[dict[str, Any]]) -> str:
+def to_ai_text(segments: list[TranscriptSegment]) -> str:
     blocks = []
     for segment in segments:
         speaker = segment.get("speaker_name") or segment["speaker"]
@@ -96,7 +97,7 @@ def to_ai_text(segments: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks) + "\n"
 
 
-def to_vtt(segments: list[dict[str, Any]]) -> str:
+def to_vtt(segments: list[TranscriptSegment]) -> str:
     lines = ["WEBVTT", ""]
     for segment in segments:
         speaker = segment.get("speaker_name") or segment["speaker"]
@@ -110,7 +111,7 @@ def to_vtt(segments: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def to_hyperaudio_html(filename: str, segments: list[dict[str, Any]]) -> str:
+def to_hyperaudio_html(filename: str, segments: list[TranscriptSegment]) -> str:
     body = []
     for segment in segments:
         speaker = html.escape(segment.get("speaker_name") or segment["speaker"])
@@ -139,7 +140,7 @@ def to_hyperaudio_html(filename: str, segments: list[dict[str, Any]]) -> str:
     )
 
 
-def to_rttm(asset_id: str, segments: list[dict[str, Any]]) -> str:
+def to_rttm(asset_id: str, segments: list[SpeakerSegment]) -> str:
     lines = []
     for segment in segments:
         start = float(segment["start"])

@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from "$lib/api";
+import type { TranscriptSegment } from "$lib/api-types";
 
 export type TimelineRow = "zoom" | "full";
 

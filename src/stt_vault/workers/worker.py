@@ -2,12 +2,12 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable
+from typing import Protocol
 
 from stt_vault.core.logging_config import job_log_context
 from stt_vault.core.process_diagnostics import format_diagnostic_text
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, ErrorRecord, TranscriptSegment
-from stt_vault.persistence import db
 from stt_vault.processing.diarization import DiarizerManager
 
 from .worker_completion import CompletionStage
@@ -18,6 +18,50 @@ from .worker_transcription import TranscriptionStage
 from .worker_workspace import ProcessingWorkspace
 
 logger = logging.getLogger(__name__)
+
+
+class WorkerRepository(Protocol):
+    """Database operations used by job orchestration."""
+
+    def claim_next_job(self, owner: str, lease_seconds: int) -> str | None: ...
+
+    def renew_job_claim(self, asset_id: str, owner: str, lease_seconds: int) -> bool: ...
+
+    def mark_failed(self, asset_id: str, error: ErrorRecord) -> None: ...
+
+    def get_asset(self, asset_id: str) -> AssetRecord | None: ...
+
+    def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]: ...
+
+
+class SqliteWorkerRepository:
+    def __init__(self, settings: Settings) -> None:
+        self.db_path = settings.stt_db_path
+
+    def claim_next_job(self, owner: str, lease_seconds: int) -> str | None:
+        from stt_vault.persistence import db
+
+        return db.claim_next_job(self.db_path, owner, lease_seconds)
+
+    def renew_job_claim(self, asset_id: str, owner: str, lease_seconds: int) -> bool:
+        from stt_vault.persistence import db
+
+        return db.renew_job_claim(self.db_path, asset_id, owner, lease_seconds)
+
+    def mark_failed(self, asset_id: str, error: ErrorRecord) -> None:
+        from stt_vault.persistence import db
+
+        db.mark_failed(self.db_path, asset_id, error)
+
+    def get_asset(self, asset_id: str) -> AssetRecord | None:
+        from stt_vault.persistence import db
+
+        return db.get_asset(self.db_path, asset_id)
+
+    def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]:
+        from stt_vault.persistence import db
+
+        return db.list_transcript_chunks(self.db_path, asset_id)
 
 
 def create_diarizer(settings: Settings) -> DiarizerManager:
@@ -47,8 +91,10 @@ class Worker:
             [Settings], TranscriptExportStage
         ] = TranscriptExportStage,
         completion_stage_factory: Callable[[Settings], CompletionStage] = CompletionStage,
+        repository: WorkerRepository | None = None,
     ) -> None:
         self.settings = settings
+        self.repository = repository or SqliteWorkerRepository(settings)
         self.stop_event = threading.Event()
         self.claim_owner = uuid.uuid4().hex
         self.thread = threading.Thread(target=self.run, name="stt-vault-worker", daemon=True)
@@ -69,10 +115,8 @@ class Worker:
 
     def run(self) -> None:
         while not self.stop_event.is_set():
-            asset_id = db.claim_next_job(
-                self.settings.stt_db_path,
-                self.claim_owner,
-                self.settings.job_lease_seconds,
+            asset_id = self.repository.claim_next_job(
+                self.claim_owner, self.settings.job_lease_seconds
             )
             if asset_id is None:
                 self.diarizer.maybe_unload()
@@ -97,11 +141,7 @@ class Worker:
                         "event_name": "worker.job_failed",
                     },
                 )
-                db.mark_failed(
-                    self.settings.stt_db_path,
-                    asset_id,
-                    _failure_record(self.settings, asset_id, exc),
-                )
+                self.repository.mark_failed(asset_id, _failure_record(self.settings, asset_id, exc))
             finally:
                 claim_stop_event.set()
                 claim_renewer.join()
@@ -109,16 +149,13 @@ class Worker:
     def _renew_claim_until_complete(self, asset_id: str, stop_event: threading.Event) -> None:
         interval_seconds = max(1, self.settings.job_lease_seconds // 3)
         while not stop_event.wait(interval_seconds):
-            if not db.renew_job_claim(
-                self.settings.stt_db_path,
-                asset_id,
-                self.claim_owner,
-                self.settings.job_lease_seconds,
+            if not self.repository.renew_job_claim(
+                asset_id, self.claim_owner, self.settings.job_lease_seconds
             ):
                 return
 
     def process_asset(self, asset_id: str) -> None:
-        asset = db.get_asset(self.settings.stt_db_path, asset_id)
+        asset = self.repository.get_asset(asset_id)
         if asset is None:
             return
         with ProcessingWorkspace(self.settings.tmp_dir, asset_id) as work_dir:
@@ -136,7 +173,7 @@ class Worker:
                 )
                 return
 
-            persisted_segments = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+            persisted_segments = self.repository.list_transcript_chunks(asset_id)
             completed_segments = persisted_segments or transcript_segments
             exports = self._write_exports(
                 asset_id, asset, prepared, completed_segments, partial=False

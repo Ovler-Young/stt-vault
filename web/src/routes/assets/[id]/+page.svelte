@@ -2,6 +2,11 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { page } from "$app/stores";
   import {
+    type AudioTrack,
+    type AssetDetail,
+    type TranscriptSegment,
+  } from "$lib/api-types";
+  import {
     deleteAsset,
     detectAssetVisualEvents,
     fetchAsset,
@@ -9,10 +14,7 @@
     recomputeAssetSpeakers,
     retryAsset,
     saveAssetSpeaker,
-    type AudioTrack,
-    type AssetDetail,
-    type TranscriptSegment,
-  } from "$lib/api";
+  } from "$lib/api-endpoints";
   import { localSpeakerRows, segmentMediaStart } from "./asset-page.helpers";
   import { needsActivePolling } from "$lib/polling";
   import {

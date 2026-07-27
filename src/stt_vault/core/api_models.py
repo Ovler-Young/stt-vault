@@ -62,6 +62,16 @@ class VisualEventResponse(DatabaseRecord):
     created_at: int
 
 
+class UploadSessionResponse(DatabaseRecord):
+    id: str
+    filename: str
+    total_size: int
+    offset: int
+    temp_path: str
+    created_at: int
+    updated_at: int
+
+
 class AssetResponse(DatabaseRecord):
     id: str
     filename: str

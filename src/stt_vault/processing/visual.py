@@ -78,6 +78,7 @@ def detect_slide_changes(
     frame_index = 0
     last_event_at = -min_gap_seconds
     diagnostics, stderr_thread = start_stderr_drain(process)
+    return_code: int | None = None
     try:
         while True:
             frame = process.stdout.read(FRAME_BYTES)
@@ -102,12 +103,18 @@ def detect_slide_changes(
             previous = frame
             frame_index += 1
     finally:
-        process.stdout.close()
-
-    return_code = process.wait()
-    stderr_thread.join()
-    if process.stderr is not None:
-        process.stderr.close()
+        try:
+            process.stdout.close()
+        finally:
+            try:
+                return_code = process.wait()
+            finally:
+                try:
+                    stderr_thread.join()
+                finally:
+                    if process.stderr is not None:
+                        process.stderr.close()
+    assert return_code is not None
     if return_code != 0:
         logger.error(
             "ffmpeg slide-change extraction failed",

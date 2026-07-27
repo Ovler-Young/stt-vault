@@ -34,6 +34,11 @@ class VisualEvent(TypedDict):
     kind: str
 
 
+class PersistedVisualEvent(VisualEvent):
+    event_index: int
+    created_at: int
+
+
 class SpeakerMatch(TypedDict):
     speaker_id: str
     display_name: str

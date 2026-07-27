@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, TranscriptSegment
-from stt_vault.persistence import db
 from stt_vault.processing.diarization import match_speakers
 from stt_vault.processing.transcription import (
     Transcriber,
@@ -16,9 +16,86 @@ from .worker_models import PreparedAsset, TranscriptionWork, apply_speaker_names
 TranscriberFactory = Callable[..., Transcriber]
 
 
-class TranscriptChunkPersistence:
+class TranscriptionRepository(Protocol):
+    def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]: ...
+
+    def reset_transcript_chunks(self, asset_id: str) -> None: ...
+
+    def upsert_transcript_chunk(
+        self, asset_id: str, index: int, result: TranscriptSegment, *, attempts: int
+    ) -> None: ...
+
+    def list_speakers(self) -> list[dict[str, object]]: ...
+
+    def update_stage(self, asset_id: str, stage: str) -> None: ...
+
+    def add_event(
+        self,
+        asset_id: str,
+        level: str,
+        stage: str,
+        message: str,
+        payload: dict[str, object] | None = None,
+    ) -> None: ...
+
+    def update_progress(self, asset_id: str, **kwargs: int | None) -> None: ...
+
+
+class SqliteTranscriptionRepository:
     def __init__(self, settings: Settings) -> None:
+        self.db_path = settings.stt_db_path
+
+    def list_transcript_chunks(self, asset_id: str) -> list[TranscriptSegment]:
+        from stt_vault.persistence import db
+
+        return db.list_transcript_chunks(self.db_path, asset_id)
+
+    def reset_transcript_chunks(self, asset_id: str) -> None:
+        from stt_vault.persistence import db
+
+        db.reset_transcript_chunks(self.db_path, asset_id)
+
+    def upsert_transcript_chunk(
+        self, asset_id: str, index: int, result: TranscriptSegment, *, attempts: int
+    ) -> None:
+        from stt_vault.persistence import db
+
+        db.upsert_transcript_chunk(self.db_path, asset_id, index, result, attempts=attempts)
+
+    def list_speakers(self) -> list[dict[str, object]]:
+        from stt_vault.persistence import db
+
+        return db.list_speakers(self.db_path)
+
+    def update_stage(self, asset_id: str, stage: str) -> None:
+        from stt_vault.persistence import db
+
+        db.update_stage(self.db_path, asset_id, stage)
+
+    def add_event(
+        self,
+        asset_id: str,
+        level: str,
+        stage: str,
+        message: str,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        from stt_vault.persistence import db
+
+        db.add_event(self.db_path, asset_id, level, stage, message, payload)
+
+    def update_progress(self, asset_id: str, **kwargs: int | None) -> None:
+        from stt_vault.persistence import db
+
+        db.update_progress(self.db_path, asset_id, **kwargs)
+
+
+class TranscriptChunkPersistence:
+    def __init__(
+        self, settings: Settings, repository: TranscriptionRepository | None = None
+    ) -> None:
         self.settings = settings
+        self.repository = repository or SqliteTranscriptionRepository(settings)
 
     def prepare_work(
         self, asset_id: str, prepared: PreparedAsset
@@ -27,10 +104,10 @@ class TranscriptChunkPersistence:
             {"raw_segments": prepared.raw_segments},
             max_seconds=self.settings.transcribe_chunk_seconds,
         )
-        existing_chunks = db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+        existing_chunks = self.repository.list_transcript_chunks(asset_id)
         plan_changed = False
         if existing_chunks and not transcript_chunks_match_plan(existing_chunks, chunks):
-            db.reset_transcript_chunks(self.settings.stt_db_path, asset_id)
+            self.repository.reset_transcript_chunks(asset_id)
             existing_chunks = []
             plan_changed = True
         completed_indexes = {
@@ -50,49 +127,49 @@ class TranscriptChunkPersistence:
         )
 
     def save_success(self, asset_id: str, index: int, result: TranscriptSegment) -> None:
-        db.upsert_transcript_chunk(
-            self.settings.stt_db_path,
-            asset_id,
-            index,
-            result,
-            attempts=int(result.get("attempts", 1)),
+        self.repository.upsert_transcript_chunk(
+            asset_id, index, result, attempts=int(result.get("attempts", 1))
         )
 
     def recorded_segments(self, asset_id: str) -> list[TranscriptSegment]:
-        return db.list_transcript_chunks(self.settings.stt_db_path, asset_id)
+        return self.repository.list_transcript_chunks(asset_id)
 
 
 class SpeakerReconciler:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, repository: TranscriptionRepository | None = None
+    ) -> None:
         self.settings = settings
+        self.repository = repository or SqliteTranscriptionRepository(settings)
 
     def reconcile(
         self, prepared: PreparedAsset, segments: list[TranscriptSegment]
     ) -> list[TranscriptSegment]:
         matches = match_speakers(
             prepared.speaker_centroids,
-            db.list_speakers(self.settings.stt_db_path),
+            self.repository.list_speakers(),
             self.settings.speaker_similarity_threshold,
         )
         return apply_speaker_names(segments, matches)
 
 
 class TranscriptionProgressEvents:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, repository: TranscriptionRepository | None = None
+    ) -> None:
         self.settings = settings
+        self.repository = repository or SqliteTranscriptionRepository(settings)
 
     def start(self, asset_id: str, work: TranscriptionWork, *, plan_changed: bool) -> None:
-        db.update_stage(self.settings.stt_db_path, asset_id, "transcribing speech")
+        self.repository.update_stage(asset_id, "transcribing speech")
         if plan_changed:
-            db.add_event(
-                self.settings.stt_db_path,
+            self.repository.add_event(
                 asset_id,
                 "info",
                 "transcribing speech",
                 "Transcript chunk plan changed; restarting transcription",
             )
-        db.update_progress(
-            self.settings.stt_db_path,
+        self.repository.update_progress(
             asset_id,
             total_chunks=len(work.chunks),
             done_chunks=work.completed_chunks,
@@ -100,15 +177,13 @@ class TranscriptionProgressEvents:
 
     def record_success(self, asset_id: str, work: TranscriptionWork, index: int) -> None:
         work.completed_chunks += 1
-        db.update_progress(
-            self.settings.stt_db_path,
+        self.repository.update_progress(
             asset_id,
             done_chunks=work.completed_chunks,
             failed_chunks=work.failed_chunks,
             next_retry_at=None,
         )
-        db.add_event(
-            self.settings.stt_db_path,
+        self.repository.add_event(
             asset_id,
             "info",
             "transcribing speech",
@@ -126,14 +201,12 @@ class TranscriptionProgressEvents:
         retry_at: int,
     ) -> None:
         work.failed_chunks += 1
-        db.update_progress(
-            self.settings.stt_db_path,
+        self.repository.update_progress(
             asset_id,
             failed_chunks=work.failed_chunks,
             next_retry_at=retry_at,
         )
-        db.add_event(
-            self.settings.stt_db_path,
+        self.repository.add_event(
             asset_id,
             "warning",
             "transcribing speech",
@@ -161,12 +234,16 @@ class TranscriptionStage:
         chunk_persistence: TranscriptChunkPersistence | None = None,
         speaker_reconciler: SpeakerReconciler | None = None,
         progress_events: TranscriptionProgressEvents | None = None,
+        repository: TranscriptionRepository | None = None,
     ) -> None:
         self.settings = settings
         self.transcriber_factory = transcriber_factory
-        self.chunk_persistence = chunk_persistence or TranscriptChunkPersistence(settings)
-        self.speaker_reconciler = speaker_reconciler or SpeakerReconciler(settings)
-        self.progress_events = progress_events or TranscriptionProgressEvents(settings)
+        repository = repository or SqliteTranscriptionRepository(settings)
+        self.chunk_persistence = chunk_persistence or TranscriptChunkPersistence(
+            settings, repository
+        )
+        self.speaker_reconciler = speaker_reconciler or SpeakerReconciler(settings, repository)
+        self.progress_events = progress_events or TranscriptionProgressEvents(settings, repository)
 
     def transcribe(
         self, asset_id: str, asset: AssetRecord, prepared: PreparedAsset, work_dir: Path

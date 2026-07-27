@@ -638,6 +638,35 @@ def test_visual_events_replace_rows_and_appear_in_asset_aggregate(tmp_path: Path
     assert asset["visual_events"] == replaced_events
 
 
+def test_persistence_boundaries_reject_malformed_upload_and_visual_event_rows(
+    tmp_path: Path,
+) -> None:
+    db_path = initialized_db(tmp_path)
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
+    with db.transaction(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO upload_sessions (
+                id, filename, total_size, offset, temp_path, created_at, updated_at
+            )
+            VALUES ('upload-1', 'clip.wav', 'not-a-size', 0, '/tmp/upload.part', 1, 1)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO asset_visual_events (
+                asset_id, event_index, timestamp, score, kind, created_at
+            )
+            VALUES ('asset-1', 0, 'not-a-time', 0.2, 'slide_change', 1)
+            """
+        )
+
+    with pytest.raises(ValidationError):
+        db.get_upload_session(db_path, "upload-1")
+    with pytest.raises(ValidationError):
+        db.list_visual_events(db_path, "asset-1")
+
+
 def test_job_claim_recovery_preserves_valid_lease_and_requeues_expired_claim(
     tmp_path: Path,
 ) -> None:

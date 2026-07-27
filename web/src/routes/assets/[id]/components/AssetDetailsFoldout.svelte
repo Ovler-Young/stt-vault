@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AssetDetail } from "$lib/api";
+  import type { AssetDetail } from "$lib/api-types";
   import { formatDate } from "$lib/format";
   import { formatStatValue } from "../asset-page.helpers";
   import FoldoutPanel from "./FoldoutPanel.svelte";

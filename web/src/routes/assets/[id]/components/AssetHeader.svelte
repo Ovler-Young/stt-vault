@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AssetDetail } from "$lib/api";
+  import type { AssetDetail } from "$lib/api-types";
   import { formatTime } from "$lib/format";
   import { progressText } from "../asset-page.helpers";
   import type { MaybePromise } from "../asset-page.types";

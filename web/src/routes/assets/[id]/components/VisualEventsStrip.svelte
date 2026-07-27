@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { VisualEvent } from "$lib/api";
+  import type { VisualEvent } from "$lib/api-types";
   import { formatTime } from "$lib/format";
   import { activeVisualEventIndex, thumbnailUrl } from "../asset-page.helpers";
   import type { MaybePromise } from "../asset-page.types";

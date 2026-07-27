@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import Any
+
+from stt_vault.core.api_models import VisualEventResponse
+from stt_vault.core.types import PersistedVisualEvent, VisualEvent
 
 from .db_connection import connect, decode_record, now, transaction
 
@@ -7,7 +9,7 @@ from .db_connection import connect, decode_record, now, transaction
 def replace_visual_events(
     db_path: Path,
     asset_id: str,
-    events: list[dict[str, Any]],
+    events: list[VisualEvent],
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:
@@ -33,7 +35,7 @@ def replace_visual_events(
         )
 
 
-def list_visual_events(db_path: Path, asset_id: str) -> list[dict[str, Any]]:
+def list_visual_events(db_path: Path, asset_id: str) -> list[PersistedVisualEvent]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -44,4 +46,19 @@ def list_visual_events(db_path: Path, asset_id: str) -> list[dict[str, Any]]:
             """,
             (asset_id,),
         ).fetchall()
-    return [decode_record(row) or {} for row in rows]
+    events: list[PersistedVisualEvent] = []
+    for row in rows:
+        data = decode_record(row)
+        if data is None:
+            raise RuntimeError("visual event row was not found")
+        event = VisualEventResponse.model_validate(data)
+        events.append(
+            {
+                "event_index": event.event_index,
+                "timestamp": event.timestamp,
+                "score": event.score,
+                "kind": event.kind,
+                "created_at": event.created_at,
+            }
+        )
+    return events

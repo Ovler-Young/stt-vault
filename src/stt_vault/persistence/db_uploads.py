@@ -1,9 +1,26 @@
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
+from stt_vault.core.api_models import UploadSessionResponse
+from stt_vault.core.types import UploadSessionRecord
+
 from .db_assets import create_asset_from_conn
-from .db_connection import connect, now, row_to_dict, transaction
+from .db_connection import connect, now, transaction
+
+
+def _decode_upload_session(row: object) -> UploadSessionRecord | None:
+    if row is None:
+        return None
+    record = UploadSessionResponse.model_validate(dict(row))
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "total_size": record.total_size,
+        "offset": record.offset,
+        "temp_path": record.temp_path,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
 
 
 def create_upload_session(
@@ -11,7 +28,7 @@ def create_upload_session(
     filename: str,
     total_size: int,
     uploads_dir: Path,
-) -> dict[str, Any]:
+) -> UploadSessionRecord:
     upload_id = uuid4().hex
     temp_path = uploads_dir / f"{upload_id}.part"
     timestamp = now()
@@ -24,16 +41,19 @@ def create_upload_session(
             """,
             (upload_id, filename, total_size, str(temp_path), timestamp, timestamp),
         )
-    return get_upload_session(db_path, upload_id) or {}
+    upload = get_upload_session(db_path, upload_id)
+    if upload is None:
+        raise RuntimeError("created upload session was not found")
+    return upload
 
 
-def get_upload_session(db_path: Path, upload_id: str) -> dict[str, Any] | None:
+def get_upload_session(db_path: Path, upload_id: str) -> UploadSessionRecord | None:
     with connect(db_path) as conn:
         row = conn.execute(
             "SELECT * FROM upload_sessions WHERE id = ?",
             (upload_id,),
         ).fetchone()
-    return row_to_dict(row)
+    return _decode_upload_session(row)
 
 
 def update_upload_offset(db_path: Path, upload_id: str, offset: int) -> None:

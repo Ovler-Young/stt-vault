@@ -2,27 +2,31 @@
   import { onDestroy, onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
-    ApiError,
-    createFolder,
-    deleteAsset,
-    deleteFolder,
-    fetchConfig,
-    fetchFolderTree,
-    getStoredAccessToken,
-    login,
-    moveAsset,
-    moveFolder,
-    renameFolder,
-    setStoredAccessToken,
-    uploadAsset,
-    uploadAssetBatch,
     type AssetSummary,
     type BatchUploadResult,
     type FolderNode,
     type FolderTree,
     type UploadEntry,
     type UploadProgress,
-  } from "$lib/api";
+  } from "$lib/api-types";
+  import { ApiError } from "$lib/api-transport";
+  import {
+    getStoredAccessToken,
+    login,
+    setStoredAccessToken,
+  } from "$lib/api-auth";
+  import {
+    createFolder,
+    deleteAsset,
+    deleteFolder,
+    fetchConfig,
+    fetchFolderTree,
+    moveAsset,
+    moveFolder,
+    renameFolder,
+    uploadAsset,
+    uploadAssetBatch,
+  } from "$lib/api-endpoints";
   import { formatDate, formatRecordedAt, formatTime } from "$lib/format";
   import { hasActivePolling } from "$lib/polling";
   import FolderSidebar from "./components/FolderSidebar.svelte";

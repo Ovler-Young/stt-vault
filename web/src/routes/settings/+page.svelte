@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchConfig, type ApiConfig } from "$lib/api";
+  import type { ApiConfig } from "$lib/api-types";
+  import { fetchConfig } from "$lib/api-endpoints";
   import {
     getThemePreference,
     setThemePreference,

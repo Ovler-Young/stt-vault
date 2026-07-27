@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from "svelte";
-  import type { TranscriptSegment } from "$lib/api";
+  import type { TranscriptSegment } from "$lib/api-types";
   import { formatTime } from "$lib/format";
   import SpeakerTimelineRow from "$lib/SpeakerTimelineRow.svelte";
   import {
@@ -308,14 +308,27 @@
       onRowClick={(event) =>
         handleClick(event, fullTimelineWindow.start, fullTimelineWindow.end)}
       onRowContextMenu={(event) =>
-        handleContextMenu(event, fullTimelineWindow.start, fullTimelineWindow.end)}
+        handleContextMenu(
+          event,
+          fullTimelineWindow.start,
+          fullTimelineWindow.end,
+        )}
       onRowKeydown={handleKeydown}
       onRowMouseDown={handleMouseDown}
       onRowMouseMove={(event) =>
-        handleMouseMove(event, "full", fullTimelineWindow.start, fullTimelineWindow.end)}
+        handleMouseMove(
+          event,
+          "full",
+          fullTimelineWindow.start,
+          fullTimelineWindow.end,
+        )}
       onRowMouseLeave={() => (hovered = null)}
       onRowDoubleClick={(event) =>
-        handleDoubleClick(event, fullTimelineWindow.start, fullTimelineWindow.end)}
+        handleDoubleClick(
+          event,
+          fullTimelineWindow.start,
+          fullTimelineWindow.end,
+        )}
       onRowWheel={(event) =>
         handleWheel(event, fullTimelineWindow.start, fullTimelineWindow.end)}
     />

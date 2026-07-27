@@ -4,7 +4,6 @@ from openai import OpenAI
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, TranscriptSegment
-from stt_vault.persistence import db
 
 from .ai_content import (
     build_content_analysis_prompt,
@@ -46,6 +45,47 @@ class SummaryClientFactory(Protocol):
     def __call__(self, *, api_key: str, base_url: str) -> SummaryClient: ...
 
 
+class SummaryRepository(Protocol):
+    def get_asset(self, asset_id: str) -> AssetRecord | None: ...
+
+    def update_asset_summary(
+        self,
+        asset_id: str,
+        *,
+        status: str,
+        text: str | None = None,
+        error: str | None = None,
+        model: str | None = None,
+        title: str | None = None,
+    ) -> None: ...
+
+    def apply_ai_speaker_names(
+        self, asset_id: str, speaker_names: dict[str, str]
+    ) -> dict[str, str]: ...
+
+
+class SqliteSummaryRepository:
+    def __init__(self, settings: Settings) -> None:
+        self.db_path = settings.stt_db_path
+
+    def get_asset(self, asset_id: str) -> AssetRecord | None:
+        from stt_vault.persistence import db
+
+        return db.get_asset(self.db_path, asset_id)
+
+    def update_asset_summary(self, asset_id: str, **kwargs: str | None) -> None:
+        from stt_vault.persistence import db
+
+        db.update_asset_summary(self.db_path, asset_id, **kwargs)
+
+    def apply_ai_speaker_names(
+        self, asset_id: str, speaker_names: dict[str, str]
+    ) -> dict[str, str]:
+        from stt_vault.persistence import db
+
+        return db.apply_ai_speaker_names(self.db_path, asset_id, speaker_names)
+
+
 class CompletedTranscriptRequiredError(ValueError):
     pass
 
@@ -70,8 +110,10 @@ def generate_asset_summary(
     asset: AssetRecord | None = None,
     *,
     client_factory: SummaryClientFactory = OpenAI,
+    repository: SummaryRepository | None = None,
 ) -> SummaryGenerationResult:
-    current_asset = asset or db.get_asset(settings.stt_db_path, asset_id)
+    repository = repository or SqliteSummaryRepository(settings)
+    current_asset = asset or repository.get_asset(asset_id)
     if current_asset is None:
         raise KeyError(asset_id)
     segments = require_completed_transcript(current_asset)
@@ -80,7 +122,7 @@ def generate_asset_summary(
         segments,
         minimum_speaker_confidence=settings.openai_speaker_name_confidence,
     )
-    db.update_asset_summary(settings.stt_db_path, asset_id, status="running")
+    repository.update_asset_summary(asset_id, status="running")
     try:
         client = client_factory(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
         response = client.chat.completions.create(
@@ -98,14 +140,9 @@ def generate_asset_summary(
             minimum_speaker_confidence=settings.openai_speaker_name_confidence,
         )
         text = format_content_summary(analysis)
-        speaker_names = db.apply_ai_speaker_names(
-            settings.stt_db_path,
-            asset_id,
-            analysis.speaker_names,
-        )
+        speaker_names = repository.apply_ai_speaker_names(asset_id, analysis.speaker_names)
     except Exception:
-        db.update_asset_summary(
-            settings.stt_db_path,
+        repository.update_asset_summary(
             asset_id,
             status="failed",
             error="Summary generation failed",
@@ -113,8 +150,7 @@ def generate_asset_summary(
         )
         raise
 
-    db.update_asset_summary(
-        settings.stt_db_path,
+    repository.update_asset_summary(
         asset_id,
         status="success",
         text=text,

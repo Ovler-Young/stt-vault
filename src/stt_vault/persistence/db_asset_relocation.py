@@ -6,7 +6,7 @@ from .folder_records import get_required_folder
 
 
 class AssetNotFoundError(KeyError):
-    """Raised when the asset to relocate is absent at move time."""
+    """Raised when an asset mutation target is absent at operation time."""
 
 
 class AssetMoveResult(TypedDict):

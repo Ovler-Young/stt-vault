@@ -8,6 +8,7 @@ from stt_vault.core.api_models import AssetResponse, JsonValue
 from stt_vault.core.types import AssetRecord, CleanupTask, ExportPaths, SpeakerSegment
 from stt_vault.processing.ai_content import is_local_speaker_label, is_usable_speaker_name
 
+from .db_asset_relocation import AssetNotFoundError
 from .db_connection import connect, now, row_to_dict, transaction
 from .db_job_events import list_current_run_events, list_events
 from .db_job_records import get_job
@@ -223,7 +224,7 @@ def retry_asset(db_path: Path, asset_id: str) -> None:
     with transaction(db_path) as conn:
         row = conn.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if row is None:
-            raise KeyError(asset_id)
+            raise AssetNotFoundError(asset_id)
         job = conn.execute(
             "SELECT id, run_attempt FROM jobs WHERE asset_id = ?",
             (asset_id,),
@@ -280,7 +281,7 @@ def delete_asset_with_cleanup_task(
     with transaction(db_path) as conn:
         row = conn.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if row is None:
-            raise KeyError(asset_id)
+            raise AssetNotFoundError(asset_id)
         conn.execute(
             """
             INSERT INTO asset_cleanup_tasks (asset_id, media_path, exports_path, created_at)

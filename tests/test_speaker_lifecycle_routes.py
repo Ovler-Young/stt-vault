@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from stt_vault.core.app import create_app
 from stt_vault.core.settings import get_settings
 from stt_vault.persistence import db
-from stt_vault.routes import asset_lifecycle
+from stt_vault.persistence.db_asset_relocation import AssetNotFoundError
 
 
 @pytest.fixture
@@ -162,39 +162,54 @@ def test_speaker_and_lifecycle_routes_reject_missing_rows(
     assert cleanup.json() == {"detail": "Cleanup task not found"}
 
 
-def test_asset_move_distinguishes_a_disappearing_asset_from_a_missing_folder(
+def test_asset_lifecycle_mutations_do_not_preflight_load_assets(
     route_client: tuple[TestClient, dict[str, str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, headers = route_client
     settings = get_settings()
-    db.create_asset(
-        settings.stt_db_path,
-        "asset-disappears",
-        "recording.wav",
-        "audio",
-        settings.media_dir / "asset-disappears" / "recording.wav",
-    )
-    original_get_asset_or_404 = asset_lifecycle.get_asset_or_404
-
-    def get_asset_then_delete(db_path: Path, asset_id: str):
-        asset = original_get_asset_or_404(db_path, asset_id)
-        db.delete_asset_with_cleanup_task(
-            db_path,
+    for asset_id in ("asset-retry", "asset-move", "asset-delete"):
+        db.create_asset(
+            settings.stt_db_path,
             asset_id,
-            settings.media_dir / asset_id,
-            settings.exports_dir / asset_id,
+            "recording.wav",
+            "audio",
+            settings.media_dir / asset_id / "recording.wav",
         )
-        return asset
 
-    monkeypatch.setattr(asset_lifecycle, "get_asset_or_404", get_asset_then_delete)
-    disappeared = client.post(
-        "/api/assets/asset-disappears/move",
+    def fail_preflight_load(db_path: Path, asset_id: str):
+        raise AssertionError(f"unexpected asset preflight for {asset_id}")
+
+    monkeypatch.setattr(db, "get_asset", fail_preflight_load)
+
+    retried = client.post("/api/assets/asset-retry/retry", headers=headers)
+    moved = client.post(
+        "/api/assets/asset-move/move",
         headers=headers,
         json={"parent_folder_id": None},
     )
-    monkeypatch.setattr(asset_lifecycle, "get_asset_or_404", original_get_asset_or_404)
+    deleted = client.delete("/api/assets/asset-delete", headers=headers)
 
+    assert retried.status_code == 200
+    assert retried.json() == {"status": "queued"}
+    assert moved.status_code == 200
+    assert moved.json()["id"] == "asset-move"
+    assert deleted.status_code == 200
+    assert deleted.json() == {"status": "deleted"}
+
+
+def test_asset_lifecycle_mutations_report_missing_assets_and_folders(
+    route_client: tuple[TestClient, dict[str, str]],
+) -> None:
+    client, headers = route_client
+    retry = client.post("/api/assets/missing-retry/retry", headers=headers)
+    move = client.post(
+        "/api/assets/missing-move/move",
+        headers=headers,
+        json={"parent_folder_id": None},
+    )
+    delete = client.delete("/api/assets/missing-delete", headers=headers)
+    settings = get_settings()
     db.create_asset(
         settings.stt_db_path,
         "asset-folder",
@@ -208,10 +223,69 @@ def test_asset_move_distinguishes_a_disappearing_asset_from_a_missing_folder(
         json={"parent_folder_id": "missing-folder"},
     )
 
-    assert disappeared.status_code == 404
-    assert disappeared.json() == {"detail": "Asset not found"}
+    assert retry.status_code == 404
+    assert retry.json() == {"detail": "Asset not found"}
+    assert move.status_code == 404
+    assert move.json() == {"detail": "Asset not found"}
+    assert delete.status_code == 404
+    assert delete.json() == {"detail": "Asset not found"}
     assert missing_folder.status_code == 404
     assert missing_folder.json() == {"detail": "Folder not found"}
+
+
+def test_asset_move_reports_a_disappearing_asset_at_mutation_time(
+    route_client: tuple[TestClient, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, headers = route_client
+    settings = get_settings()
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-disappears",
+        "recording.wav",
+        "audio",
+        settings.media_dir / "asset-disappears" / "recording.wav",
+    )
+    original_move_asset = db.move_asset
+
+    def delete_then_move(db_path: Path, asset_id: str, parent_folder_id: str | None):
+        db.delete_asset_with_cleanup_task(
+            db_path,
+            asset_id,
+            settings.media_dir / asset_id,
+            settings.exports_dir / asset_id,
+        )
+        return original_move_asset(db_path, asset_id, parent_folder_id)
+
+    monkeypatch.setattr(db, "move_asset", delete_then_move)
+
+    response = client.post(
+        "/api/assets/asset-disappears/move",
+        headers=headers,
+        json={"parent_folder_id": None},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Asset not found"}
+
+
+def test_asset_mutation_persistence_operations_raise_typed_missing_asset_errors(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stt.sqlite3"
+    db.initialize(db_path)
+
+    with pytest.raises(AssetNotFoundError):
+        db.retry_asset(db_path, "missing-retry")
+    with pytest.raises(AssetNotFoundError):
+        db.move_asset(db_path, "missing-move", None)
+    with pytest.raises(AssetNotFoundError):
+        db.delete_asset_with_cleanup_task(
+            db_path,
+            "missing-delete",
+            tmp_path / "media",
+            tmp_path / "exports",
+        )
 
 
 def test_speaker_rename_rejects_a_missing_post_mutation_row(

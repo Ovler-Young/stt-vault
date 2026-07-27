@@ -10,8 +10,6 @@ from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
 from stt_vault.persistence.db_asset_relocation import AssetNotFoundError
 
-from .asset_lookup import get_asset_or_404
-
 __all__ = [
     "register_asset_cleanup_routes",
     "register_asset_delete_route",
@@ -29,10 +27,9 @@ def register_asset_retry_route(app: FastAPI, settings: Settings) -> None:
         response_model=AssetRetryResponse,
     )
     def retry_asset(asset_id: str) -> AssetRetryResponse:
-        get_asset_or_404(settings.stt_db_path, asset_id)
         try:
             db.retry_asset(settings.stt_db_path, asset_id)
-        except KeyError:
+        except AssetNotFoundError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
         return AssetRetryResponse(status="queued")
 
@@ -48,7 +45,6 @@ def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
         response_model=AssetMoveResponse,
     )
     def move_asset(asset_id: str, payload: AssetMoveRequest) -> AssetMoveResponse:
-        get_asset_or_404(settings.stt_db_path, asset_id)
         try:
             return AssetMoveResponse.model_validate(
                 db.move_asset(settings.stt_db_path, asset_id, payload.parent_folder_id)
@@ -70,10 +66,14 @@ def register_asset_delete_route(app: FastAPI, settings: Settings) -> None:
         response_model=AssetDeleteResponse,
     )
     def delete_asset(asset_id: str) -> AssetDeleteResponse:
-        get_asset_or_404(settings.stt_db_path, asset_id)
         media_path = settings.media_dir / asset_id
         exports_path = settings.exports_dir / asset_id
-        db.delete_asset_with_cleanup_task(settings.stt_db_path, asset_id, media_path, exports_path)
+        try:
+            db.delete_asset_with_cleanup_task(
+                settings.stt_db_path, asset_id, media_path, exports_path
+            )
+        except AssetNotFoundError:
+            raise HTTPException(status_code=404, detail="Asset not found") from None
         _retry_cleanup(settings.stt_db_path, asset_id)
         return AssetDeleteResponse(status="deleted")
 

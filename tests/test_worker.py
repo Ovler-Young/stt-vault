@@ -15,6 +15,10 @@ from stt_vault.workers.worker_failure import WorkerFailureHandler, classify_work
 from stt_vault.workers.worker_models import PreparedAsset
 
 
+class ProviderFailure(Exception):
+    __module__ = "openai"
+
+
 def test_summary_generation_uses_injected_repository() -> None:
     calls: list[tuple[str, object]] = []
 
@@ -101,7 +105,22 @@ def test_complete_asset_persists_before_generating_summary(monkeypatch) -> None:
     assert calls[0][1][1]["transcript_segments"] == [{"text": "hello"}]
 
 
-def test_partial_completion_persists_classified_failure_without_exception_details() -> None:
+@pytest.mark.parametrize(
+    ("error", "expected_error"),
+    [
+        (
+            OSError("failed at /srv/private/clip.wav token=secret-value"),
+            {"category": "filesystem", "message": "A local processing operation failed"},
+        ),
+        (
+            ProviderFailure("provider token=secret-value at /srv/private/clip.wav"),
+            {"category": "provider", "message": "An external provider request failed"},
+        ),
+    ],
+)
+def test_partial_completion_persists_classified_failure_without_exception_details(
+    error: Exception, expected_error: dict[str, str]
+) -> None:
     class FakeRepository:
         def __init__(self) -> None:
             self.partial_errors: list[dict[str, str]] = []
@@ -131,12 +150,10 @@ def test_partial_completion_persists_classified_failure_without_exception_detail
         ),
         transcript_segments=[{"text": "partial"}],
         exports={"srt": "asset.srt"},
-        error=OSError("failed at /srv/private/clip.wav token=secret-value"),
+        error=error,
     )
 
-    assert repository.partial_errors == [
-        {"category": "filesystem", "message": "A local processing operation failed"}
-    ]
+    assert repository.partial_errors == [expected_error]
 
 
 def test_batched_diarization_logs_json_without_provider_console_output(

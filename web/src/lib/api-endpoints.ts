@@ -58,8 +58,12 @@ export async function recomputeAllSpeakers(): Promise<AssetCountResponse> {
 export async function deleteSpeaker(id: string): Promise<void> {
   await request(`/api/speakers/${id}`, { method: "DELETE" });
 }
-export async function fetchAsset(id: string): Promise<AssetDetail> {
-  return request(`/api/assets/${id}`);
+export async function fetchAsset(
+  id: string,
+  includeEventHistory = false,
+): Promise<AssetDetail> {
+  const query = includeEventHistory ? "" : "?include_event_history=false";
+  return request(`/api/assets/${id}${query}`);
 }
 export async function fetchAssetEvents(id: string): Promise<JobEvent[]> {
   return request(`/api/assets/${id}/events`);

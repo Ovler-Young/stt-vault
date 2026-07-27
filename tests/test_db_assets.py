@@ -212,6 +212,7 @@ def test_asset_job_lifecycle_and_get_asset_aggregate(tmp_path: Path) -> None:
         "transcribing speech",
         "Chunk retry scheduled",
     ]
+    assert asset["event_history"] == asset["events"]
     assert asset["events"][1]["payload"] == {"chunk_index": 1}
 
 
@@ -229,7 +230,7 @@ def test_get_asset_does_not_load_full_event_history(
         "stt_vault.persistence.db_assets.list_events", fail_if_called, raising=False
     )
 
-    asset = db.get_asset(db_path, "asset-1")
+    asset = db.get_asset(db_path, "asset-1", include_event_history=False)
 
     assert asset is not None
     assert "event_history" not in asset

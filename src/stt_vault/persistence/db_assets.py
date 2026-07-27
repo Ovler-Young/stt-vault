@@ -10,7 +10,7 @@ from stt_vault.processing.ai_content import is_local_speaker_label, is_usable_sp
 
 from .db_asset_relocation import AssetNotFoundError
 from .db_connection import connect, now, row_to_dict, transaction
-from .db_job_events import list_current_run_events
+from .db_job_events import list_current_run_events, list_events
 from .db_job_records import get_job
 from .db_transcripts import list_transcript_chunks, sync_asset_transcript_cache
 from .db_visual_events import list_visual_events
@@ -102,7 +102,12 @@ def list_assets(db_path: Path) -> list[AssetRecord]:
     return [_validated_asset(row_to_dict(row)) for row in rows]
 
 
-def get_asset(db_path: Path, asset_id: str) -> AssetRecord | None:
+def get_asset(
+    db_path: Path,
+    asset_id: str,
+    *,
+    include_event_history: bool = True,
+) -> AssetRecord | None:
     with connect(db_path) as conn:
         row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
     asset = row_to_dict(row)
@@ -115,6 +120,10 @@ def get_asset(db_path: Path, asset_id: str) -> AssetRecord | None:
         asset["events"] = [
             event.model_dump() for event in list_current_run_events(db_path, asset_id)
         ]
+        if include_event_history:
+            asset["event_history"] = [
+                event.model_dump() for event in list_events(db_path, asset_id)
+            ]
         asset["visual_events"] = list_visual_events(db_path, asset_id)
     return _validated_asset(asset) if asset is not None else None
 

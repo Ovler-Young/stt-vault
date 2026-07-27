@@ -25,8 +25,16 @@ def register_asset_detail_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.get("/api/assets/{asset_id}")
-    def get_asset(asset_id: str, _: Annotated[None, Depends(require_admin)]) -> AssetResponse:
-        return get_asset_or_404(settings.stt_db_path, asset_id)
+    def get_asset(
+        asset_id: str,
+        _: Annotated[None, Depends(require_admin)],
+        include_event_history: bool = True,
+    ) -> AssetResponse:
+        return get_asset_or_404(
+            settings.stt_db_path,
+            asset_id,
+            include_event_history=include_event_history,
+        )
 
     app.include_router(router)
 

@@ -105,6 +105,7 @@ export type AssetDetail = AssetSummary & {
   speaker_centroids?: Record<string, number[]>;
   job?: Job;
   events?: JobEvent[];
+  event_history?: JobEvent[];
   visual_events?: VisualEvent[];
   summary_text?: string;
   summary_error?: string;

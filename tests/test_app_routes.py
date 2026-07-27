@@ -238,6 +238,28 @@ def test_asset_events_uses_the_dedicated_event_query(
     assert [event["message"] for event in response.json()] == ["Job queued"]
 
 
+def test_asset_detail_defaults_to_event_history_and_supports_lean_reads(client: TestClient) -> None:
+    db_path = get_settings().stt_db_path
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", db_path.parent / "clip.wav")
+    db.add_event(db_path, "asset-1", "info", "queued", "Job queued")
+    headers = auth_headers(client)
+
+    legacy_response = client.get("/api/assets/asset-1", headers=headers)
+    lean_response = client.get("/api/assets/asset-1?include_event_history=false", headers=headers)
+
+    assert legacy_response.status_code == 200
+    assert [event["message"] for event in legacy_response.json()["event_history"]] == ["Job queued"]
+    assert lean_response.status_code == 200
+    assert lean_response.json()["event_history"] is None
+
+
+def test_asset_events_returns_not_found_for_missing_asset(client: TestClient) -> None:
+    response = client.get("/api/assets/missing/events", headers=auth_headers(client))
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Asset not found"}
+
+
 def test_protected_media_gets_require_bearer_token(client: TestClient) -> None:
     missing_response = client.get("/api/assets/missing/media")
     authenticated_response = client.get(

@@ -21,7 +21,7 @@ def test_assets_sort_by_recorded_time_with_upload_time_fallback(tmp_path: Path) 
         conn.execute("UPDATE assets SET created_at = ? WHERE id = ?", (1_700_000_000, "fallback"))
 
     assert [asset["id"] for asset in db.list_assets(db_path)] == ["newer", "older", "fallback"]
-    assert [asset["id"] for asset in db.list_folder_tree(db_path)["assets"]] == [
+    assert [asset.id for asset in db.list_folder_tree(db_path).assets] == [
         "newer",
         "older",
         "fallback",

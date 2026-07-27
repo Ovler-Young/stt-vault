@@ -15,6 +15,43 @@ class DatabaseRecord(ApiRecord):
     """Validated representation of decoded SQLite data."""
 
 
+class FolderResponse(DatabaseRecord):
+    id: str
+    name: str
+    parent_id: str | None
+    created_at: int
+    updated_at: int
+
+
+class FolderAssetSummary(DatabaseRecord):
+    id: str
+    filename: str
+    media_type: str
+    status: str
+    created_at: int
+    updated_at: int
+    title: str | None = None
+    recorded_at: int | None = None
+    duration: float | None = None
+    error: "ErrorResponse | None" = None
+    summary_status: str | None = None
+    parent_folder_id: str | None = None
+
+
+class FolderTreeNodeResponse(FolderResponse):
+    children: list["FolderTreeNodeResponse"]
+    assets: list[FolderAssetSummary]
+
+
+class FolderTreeResponse(DatabaseRecord):
+    folders: list[FolderTreeNodeResponse]
+    assets: list[FolderAssetSummary]
+
+
+class FolderDeleteResponse(ApiRecord):
+    status: Literal["deleted"]
+
+
 class DiarizationSegment(DatabaseRecord):
     start: float
     end: float

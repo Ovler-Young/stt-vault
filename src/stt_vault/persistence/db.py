@@ -1,6 +1,7 @@
 from .db_asset_relocation import move_asset
 from .db_assets import (
     apply_ai_speaker_names,
+    asset_exists,
     clear_cleanup_task,
     create_asset,
     delete_asset_with_cleanup_task,
@@ -66,6 +67,7 @@ from .folder_tree import list_folder_tree
 __all__ = [
     "add_event",
     "apply_ai_speaker_names",
+    "asset_exists",
     "add_missing_columns",
     "claim_next_job",
     "complete_upload_session",

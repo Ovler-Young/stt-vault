@@ -57,7 +57,8 @@ def register_asset_event_routes(app: FastAPI, settings: Settings) -> None:
     def get_asset_events(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[EventResponse]:
-        get_asset_or_404(settings.stt_db_path, asset_id)
+        if not db.asset_exists(settings.stt_db_path, asset_id):
+            raise HTTPException(status_code=404, detail="Asset not found")
         return db.list_events(settings.stt_db_path, asset_id)
 
     app.include_router(router)

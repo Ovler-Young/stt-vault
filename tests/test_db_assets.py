@@ -30,6 +30,7 @@ PUBLIC_DB_FUNCTIONS = {
     "update_stage",
     "update_progress",
     "add_event",
+    "asset_exists",
     "list_events",
     "list_current_run_events",
     "mark_failed",
@@ -211,8 +212,27 @@ def test_asset_job_lifecycle_and_get_asset_aggregate(tmp_path: Path) -> None:
         "transcribing speech",
         "Chunk retry scheduled",
     ]
-    assert asset["event_history"] == asset["events"]
     assert asset["events"][1]["payload"] == {"chunk_index": 1}
+
+
+def test_get_asset_does_not_load_full_event_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = create_processing_asset(tmp_path)
+    db.add_event(db_path, "asset-1", "info", "transcribing", "progress")
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("get_asset must not load event history")
+
+    monkeypatch.setattr(
+        "stt_vault.persistence.db_assets.list_events", fail_if_called, raising=False
+    )
+
+    asset = db.get_asset(db_path, "asset-1")
+
+    assert asset is not None
+    assert "event_history" not in asset
 
 
 def test_transcript_chunks_are_ordered_decoded_and_mirrored(tmp_path: Path) -> None:
@@ -319,7 +339,7 @@ def test_success_failure_partial_and_retry_transitions(tmp_path: Path) -> None:
     assert retried_asset["job"]["progress_total_chunks"] == 0
     assert retried_asset["job"]["progress_done_chunks"] == 0
     assert retried_asset["job"]["progress_failed_chunks"] == 0
-    assert retried_asset["event_history"][-1]["run_attempt"] == 2
+    assert db.list_events(failed_path, "failed-asset")[-1].run_attempt == 2
 
     assert db.claim_next_job(failed_path) == "failed-asset"
     retry_run_asset = db.get_asset(failed_path, "failed-asset")

@@ -1,10 +1,20 @@
-import type { AssetDetail } from "$lib/api-types";
-import { fetchAsset, recomputeAssetSpeakers } from "$lib/api-endpoints";
+import type { AssetDetail, JobEvent } from "$lib/api-types";
+import {
+  fetchAsset,
+  fetchAssetEvents,
+  recomputeAssetSpeakers,
+} from "$lib/api-endpoints";
 
 export type AssetLoadResult = {
   asset: AssetDetail;
+  eventHistory: JobEvent[];
   autoMatchedAssetId: string;
   speakerMatchError: string | null;
+};
+
+type AssetDetailWithEventHistory = {
+  asset: AssetDetail;
+  eventHistory: JobEvent[];
 };
 
 export function hasUnmatchedSpeakers(asset: AssetDetail) {
@@ -22,7 +32,8 @@ export async function loadAssetWithSpeakerMatching(
   assetId: string,
   autoMatchedAssetId: string,
 ): Promise<AssetLoadResult> {
-  let asset = await fetchAsset(assetId);
+  let loaded = await fetchAssetWithEventHistory(assetId);
+  let { asset, eventHistory } = loaded;
   let speakerMatchError: string | null = null;
   let nextAutoMatchedAssetId = autoMatchedAssetId;
 
@@ -30,7 +41,8 @@ export async function loadAssetWithSpeakerMatching(
     nextAutoMatchedAssetId = asset.id;
     try {
       await recomputeAssetSpeakers(asset.id);
-      asset = await fetchAsset(asset.id);
+      loaded = await fetchAssetWithEventHistory(asset.id);
+      ({ asset, eventHistory } = loaded);
     } catch (error) {
       speakerMatchError =
         error instanceof Error ? error.message : String(error);
@@ -39,7 +51,18 @@ export async function loadAssetWithSpeakerMatching(
 
   return {
     asset,
+    eventHistory,
     autoMatchedAssetId: nextAutoMatchedAssetId,
     speakerMatchError,
   };
+}
+
+async function fetchAssetWithEventHistory(
+  assetId: string,
+): Promise<AssetDetailWithEventHistory> {
+  const [asset, eventHistory] = await Promise.all([
+    fetchAsset(assetId),
+    fetchAssetEvents(assetId),
+  ]);
+  return { asset, eventHistory };
 }

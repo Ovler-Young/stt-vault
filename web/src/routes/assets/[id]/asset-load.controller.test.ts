@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetDetail } from "$lib/api-types";
 
-const { fetchAsset, recomputeAssetSpeakers } = vi.hoisted(() => ({
-  fetchAsset: vi.fn(),
-  recomputeAssetSpeakers: vi.fn(),
-}));
+const { fetchAsset, fetchAssetEvents, recomputeAssetSpeakers } = vi.hoisted(
+  () => ({
+    fetchAsset: vi.fn(),
+    fetchAssetEvents: vi.fn(),
+    recomputeAssetSpeakers: vi.fn(),
+  }),
+);
 
-vi.mock("$lib/api-endpoints", () => ({ fetchAsset, recomputeAssetSpeakers }));
+vi.mock("$lib/api-endpoints", () => ({
+  fetchAsset,
+  fetchAssetEvents,
+  recomputeAssetSpeakers,
+}));
 
 import {
   hasUnmatchedSpeakers,
@@ -48,14 +55,26 @@ describe("asset load controller", () => {
         },
       ],
     });
+    fetchAssetEvents
+      .mockResolvedValueOnce([
+        { id: 1, level: "info", message: "started", created_at: 1 },
+      ])
+      .mockResolvedValueOnce([
+        { id: 2, level: "info", message: "matched", created_at: 2 },
+      ]);
 
     await expect(
       loadAssetWithSpeakerMatching("asset-1", ""),
     ).resolves.toMatchObject({
       autoMatchedAssetId: "asset-1",
       speakerMatchError: null,
+      eventHistory: [
+        { id: 2, level: "info", message: "matched", created_at: 2 },
+      ],
     });
     expect(recomputeAssetSpeakers).toHaveBeenCalledWith("asset-1");
     expect(fetchAsset).toHaveBeenCalledTimes(2);
+    expect(fetchAssetEvents).toHaveBeenNthCalledWith(1, "asset-1");
+    expect(fetchAssetEvents).toHaveBeenNthCalledWith(2, "asset-1");
   });
 });

@@ -9,6 +9,7 @@ import type {
   FolderNode,
   FolderTree,
   Job,
+  JobEvent,
   Speaker,
   SummaryResponse,
   VisualEventDetectionResponse,
@@ -59,6 +60,9 @@ export async function deleteSpeaker(id: string): Promise<void> {
 }
 export async function fetchAsset(id: string): Promise<AssetDetail> {
   return request(`/api/assets/${id}`);
+}
+export async function fetchAssetEvents(id: string): Promise<JobEvent[]> {
+  return request(`/api/assets/${id}/events`);
 }
 export async function fetchFolderTree(): Promise<FolderTree> {
   return request("/api/folders");

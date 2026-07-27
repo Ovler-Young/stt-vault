@@ -4,6 +4,7 @@
   import {
     type AudioTrack,
     type AssetDetail,
+    type JobEvent,
     type TranscriptSegment,
   } from "$lib/api-types";
   import {
@@ -28,6 +29,7 @@
   import AssetPageShell from "./components/AssetPageShell.svelte";
 
   let asset: AssetDetail | null = null;
+  let eventHistory: JobEvent[] = [];
   let error = "";
   let mediaEl: HTMLMediaElement | null = null;
   let speakerProgressBar: SpeakerProgressBarHandle | null = null;
@@ -67,6 +69,7 @@
         autoMatchedAssetId,
       );
       asset = loaded.asset;
+      eventHistory = loaded.eventHistory;
       autoMatchedAssetId = loaded.autoMatchedAssetId;
       speakerMatchMessage = loaded.speakerMatchError ?? "";
       await loadAudioTracks(asset.id);
@@ -301,6 +304,7 @@
 
 <AssetPageShell
   {asset}
+  {eventHistory}
   {error}
   {audioTracks}
   {selectedAudioTrack}

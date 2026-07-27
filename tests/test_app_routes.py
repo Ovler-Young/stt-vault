@@ -219,6 +219,25 @@ def test_asset_api_does_not_expose_persisted_secret_or_path(client: TestClient) 
     assert "/srv/private/clip.wav" not in response.text
 
 
+def test_asset_events_uses_the_dedicated_event_query(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = get_settings().stt_db_path
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", db_path.parent / "clip.wav")
+    db.add_event(db_path, "asset-1", "info", "queued", "Job queued")
+
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("event history must not load the asset aggregate")
+
+    monkeypatch.setattr("stt_vault.routes.asset_details.db.get_asset", fail_if_called)
+
+    response = client.get("/api/assets/asset-1/events", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    assert [event["message"] for event in response.json()] == ["Job queued"]
+
+
 def test_protected_media_gets_require_bearer_token(client: TestClient) -> None:
     missing_response = client.get("/api/assets/missing/media")
     authenticated_response = client.get(

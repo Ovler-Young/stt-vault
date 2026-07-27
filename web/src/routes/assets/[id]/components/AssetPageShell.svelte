@@ -2,6 +2,7 @@
   import type {
     AudioTrack,
     AssetDetail,
+    JobEvent,
     TranscriptSegment,
   } from "$lib/api-types";
   import type {
@@ -23,6 +24,7 @@
 
   type AssetPageShellProps = {
     asset: AssetDetail | null;
+    eventHistory?: JobEvent[];
     error: string;
     audioTracks: AudioTrack[];
     selectedAudioTrack: string;
@@ -51,6 +53,7 @@
 
   let {
     asset,
+    eventHistory = [],
     error,
     audioTracks,
     selectedAudioTrack,
@@ -136,10 +139,7 @@
             onReload={onLoad}
             {onError}
           />
-          <AssetEventsFoldout
-            events={asset.events ?? []}
-            eventHistory={asset.event_history ?? []}
-          />
+          <AssetEventsFoldout events={asset.events ?? []} {eventHistory} />
         </AssetFoldoutGroup>
       </svelte:fragment>
 

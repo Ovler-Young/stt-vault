@@ -167,7 +167,6 @@ class AssetResponse(DatabaseRecord):
     summary_updated_at: int | None = None
     job: "JobResponse | None" = None
     events: list["EventResponse"] | None = None
-    event_history: list["EventResponse"] | None = None
     visual_events: list[VisualEventResponse] | None = None
 
 

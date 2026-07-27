@@ -269,6 +269,26 @@ def test_asset_move_reports_a_disappearing_asset_at_mutation_time(
     assert response.json() == {"detail": "Asset not found"}
 
 
+def test_asset_move_does_not_map_unrelated_key_errors_to_missing_folders(
+    route_client: tuple[TestClient, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, headers = route_client
+
+    def fail_move(db_path: Path, asset_id: str, parent_folder_id: str | None):
+        raise KeyError("unexpected persistence failure")
+
+    monkeypatch.setattr(db, "move_asset", fail_move)
+
+    response = client.post(
+        "/api/assets/asset-unrelated-error/move",
+        headers=headers,
+        json={"parent_folder_id": None},
+    )
+
+    assert response.status_code == 500
+
+
 def test_asset_mutation_persistence_operations_raise_typed_missing_asset_errors(
     tmp_path: Path,
 ) -> None:

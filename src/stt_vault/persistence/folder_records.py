@@ -12,6 +12,10 @@ class FolderDataIntegrityError(RuntimeError):
     """Raised when persisted folder data cannot form a valid response tree."""
 
 
+class FolderNotFoundError(KeyError):
+    """Raised when a required folder is absent at operation time."""
+
+
 @overload
 def get_required_folder(
     conn: sqlite3.Connection,
@@ -37,7 +41,7 @@ def get_required_folder(
         (folder_id,),
     ).fetchone()
     if row is None:
-        raise KeyError(folder_id)
+        raise FolderNotFoundError(folder_id)
     return decode_folder(row)
 
 

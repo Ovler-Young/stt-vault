@@ -9,6 +9,7 @@ from stt_vault.core.requests import AssetMoveRequest
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
 from stt_vault.persistence.db_asset_relocation import AssetNotFoundError
+from stt_vault.persistence.folder_records import FolderNotFoundError
 
 __all__ = [
     "register_asset_cleanup_routes",
@@ -51,7 +52,7 @@ def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
             )
         except AssetNotFoundError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
-        except KeyError:
+        except FolderNotFoundError:
             raise HTTPException(status_code=404, detail="Folder not found") from None
 
     app.include_router(router)

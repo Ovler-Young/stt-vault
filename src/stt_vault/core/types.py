@@ -64,6 +64,9 @@ class KnownSpeaker(TypedDict):
     id: str
     display_name: str
     centroid: list[float]
+    sample_count: int
+    created_at: int
+    updated_at: int
 
 
 class AssetRecord(TypedDict, total=False):
@@ -113,6 +116,9 @@ class SpeakerRecord(TypedDict, total=False):
     id: str
     display_name: str
     centroid: list[float]
+    sample_count: int
+    created_at: int
+    updated_at: int
 
 
 class UploadSessionRecord(TypedDict):

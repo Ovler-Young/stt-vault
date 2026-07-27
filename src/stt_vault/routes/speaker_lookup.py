@@ -20,5 +20,8 @@ def speaker_response(speaker: Mapping[str, object]) -> SpeakerResponse:
             "id": speaker.get("id"),
             "display_name": speaker.get("display_name"),
             "centroid": speaker.get("centroid"),
+            "sample_count": speaker.get("sample_count"),
+            "created_at": speaker.get("created_at"),
+            "updated_at": speaker.get("updated_at"),
         }
     )

@@ -20,7 +20,10 @@
   on:submit|preventDefault={save}
 >
   <small>{editor.localSpeaker}</small>
-  <input bind:value={editorName} />
+  <input
+    aria-label={`Rename speaker ${editor.localSpeaker}`}
+    bind:value={editorName}
+  />
   <div>
     <button type="submit">Save</button>
     <button type="button" on:click={onCancel}>Cancel</button>

@@ -37,11 +37,16 @@ def test_speaker_routes_return_declared_response_shapes(
     db.upsert_speaker(settings.stt_db_path, "speaker-b", "Bob", [0.3, 0.4], 1)
 
     listed = client.get("/api/speakers", headers=headers)
+    expected_listed = [
+        db.get_speaker(settings.stt_db_path, "speaker-a"),
+        db.get_speaker(settings.stt_db_path, "speaker-b"),
+    ]
     renamed = client.put(
         "/api/speakers/speaker-a",
         headers=headers,
         json={"display_name": "Alicia"},
     )
+    renamed_speaker = db.get_speaker(settings.stt_db_path, "speaker-a")
     merged = client.post(
         "/api/speakers/speaker-a/merge",
         headers=headers,
@@ -51,9 +56,11 @@ def test_speaker_routes_return_declared_response_shapes(
     deleted = client.delete("/api/speakers/speaker-a", headers=headers)
 
     assert listed.status_code == 200
-    assert all(set(speaker) == {"id", "display_name", "centroid"} for speaker in listed.json())
+    assert all(speaker is not None for speaker in expected_listed)
+    assert listed.json() == expected_listed
     assert renamed.status_code == 200
-    assert renamed.json() == {"id": "speaker-a", "display_name": "Alicia", "centroid": [0.1, 0.2]}
+    assert renamed_speaker is not None
+    assert renamed.json() == renamed_speaker
     assert merged.status_code == 200
     assert merged.json()["id"] == "speaker-a"
     assert recomputed.json() == {"assets": 0}
@@ -110,7 +117,14 @@ def test_asset_speaker_and_lifecycle_routes_return_declared_response_shapes(
     cleanup = client.post("/api/assets/asset-cleanup/cleanup", headers=headers)
 
     assert saved.status_code == 200
-    assert set(saved.json()) == {"id", "display_name", "centroid"}
+    assert set(saved.json()) == {
+        "id",
+        "display_name",
+        "centroid",
+        "sample_count",
+        "created_at",
+        "updated_at",
+    }
     assert recomputed.status_code == 200
     assert recomputed.json() == {"assets": 0}
     assert retried.json() == {"status": "queued"}

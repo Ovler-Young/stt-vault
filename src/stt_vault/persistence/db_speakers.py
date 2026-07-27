@@ -271,14 +271,25 @@ def _known_speaker(record: dict[str, object] | None) -> KnownSpeaker:
     speaker_id = record.get("id")
     display_name = record.get("display_name")
     centroid = record.get("centroid")
+    sample_count = record.get("sample_count")
+    created_at = record.get("created_at")
+    updated_at = record.get("updated_at")
     if not isinstance(speaker_id, str) or not isinstance(display_name, str):
         raise ValueError("speaker record has invalid identity fields")
     if not isinstance(centroid, list) or any(
         isinstance(value, bool) or not isinstance(value, int | float) for value in centroid
     ):
         raise ValueError("speaker record has an invalid centroid")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in (sample_count, created_at, updated_at)
+    ):
+        raise ValueError("speaker record has invalid metadata fields")
     return {
         "id": speaker_id,
         "display_name": display_name,
         "centroid": [float(value) for value in centroid],
+        "sample_count": sample_count,
+        "created_at": created_at,
+        "updated_at": updated_at,
     }

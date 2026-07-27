@@ -16,7 +16,10 @@
     {#each rows as speaker}
       <div class="speaker-row">
         <strong>{speaker.localSpeaker}</strong>
-        <input bind:value={speakerDrafts[speaker.localSpeaker]} />
+        <input
+          aria-label={`Rename speaker ${speaker.localSpeaker}`}
+          bind:value={speakerDrafts[speaker.localSpeaker]}
+        />
         <small>
           {speaker.count} chunks
           {#if speaker.firstStart !== null && speaker.lastEnd !== null}

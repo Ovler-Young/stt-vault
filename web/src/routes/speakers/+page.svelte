@@ -110,7 +110,10 @@
               )}</small
             >
           </div>
-          <input bind:value={drafts[speaker.id]} />
+          <input
+            aria-label={`Rename speaker ${speaker.display_name}`}
+            bind:value={drafts[speaker.id]}
+          />
           <button on:click={() => save(speaker)}>Save</button>
           <select bind:value={mergeTargets[speaker.id]}>
             <option value="">Merge into...</option>

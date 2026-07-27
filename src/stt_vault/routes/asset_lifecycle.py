@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
+from stt_vault.core.api_models import AssetDeleteResponse, AssetMoveResponse, AssetRetryResponse
 from stt_vault.core.auth import require_admin
 from stt_vault.core.requests import AssetMoveRequest
 from stt_vault.core.settings import Settings
@@ -21,14 +22,18 @@ __all__ = [
 def register_asset_retry_route(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.post("/api/assets/{asset_id}/retry", dependencies=[Depends(require_admin)])
-    def retry_asset(asset_id: str) -> dict[str, str]:
+    @router.post(
+        "/api/assets/{asset_id}/retry",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetRetryResponse,
+    )
+    def retry_asset(asset_id: str) -> AssetRetryResponse:
         get_asset_or_404(settings.stt_db_path, asset_id)
         try:
             db.retry_asset(settings.stt_db_path, asset_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
-        return {"status": "queued"}
+        return AssetRetryResponse(status="queued")
 
     app.include_router(router)
 
@@ -36,11 +41,17 @@ def register_asset_retry_route(app: FastAPI, settings: Settings) -> None:
 def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.post("/api/assets/{asset_id}/move", dependencies=[Depends(require_admin)])
-    def move_asset(asset_id: str, payload: AssetMoveRequest) -> dict:
+    @router.post(
+        "/api/assets/{asset_id}/move",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetMoveResponse,
+    )
+    def move_asset(asset_id: str, payload: AssetMoveRequest) -> AssetMoveResponse:
         get_asset_or_404(settings.stt_db_path, asset_id)
         try:
-            return db.move_asset(settings.stt_db_path, asset_id, payload.parent_folder_id)
+            return AssetMoveResponse.model_validate(
+                db.move_asset(settings.stt_db_path, asset_id, payload.parent_folder_id)
+            )
         except KeyError:
             raise HTTPException(status_code=404, detail="Folder not found") from None
 
@@ -50,14 +61,18 @@ def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
 def register_asset_delete_route(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.delete("/api/assets/{asset_id}", dependencies=[Depends(require_admin)])
-    def delete_asset(asset_id: str) -> dict[str, str]:
+    @router.delete(
+        "/api/assets/{asset_id}",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetDeleteResponse,
+    )
+    def delete_asset(asset_id: str) -> AssetDeleteResponse:
         get_asset_or_404(settings.stt_db_path, asset_id)
         media_path = settings.media_dir / asset_id
         exports_path = settings.exports_dir / asset_id
         db.delete_asset_with_cleanup_task(settings.stt_db_path, asset_id, media_path, exports_path)
         _retry_cleanup(settings.stt_db_path, asset_id)
-        return {"status": "deleted"}
+        return AssetDeleteResponse(status="deleted")
 
     app.include_router(router)
 
@@ -65,11 +80,15 @@ def register_asset_delete_route(app: FastAPI, settings: Settings) -> None:
 def register_asset_cleanup_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.post("/api/assets/{asset_id}/cleanup", dependencies=[Depends(require_admin)])
-    def retry_cleanup(asset_id: str) -> dict[str, str]:
+    @router.post(
+        "/api/assets/{asset_id}/cleanup",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetDeleteResponse,
+    )
+    def retry_cleanup(asset_id: str) -> AssetDeleteResponse:
         if not _retry_cleanup(settings.stt_db_path, asset_id):
             raise HTTPException(status_code=404, detail="Cleanup task not found")
-        return {"status": "deleted"}
+        return AssetDeleteResponse(status="deleted")
 
     app.include_router(router)
 

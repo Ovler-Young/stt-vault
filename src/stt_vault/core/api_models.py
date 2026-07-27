@@ -52,6 +52,34 @@ class FolderDeleteResponse(ApiRecord):
     status: Literal["deleted"]
 
 
+class SpeakerResponse(DatabaseRecord):
+    id: str
+    display_name: str
+    centroid: list[float]
+
+
+class SpeakerDeleteResponse(ApiRecord):
+    status: Literal["deleted"]
+
+
+class SpeakerRecomputeResponse(ApiRecord):
+    assets: int
+
+
+class AssetRetryResponse(ApiRecord):
+    status: Literal["queued"]
+
+
+class AssetMoveResponse(ApiRecord):
+    id: str
+    parent_folder_id: str | None
+    updated_at: int
+
+
+class AssetDeleteResponse(ApiRecord):
+    status: Literal["deleted"]
+
+
 class DiarizationSegment(DatabaseRecord):
     start: float
     end: float

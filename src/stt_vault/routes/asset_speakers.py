@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
+from stt_vault.core.api_models import SpeakerRecomputeResponse, SpeakerResponse
 from stt_vault.core.auth import require_admin
 from stt_vault.core.requests import SpeakerNameRequest
 from stt_vault.core.settings import Settings
@@ -13,6 +14,7 @@ from stt_vault.services.speaker_service import (
 )
 
 from .asset_lookup import get_asset_or_404
+from .speaker_lookup import get_speaker_or_404
 
 __all__ = ["register_asset_speaker_routes"]
 
@@ -23,12 +25,13 @@ def register_asset_speaker_routes(app: FastAPI, settings: Settings) -> None:
     @router.post(
         "/api/assets/{asset_id}/speakers/{local_speaker}",
         dependencies=[Depends(require_admin)],
+        response_model=SpeakerResponse,
     )
     def save_asset_speaker(
         asset_id: str,
         local_speaker: str,
         payload: SpeakerNameRequest,
-    ) -> dict:
+    ) -> SpeakerResponse:
         display_name = clean_display_name(payload.display_name)
         asset = get_asset_or_404(settings.stt_db_path, asset_id)
 
@@ -59,16 +62,17 @@ def register_asset_speaker_routes(app: FastAPI, settings: Settings) -> None:
             db.list_asset_ids_with_speaker_centroids(settings.stt_db_path),
         )
         rewrite_asset_exports(settings, updated_asset_ids)
-        return db.get_speaker(settings.stt_db_path, speaker_id) or {}
+        return get_speaker_or_404(settings.stt_db_path, speaker_id)
 
     @router.post(
         "/api/assets/{asset_id}/speaker-matches/recompute",
         dependencies=[Depends(require_admin)],
+        response_model=SpeakerRecomputeResponse,
     )
-    def recompute_asset_speakers(asset_id: str) -> dict[str, int]:
+    def recompute_asset_speakers(asset_id: str) -> SpeakerRecomputeResponse:
         get_asset_or_404(settings.stt_db_path, asset_id)
         updated_asset_ids = recompute_asset_speaker_matches(settings, [asset_id])
         rewrite_asset_exports(settings, updated_asset_ids)
-        return {"assets": len(updated_asset_ids)}
+        return SpeakerRecomputeResponse(assets=len(updated_asset_ids))
 
     app.include_router(router)

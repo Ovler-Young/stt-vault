@@ -20,15 +20,14 @@
     deleteAsset,
     deleteFolder,
     fetchConfig,
-    fetchFolderTree,
     moveAsset,
     moveFolder,
     renameFolder,
   } from "$lib/api-endpoints";
-  import { uploadAsset, uploadAssetBatch } from "$lib/api/uploads";
-  import { formatDate, formatRecordedAt, formatTime } from "$lib/format";
   import { hasActivePolling } from "$lib/polling";
+  import HomeAssetList from "./components/HomeAssetList.svelte";
   import FolderSidebar from "./components/FolderSidebar.svelte";
+  import { loadHomeTree, uploadHomeFiles } from "./home-page.controller";
   import {
     assetsInTree,
     findFolder,
@@ -79,15 +78,14 @@
   });
 
   async function loadTree() {
-    if (authRequired && !authenticated) {
-      tree = { folders: [], assets: [] };
-      updatePolling();
-      return;
-    }
     try {
-      tree = await fetchFolderTree();
-      if (selectedFolderId && !findFolder(tree.folders, selectedFolderId))
-        selectedFolderId = null;
+      const result = await loadHomeTree(
+        authRequired,
+        authenticated,
+        selectedFolderId,
+      );
+      tree = result.tree;
+      selectedFolderId = result.selectedFolderId;
       updatePolling();
       error = "";
     } catch (requestError) {
@@ -102,31 +100,21 @@
     uploadProgress = null;
     const destination = selectedFolderId;
     try {
-      if (uploadEntries.length > 0) {
-        const result = await uploadAssetBatch(
-          uploadEntries,
-          (progress) => (uploadProgress = progress),
-        );
-        for (const item of result.results) {
-          if (item.status === "queued" && item.id && destination)
-            await moveAsset(item.id, destination);
-        }
+      const result = await uploadHomeFiles({
+        file: uploadFile,
+        entries: uploadEntries,
+        destination,
+        onProgress: (progress) => (uploadProgress = progress),
+      });
+      if (result.kind === "batch") {
         batchResults = result.results;
         uploadEntries = [];
         uploadFile = null;
         await loadTree();
         return;
       }
-      const selectedFile = uploadFile;
-      if (!selectedFile) return;
-      const result = await uploadAsset(
-        selectedFile,
-        selectedFile.name,
-        (progress) => (uploadProgress = progress),
-      );
-      if (destination) await moveAsset(result.id, destination);
       uploadFile = null;
-      await goto(`/assets/${result.id}`);
+      await goto(`/assets/${result.assetId}`);
     } catch (requestError) {
       reportRequestError(requestError);
     } finally {
@@ -141,6 +129,10 @@
       path: file.webkitRelativePath || file.name,
     }));
     uploadFile = null;
+  }
+
+  function setAssetTarget(assetId: string, targetId: string) {
+    assetTargets = { ...assetTargets, [assetId]: targetId };
   }
 
   async function addFolder() {
@@ -390,270 +382,18 @@
           </ul>
         {/if}
 
-        <div class="asset-list">
-          {#each visibleAssets as asset}
-            <article>
-              <a class="asset-link" href={`/assets/${asset.id}`}>
-                <strong>{asset.title || asset.filename}</strong>
-                <span>{asset.filename}</span>
-                <small>
-                  {asset.status} · {formatTime(asset.duration)} · {asset.recorded_at
-                    ? formatRecordedAt(asset.recorded_at)
-                    : formatDate(asset.updated_at)}
-                </small>
-              </a>
-              <select
-                aria-label={`Move ${asset.filename}`}
-                value={assetTargets[asset.id] ?? asset.parent_folder_id ?? ""}
-                on:change={(event) =>
-                  (assetTargets = {
-                    ...assetTargets,
-                    [asset.id]: event.currentTarget.value,
-                  })}
-              >
-                <option value="">Root</option>
-                {#each flatFolders as item}
-                  <option value={item.folder.id}
-                    >{"  ".repeat(item.depth)}{item.folder.name}</option
-                  >
-                {/each}
-              </select>
-              <button
-                disabled={(assetTargets[asset.id] ??
-                  asset.parent_folder_id ??
-                  "") === (asset.parent_folder_id ?? "") || busy}
-                on:click={() => moveSelectedAsset(asset)}>Move</button
-              >
-              <button
-                class="danger"
-                disabled={busy}
-                on:click={() => removeAsset(asset)}>Delete</button
-              >
-            </article>
-          {:else}
-            <p class="empty">No assets in this folder.</p>
-          {/each}
-        </div>
+        <HomeAssetList
+          assets={visibleAssets}
+          folders={flatFolders}
+          {assetTargets}
+          {busy}
+          onTargetChange={setAssetTarget}
+          onMove={moveSelectedAsset}
+          onDelete={removeAsset}
+        />
       </div>
     </section>
   {/if}
 </main>
 
-<style>
-  main {
-    min-height: 100vh;
-    background: var(--color-page-subtle);
-  }
-
-  .topbar {
-    min-height: 64px;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 10px 18px;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface-strong);
-  }
-
-  h1,
-  p {
-    margin: 0;
-  }
-
-  h1 {
-    font-size: 19px;
-  }
-
-  .topbar p,
-  .selection,
-  .empty {
-    color: var(--color-text-muted);
-    font-size: 12px;
-  }
-
-  .actions,
-  .auth,
-  .commandbar,
-  .breadcrumbs {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .auth {
-    max-width: 560px;
-    margin: 32px auto;
-    padding: 16px;
-  }
-
-  .auth input {
-    flex: 1;
-  }
-
-  .workspace {
-    display: grid;
-    grid-template-columns: 230px minmax(0, 1fr);
-    min-height: calc(100vh - 64px);
-  }
-
-  .file-pane {
-    min-width: 0;
-    padding: 14px 18px 24px;
-  }
-
-  .breadcrumbs {
-    min-height: 34px;
-    overflow-x: auto;
-  }
-
-  .breadcrumbs button {
-    border: 0;
-    padding: 4px;
-    background: transparent;
-  }
-
-  .commandbar {
-    min-height: 42px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-    padding: 8px 0;
-    border-top: 1px solid var(--color-border);
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .commandbar label {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 6px;
-    background: var(--color-surface-strong);
-    padding: 8px 10px;
-    cursor: pointer;
-  }
-
-  .commandbar input[type="file"] {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .selection,
-  .progress,
-  .error,
-  .batch-results {
-    margin-top: 10px;
-  }
-
-  .progress {
-    display: grid;
-    grid-template-columns: minmax(120px, 240px) minmax(160px, 1fr);
-    gap: 10px;
-    align-items: center;
-    font-size: 12px;
-  }
-
-  progress {
-    width: 100%;
-  }
-
-  .error,
-  .danger,
-  .failed {
-    color: var(--color-danger);
-  }
-
-  .batch-results {
-    max-height: 150px;
-    overflow: auto;
-    padding-left: 20px;
-    font-size: 12px;
-  }
-
-  .asset-list {
-    display: grid;
-    margin-top: 12px;
-    border-top: 1px solid var(--color-border);
-  }
-
-  article {
-    display: grid;
-    grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) auto auto;
-    gap: 8px;
-    align-items: center;
-    min-height: 64px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .asset-link {
-    display: grid;
-    min-width: 0;
-    gap: 2px;
-    border: 0;
-    background: transparent;
-    padding: 2px 4px;
-  }
-
-  .asset-link strong,
-  .asset-link span,
-  .asset-link small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .asset-link span,
-  .asset-link small {
-    color: var(--color-text-muted);
-    font-size: 12px;
-  }
-
-  .empty {
-    padding: 24px 4px;
-  }
-
-  @media (max-width: 900px) {
-    .workspace {
-      grid-template-columns: 170px minmax(0, 1fr);
-    }
-
-    article {
-      grid-template-columns: minmax(0, 1fr) auto auto;
-    }
-
-    article select {
-      grid-column: 1 / -1;
-      grid-row: 2;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .topbar {
-      align-items: flex-start;
-    }
-
-    .workspace {
-      display: block;
-    }
-
-    .file-pane {
-      padding: 12px;
-    }
-
-    .progress {
-      grid-template-columns: 1fr;
-    }
-
-    article {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-
-    article select {
-      grid-column: 1 / -1;
-    }
-  }
-</style>
+<style src="./home-page.css"></style>

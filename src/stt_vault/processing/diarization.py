@@ -21,6 +21,15 @@ class DiarizationProvider(Protocol):
     def diarize(self, wav_path: str, *, generate_colors: bool) -> object: ...
 
 
+DiarizerFactory = Callable[[str], DiarizationProvider]
+
+
+def _create_senko_diarizer(device: str) -> DiarizationProvider:
+    from senko import Diarizer
+
+    return Diarizer(device=device, warmup=True, quiet=True)
+
+
 class DiarizerManager:
     def __init__(
         self,
@@ -29,11 +38,13 @@ class DiarizerManager:
         idle_timeout_seconds: int,
         use_batched_embeddings: bool = False,
         fbank_batch_segments: int = 256,
+        diarizer_factory: DiarizerFactory = _create_senko_diarizer,
     ) -> None:
         self.device = device
         self.idle_timeout_seconds = idle_timeout_seconds
         self.use_batched_embeddings = use_batched_embeddings
         self.fbank_batch_segments = max(1, fbank_batch_segments)
+        self.diarizer_factory = diarizer_factory
         self._lock = threading.Lock()
         self._diarizer: DiarizationProvider | None = None
         self._last_used = 0.0
@@ -74,11 +85,9 @@ class DiarizerManager:
 
     def _get_or_create(self):
         if self._diarizer is None:
-            from senko import Diarizer
-
             rss_before = current_rss_mb()
             start = time.perf_counter()
-            self._diarizer = Diarizer(device=self.device, warmup=True, quiet=True)
+            self._diarizer = self.diarizer_factory(self.device)
             self._instrument_diarizer(self._diarizer)
             self._last_used = time.monotonic()
             self._resource_stats["load_diarizer"] = {

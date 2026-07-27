@@ -331,6 +331,26 @@ def test_diarizer_manager_rejects_malformed_provider_result() -> None:
         manager.diarize("audio.wav")
 
 
+def test_diarizer_manager_uses_injected_factory() -> None:
+    calls: list[str] = []
+
+    class EmptyProvider:
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> object:
+            assert generate_colors
+            return None
+
+    provider = EmptyProvider()
+    manager = DiarizerManager(
+        device="cpu",
+        idle_timeout_seconds=1,
+        diarizer_factory=lambda device: calls.append(device) or provider,
+    )
+
+    assert manager.diarize("audio.wav") is None
+    assert calls == ["cpu"]
+    assert manager._diarizer is provider
+
+
 def test_visual_event_stage_persists_and_exports_video_events(monkeypatch, tmp_path: Path) -> None:
     calls: list[str] = []
     stage = VisualEventStage(

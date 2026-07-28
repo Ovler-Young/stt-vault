@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from stt_vault.core.auth import require_admin, require_resource_access
 from stt_vault.core.config import Settings
 from stt_vault.core.models.api import VisualEventDetectionResponse, VisualEventResponse
+from stt_vault.core.models.records import VisualEvent
 from stt_vault.persistence import db
 from stt_vault.processing.asset_visual_events import detect_asset_visual_events
 from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path
@@ -25,7 +26,7 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
     )
     def get_visual_events(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
-    ) -> list[VisualEventResponse]:
+    ) -> list[VisualEvent]:
         get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         return db.list_visual_events(settings.stt_db_path, asset_id)
 

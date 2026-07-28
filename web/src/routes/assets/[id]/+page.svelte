@@ -14,6 +14,10 @@
     retryAsset,
   } from "$lib/api/endpoints";
   import { loadAssetWithSpeakerMatching } from "./asset-load.controller";
+  import {
+    handleAssetKeydown,
+    type AssetKeyboardActions,
+  } from "./asset-keyboard.controller";
   import { segmentMediaStart } from "./asset-page.helpers";
   import { needsActivePolling } from "$lib/state/polling";
   import {
@@ -227,66 +231,20 @@
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
-    const target = event.target as HTMLElement | null;
-    if (shouldIgnorePlaybackKey(target)) return;
-
-    if (event.code === "Space") {
-      event.preventDefault();
-      togglePlay();
-    } else if (event.code === "ArrowRight") {
-      event.preventDefault();
-      seekRelative(5);
-    } else if (event.code === "ArrowLeft") {
-      event.preventDefault();
-      seekRelative(-5);
-    } else if (event.code === "Comma") {
-      event.preventDefault();
-      seekPreviousSegment();
-    } else if (event.code === "Period") {
-      event.preventDefault();
-      seekNextSegment();
-    } else if (event.code === "BracketLeft") {
-      event.preventDefault();
-      seekPreviousSpeakerSegment();
-    } else if (event.code === "BracketRight") {
-      event.preventDefault();
-      seekNextSpeakerSegment();
-    } else if (event.code === "KeyK") {
-      event.preventDefault();
-      seekToTime(0);
-    } else if (event.code === "KeyM" && mediaEl) {
-      event.preventDefault();
-      mediaEl.muted = !mediaEl.muted;
-    } else if (event.code === "KeyV") {
-      event.preventDefault();
-      speakerProgressBar?.centerOnTime(currentTime);
-    } else if (event.code === "KeyW") {
-      event.preventDefault();
-      speakerProgressBar?.zoomAtTime(currentTime, 0.88);
-    } else if (event.code === "KeyS") {
-      event.preventDefault();
-      speakerProgressBar?.zoomAtTime(currentTime, 1.12);
-    } else if (event.code === "KeyA") {
-      event.preventDefault();
-      speakerProgressBar?.panByWindow(-0.12);
-    } else if (event.code === "KeyD") {
-      event.preventDefault();
-      speakerProgressBar?.panByWindow(0.12);
-    }
-  }
-
-  function shouldIgnorePlaybackKey(target: HTMLElement | null) {
-    if (!target) return false;
-    const tagName = target.tagName;
-    if (
-      target.isContentEditable ||
-      tagName === "INPUT" ||
-      tagName === "TEXTAREA" ||
-      tagName === "SELECT"
-    )
-      return true;
-    if (tagName === "BUTTON" && !target.closest(".transcript")) return true;
-    return tagName === "A" || tagName === "SUMMARY";
+    const keyboardActions: AssetKeyboardActions = {
+      togglePlay,
+      seekRelative,
+      seekPreviousSegment,
+      seekNextSegment,
+      seekPreviousSpeakerSegment,
+      seekNextSpeakerSegment,
+      seekToStart: () => seekToTime(0),
+      centerTimeline: () => speakerProgressBar?.centerOnTime(currentTime),
+      zoomTimeline: (factor) =>
+        speakerProgressBar?.zoomAtTime(currentTime, factor),
+      panTimeline: (delta) => speakerProgressBar?.panByWindow(delta),
+    };
+    handleAssetKeydown(event, mediaEl, keyboardActions);
   }
 
   async function detectVisualEvents() {

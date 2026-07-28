@@ -220,7 +220,7 @@ def test_fresh_and_migrated_asset_schema_have_the_same_columns(tmp_path: Path) -
     db.initialize(fresh_path)
 
     legacy_path = tmp_path / "legacy-assets.sqlite3"
-    migration_names = {name for name, _definition in ASSET_MIGRATION_COLUMNS}
+    migration_names = set(ASSET_MIGRATION_COLUMNS)
     legacy_definitions = [
         (name, definition)
         for name, definition in ASSET_COLUMN_DEFINITIONS

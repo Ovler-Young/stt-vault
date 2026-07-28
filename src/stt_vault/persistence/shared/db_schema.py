@@ -7,23 +7,23 @@ from pathlib import Path
 from ..assets.db_asset_records import recorded_at_from_filename
 from .db_connection import transaction
 
-ASSET_MIGRATION_COLUMNS = (
-    ("parent_folder_id", "TEXT REFERENCES folders(id) ON DELETE SET NULL"),
-    ("title", "TEXT"),
-    ("recorded_at", "INTEGER"),
-    ("summary_status", "TEXT"),
-    ("summary_text", "TEXT"),
-    ("summary_error", "TEXT"),
-    ("summary_model", "TEXT"),
-    ("summary_updated_at", "INTEGER"),
-)
+ASSET_MIGRATION_COLUMNS = {
+    "parent_folder_id": "TEXT REFERENCES folders(id) ON DELETE SET NULL",
+    "title": "TEXT",
+    "recorded_at": "INTEGER",
+    "summary_status": "TEXT",
+    "summary_text": "TEXT",
+    "summary_error": "TEXT",
+    "summary_model": "TEXT",
+    "summary_updated_at": "INTEGER",
+}
 ASSET_COLUMN_DEFINITIONS = (
     ("id", "TEXT PRIMARY KEY"),
     ("filename", "TEXT NOT NULL"),
-    ("title", "TEXT"),
-    ("recorded_at", "INTEGER"),
+    ("title", ASSET_MIGRATION_COLUMNS["title"]),
+    ("recorded_at", ASSET_MIGRATION_COLUMNS["recorded_at"]),
     ("media_type", "TEXT NOT NULL"),
-    ("parent_folder_id", "TEXT REFERENCES folders(id) ON DELETE SET NULL"),
+    ("parent_folder_id", ASSET_MIGRATION_COLUMNS["parent_folder_id"]),
     ("original_path", "TEXT NOT NULL"),
     ("wav_path", "TEXT"),
     ("duration", "REAL"),
@@ -37,11 +37,11 @@ ASSET_COLUMN_DEFINITIONS = (
     ("speaker_centroids", "TEXT"),
     ("transcript_segments", "TEXT"),
     ("exports", "TEXT"),
-    ("summary_status", "TEXT"),
-    ("summary_text", "TEXT"),
-    ("summary_error", "TEXT"),
-    ("summary_model", "TEXT"),
-    ("summary_updated_at", "INTEGER"),
+    ("summary_status", ASSET_MIGRATION_COLUMNS["summary_status"]),
+    ("summary_text", ASSET_MIGRATION_COLUMNS["summary_text"]),
+    ("summary_error", ASSET_MIGRATION_COLUMNS["summary_error"]),
+    ("summary_model", ASSET_MIGRATION_COLUMNS["summary_model"]),
+    ("summary_updated_at", ASSET_MIGRATION_COLUMNS["summary_updated_at"]),
 )
 
 
@@ -164,7 +164,7 @@ def initialize(db_path: Path) -> None:
                 ON asset_visual_events(asset_id, event_index);
             """
         )
-        add_missing_columns(conn, "assets", dict(ASSET_MIGRATION_COLUMNS))
+        add_missing_columns(conn, "assets", ASSET_MIGRATION_COLUMNS)
         existing_asset_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(assets)").fetchall()
         }

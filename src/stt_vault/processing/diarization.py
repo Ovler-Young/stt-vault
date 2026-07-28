@@ -5,25 +5,40 @@ import wave
 from collections.abc import Callable, Mapping, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import ParamSpec, Protocol, TypeVar, cast, runtime_checkable
+from typing import TYPE_CHECKING, ParamSpec, Protocol, TypedDict, TypeVar, cast, runtime_checkable
 
 import numpy as np
 
 from stt_vault.core.models.api import DiarizationResult, JsonValue
 from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch, SpeakerSegment
 
+if TYPE_CHECKING:
+    import torch
+
 P = ParamSpec("P")
 R = TypeVar("R")
 logger = logging.getLogger(__name__)
 
 
-type VadSegment = Mapping[str, float]
-type Subsegment = Mapping[str, float]
-type FbankFeatures = np.ndarray
+type VadSegment = tuple[float, float]
+type Subsegment = tuple[float, float]
+if TYPE_CHECKING:
+    type FbankFeatures = np.ndarray | torch.Tensor
+else:
+    type FbankFeatures = np.ndarray
 type ProviderCentroids = dict[str, np.ndarray]
-type ProviderDiarizationValue = JsonValue | list[SpeakerSegment] | ProviderCentroids
-type ProviderDiarizationPayload = Mapping[str, ProviderDiarizationValue]
 type ProviderTimingStats = dict[str, JsonValue]
+
+
+class ProviderDiarizationPayload(TypedDict, total=False):
+    raw_segments: list[SpeakerSegment]
+    raw_speakers_detected: int
+    merged_speakers_detected: int
+    merged_segments: list[SpeakerSegment]
+    speaker_centroids: ProviderCentroids
+    timing_stats: ProviderTimingStats
+    vad: list[VadSegment]
+    speaker_color_sets: dict[str, dict[str, str]]
 
 
 class DiarizationProvider(Protocol):
@@ -86,7 +101,7 @@ DiarizerFactory = Callable[[str], DiarizationProvider]
 def _create_senko_diarizer(device: str) -> DiarizationProvider:
     from senko import Diarizer
 
-    return Diarizer(device=device, warmup=True, quiet=True)
+    return cast(DiarizationProvider, cast(object, Diarizer(device=device, warmup=True, quiet=True)))
 
 
 class DiarizerManager:
@@ -131,7 +146,7 @@ class DiarizerManager:
                 timing_stats["manager_rss_mb_after"] = current_rss_mb()
                 timing_stats["senko_batched_embeddings_requested"] = self.use_batched_embeddings
                 timing_stats["senko_fbank_batch_segments"] = self.fbank_batch_segments
-                timing_stats["senko_resource_stats"] = self._resource_stats
+                timing_stats["senko_resource_stats"] = cast(JsonValue, self._resource_stats)
                 result = result.model_copy(update={"timing_stats": timing_stats})
             self._last_used = time.monotonic()
             return result
@@ -225,10 +240,10 @@ class DiarizerManager:
                 str(index): generate_speaker_colors(merged_segments, index) for index in range(10)
             }
 
-        return result
+        return cast(ProviderDiarizationPayload, cast(object, result))
 
     def _instrument_diarizer(self, diarizer: DiarizationProvider) -> None:
-        instrumented_diarizer = cast(InstrumentedDiarizationProvider, diarizer)
+        instrumented_diarizer = cast(InstrumentedDiarizationProvider, cast(object, diarizer))
         if getattr(instrumented_diarizer, "_stt_vault_instrumented", False):
             return
 
@@ -330,16 +345,17 @@ def match_speakers(
 ) -> dict[str, SpeakerMatch]:
     matches: dict[str, SpeakerMatch] = {}
     for local_speaker, centroid in centroids.items():
-        best = None
+        best: SpeakerMatch | None = None
         for known in known_speakers:
             score = cosine_similarity(centroid, known["centroid"])
-            if best is None or score > best["score"]:
+            best_score = best["score"] if best and best["score"] is not None else float("-inf")
+            if best is None or score > best_score:
                 best = {
                     "speaker_id": known["id"],
                     "display_name": known["display_name"],
                     "score": score,
                 }
-        if best and best["score"] >= threshold:
+        if best is not None and best["score"] is not None and best["score"] >= threshold:
             matches[local_speaker] = best
         else:
             matches[local_speaker] = {
@@ -350,17 +366,18 @@ def match_speakers(
     return matches
 
 
-def _validate_provider_result(provider_result: ProviderDiarizationPayload) -> DiarizationResult:
+def _validate_provider_result(provider_result: object) -> DiarizationResult:
     if not isinstance(provider_result, Mapping):
         raise ValueError("Diarization provider returned a non-object result")
     centroids = provider_result.get("speaker_centroids", {})
     if not isinstance(centroids, dict):
         raise ValueError("Diarization provider returned invalid speaker centroids")
+    typed_centroids = cast(ProviderCentroids, cast(object, centroids))
     return DiarizationResult.model_validate(
         {
             "raw_segments": provider_result.get("raw_segments"),
             "merged_segments": provider_result.get("merged_segments"),
-            "speaker_centroids": serialize_centroids(centroids),
+            "speaker_centroids": serialize_centroids(typed_centroids),
             "timing_stats": provider_result.get("timing_stats"),
         }
     )

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from _db_asset_support import create_processing_asset, initialized_db
 from pydantic import ValidationError
 
 from stt_vault.persistence import db
@@ -61,19 +62,6 @@ PUBLIC_DB_FUNCTIONS = {
     "list_asset_ids_for_speaker",
     "refresh_asset_transcripts_for_speaker_from_conn",
 }
-
-
-def initialized_db(tmp_path: Path) -> Path:
-    db_path = tmp_path / "stt.sqlite3"
-    db.initialize(db_path)
-    return db_path
-
-
-def create_processing_asset(tmp_path: Path, asset_id: str = "asset-1") -> Path:
-    db_path = initialized_db(tmp_path)
-    db.create_asset(db_path, asset_id, "clip.mp4", "video", tmp_path / "clip.mp4")
-    assert db.claim_next_job(db_path) == asset_id
-    return db_path
 
 
 def chunk(

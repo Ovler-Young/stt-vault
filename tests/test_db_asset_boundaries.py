@@ -2,6 +2,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from _db_asset_support import initialized_db
 
 from stt_vault.persistence.assets.db_asset_cleanup import (
     delete_asset_with_cleanup_task,
@@ -22,7 +23,6 @@ from stt_vault.persistence.assets.db_transcripts import (
 )
 from stt_vault.persistence.jobs.db_job_events import list_events
 from stt_vault.persistence.jobs.db_job_queue import claim_next_job
-from stt_vault.persistence.shared.db_schema import initialize
 
 
 def resolve_import_from_module(module_path: Path, node: ast.ImportFrom) -> str | None:
@@ -80,12 +80,6 @@ def test_persistence_boundary_rejects_relative_processing_import() -> None:
     assert is_processing_import(module_path, relative_node)
     assert is_processing_import(module_path, absolute_node)
     assert is_processing_import(module_path, package_node)
-
-
-def initialized_db(tmp_path: Path) -> Path:
-    db_path = tmp_path / "stt.sqlite3"
-    initialize(db_path)
-    return db_path
 
 
 def test_asset_records_boundary_creates_and_lists_timestamped_assets(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ from stt_vault.services.speaker_service import (
     recompute_asset_speaker_matches,
 )
 
-from .speaker_lookup import get_speaker_or_404, speaker_response
+from .lookup import get_speaker_or_404, speaker_response
 
 __all__ = ["register_speaker_routes"]
 

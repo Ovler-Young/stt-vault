@@ -252,7 +252,7 @@ def test_asset_events_uses_the_dedicated_event_query(
     def fail_if_called(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("event history must not load the asset aggregate")
 
-    monkeypatch.setattr("stt_vault.routes.asset_details.db.get_asset", fail_if_called)
+    monkeypatch.setattr("stt_vault.routes.assets.details.db.get_asset", fail_if_called)
 
     response = client.get("/api/assets/asset-1/events", headers=auth_headers(client))
 

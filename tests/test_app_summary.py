@@ -133,10 +133,10 @@ def test_summary_endpoint_preserves_valid_generated_response(
         "speaker_names": {"SPEAKER_00": "Maya Chen"},
     }
     monkeypatch.setattr(
-        "stt_vault.routes.asset_details.get_asset_or_404", lambda *_args, **_kwargs: asset
+        "stt_vault.routes.assets.details.get_asset_or_404", lambda *_args, **_kwargs: asset
     )
     monkeypatch.setattr(
-        "stt_vault.routes.asset_details.generate_asset_summary", lambda *_args, **_kwargs: expected
+        "stt_vault.routes.assets.details.generate_asset_summary", lambda *_args, **_kwargs: expected
     )
 
     response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
@@ -171,10 +171,10 @@ def test_summary_endpoint_rejects_malformed_generated_response(
 ) -> None:
     asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
     monkeypatch.setattr(
-        "stt_vault.routes.asset_details.get_asset_or_404", lambda *_args, **_kwargs: asset
+        "stt_vault.routes.assets.details.get_asset_or_404", lambda *_args, **_kwargs: asset
     )
     monkeypatch.setattr(
-        "stt_vault.routes.asset_details.generate_asset_summary",
+        "stt_vault.routes.assets.details.generate_asset_summary",
         lambda *_args, **_kwargs: generated_summary,
     )
 

@@ -11,7 +11,7 @@ from stt_vault.persistence import db
 from stt_vault.processing.asset_visual_events import detect_asset_visual_events
 from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path
 
-from .asset_lookup import get_asset_or_404
+from .lookup import get_asset_or_404
 
 __all__ = ["register_asset_visual_event_routes"]
 

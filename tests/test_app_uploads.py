@@ -162,7 +162,7 @@ def test_single_upload_preserves_storage_http_error(
     def reject_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
         raise HTTPException(status_code=413, detail="Upload is too large")
 
-    monkeypatch.setattr("stt_vault.routes.asset_collection.store_upload", reject_upload)
+    monkeypatch.setattr("stt_vault.routes.assets.collection.store_upload", reject_upload)
 
     response = client.post(
         "/api/assets",
@@ -180,7 +180,7 @@ def test_single_upload_maps_storage_failure_to_generic_error(
     def fail_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
         raise OSError("storage unavailable")
 
-    monkeypatch.setattr("stt_vault.routes.asset_collection.store_upload", fail_upload)
+    monkeypatch.setattr("stt_vault.routes.assets.collection.store_upload", fail_upload)
 
     response = client.post(
         "/api/assets",
@@ -205,7 +205,7 @@ def test_audio_probe_error_does_not_disclose_paths_or_credentials(
     def fail_probe(_path: Path) -> list[object]:
         raise RuntimeError("/private/clip.wav token=secret")
 
-    monkeypatch.setattr("stt_vault.routes.asset_media.ffprobe_audio_streams", fail_probe)
+    monkeypatch.setattr("stt_vault.routes.assets.media.ffprobe_audio_streams", fail_probe)
     probe_response = client.get(
         f"/api/assets/{asset_id}/audio-tracks", headers=auth_headers(client)
     )

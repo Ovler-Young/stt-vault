@@ -12,7 +12,7 @@ from stt_vault.processing.summary_service import (
     require_completed_transcript,
 )
 
-from .asset_lookup import get_asset_or_404
+from .lookup import get_asset_or_404
 
 __all__ = [
     "register_asset_detail_routes",

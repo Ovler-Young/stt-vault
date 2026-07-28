@@ -13,8 +13,8 @@ from stt_vault.services.speaker_service import (
     resolve_speaker_id,
 )
 
-from .asset_lookup import get_asset_or_404
-from .speaker_lookup import get_speaker_or_404
+from ..speakers.lookup import get_speaker_or_404
+from .lookup import get_asset_or_404
 
 __all__ = ["register_asset_speaker_routes"]
 

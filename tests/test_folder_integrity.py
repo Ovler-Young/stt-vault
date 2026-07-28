@@ -270,7 +270,7 @@ def test_folder_integrity_errors_log_redacted_operation_diagnostics(
 
     monkeypatch.setattr(db, db_function, raise_integrity_error)
 
-    with caplog.at_level(logging.ERROR, logger="stt_vault.routes.folders"):
+    with caplog.at_level(logging.ERROR, logger="stt_vault.routes.folders.routes"):
         response = client.request(method, path, headers=headers, json=payload)
 
     assert response.status_code == 500

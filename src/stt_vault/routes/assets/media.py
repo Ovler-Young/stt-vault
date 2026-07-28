@@ -12,7 +12,7 @@ from stt_vault.core.types import AudioStream
 from stt_vault.processing.media import ffprobe_audio_streams, playback_media_stream_command
 from stt_vault.services.media_streaming import stream_process_stdout
 
-from .asset_lookup import get_asset_or_404
+from .lookup import get_asset_or_404
 
 __all__ = ["register_asset_media_routes"]
 logger = logging.getLogger(__name__)

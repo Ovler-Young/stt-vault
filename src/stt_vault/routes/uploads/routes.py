@@ -10,7 +10,7 @@ from stt_vault.core.settings import Settings
 from stt_vault.core.types import UploadResponse
 from stt_vault.services.upload_sessions import UploadSessionService
 
-from .asset_collection import validate_relative_path
+from ..assets.collection import validate_relative_path
 
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 UPLOAD_LOCKS: dict[str, asyncio.Lock] = {}

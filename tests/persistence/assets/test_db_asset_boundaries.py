@@ -2,7 +2,7 @@ import ast
 from pathlib import Path
 
 import pytest
-from _db_asset_support import initialized_db
+from _support.db_assets import initialized_db
 
 from stt_vault.persistence.assets.db_asset_cleanup import (
     delete_asset_with_cleanup_task,
@@ -29,7 +29,7 @@ def resolve_import_from_module(module_path: Path, node: ast.ImportFrom) -> str |
     if node.level == 0:
         return node.module
 
-    source_path = Path(__file__).parents[1] / "src"
+    source_path = Path(__file__).parents[3] / "src"
     package_parts = module_path.relative_to(source_path).with_suffix("").parts[:-1]
     parent_package_parts = package_parts[: len(package_parts) - node.level + 1]
     module_parts = node.module.split(".") if node.module else []
@@ -52,7 +52,7 @@ def is_processing_import(module_path: Path, node: ast.ImportFrom) -> bool:
 
 
 def test_persistence_modules_do_not_import_processing() -> None:
-    persistence_path = Path(__file__).parents[1] / "src" / "stt_vault" / "persistence"
+    persistence_path = Path(__file__).parents[3] / "src" / "stt_vault" / "persistence"
     forbidden_imports = []
 
     for module_path in persistence_path.rglob("*.py"):
@@ -69,7 +69,7 @@ def test_persistence_modules_do_not_import_processing() -> None:
 
 
 def test_persistence_boundary_rejects_relative_processing_import() -> None:
-    module_path = Path(__file__).parents[1] / "src" / "stt_vault" / "persistence" / "example.py"
+    module_path = Path(__file__).parents[3] / "src" / "stt_vault" / "persistence" / "example.py"
     [relative_node] = ast.parse("from ..processing.ai_content import parse_speakers").body
     [absolute_node] = ast.parse("from stt_vault.processing.ai_content import parse_speakers").body
     [package_node] = ast.parse("from .. import processing").body

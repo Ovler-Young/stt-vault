@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from _db_asset_support import initialized_db
+from _support.db_assets import initialized_db
 
 from stt_vault.persistence import db
 

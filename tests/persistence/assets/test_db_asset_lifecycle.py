@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from _db_asset_support import create_processing_asset
+from _support.db_assets import create_processing_asset
 
 from stt_vault.persistence import db
 

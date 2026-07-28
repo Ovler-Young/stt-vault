@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _db_asset_support import create_processing_asset, initialized_db
+from _support.db_assets import create_processing_asset, initialized_db
 from pydantic import ValidationError
 
 from stt_vault.persistence import db

@@ -68,6 +68,7 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

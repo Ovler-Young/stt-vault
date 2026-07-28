@@ -2,9 +2,9 @@ import ast
 import re
 from pathlib import Path
 
-PERSISTENCE_ROOT = Path(__file__).parents[1] / "src" / "stt_vault" / "persistence"
-SOURCE_ROOT = Path(__file__).parents[1] / "src"
-REPOSITORY_ROOT = Path(__file__).parents[1]
+PERSISTENCE_ROOT = Path(__file__).parents[2] / "src" / "stt_vault" / "persistence"
+SOURCE_ROOT = Path(__file__).parents[2] / "src"
+REPOSITORY_ROOT = Path(__file__).parents[2]
 
 EXPECTED_MODULES = {
     "__init__.py",

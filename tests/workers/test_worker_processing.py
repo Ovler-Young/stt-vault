@@ -9,7 +9,7 @@ from stt_vault.processing.diarization import DiarizerManager
 from stt_vault.processing.diarization_contracts import ProviderDiarizationPayload
 from stt_vault.workers.worker_exports import VisualEventStage
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
-from stt_vault.workers.worker_transcription import TranscriptionStage
+from stt_vault.workers.worker_transcription import TranscriberConfig, TranscriptionStage
 
 
 def test_diarization_model_rejects_malformed_provider_data() -> None:
@@ -193,8 +193,9 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
             calls.append("retry")
 
     class FakeTranscriber:
-        def __init__(self, **kwargs):
-            self.on_chunk_done = kwargs["on_chunk_done"]
+        def __init__(self, config: TranscriberConfig):
+            assert config.model == "model"
+            self.on_chunk_done = config.on_chunk_done
 
         def transcribe_chunks(self, _media_path, chunks, _work_dir):
             assert len(chunks) == 1

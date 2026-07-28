@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -7,6 +7,8 @@ from stt_vault.core.models.records import AssetRecord, KnownSpeaker, TranscriptS
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import match_speakers
 from stt_vault.processing.transcription import (
+    ChunkDoneCallback,
+    ChunkRetryCallback,
     Transcriber,
     build_transcription_plan,
     transcript_chunks_match_plan,
@@ -14,7 +16,38 @@ from stt_vault.processing.transcription import (
 
 from .worker_models import PreparedAsset, TranscriptionWork, apply_speaker_names
 
-TranscriberFactory = Callable[..., Transcriber]
+
+@dataclass(frozen=True)
+class TranscriberConfig:
+    api_key: str
+    base_url: str
+    model: str
+    prompt: str
+    concurrency: int
+    retry_seconds: int
+    max_retries: int
+    retry_backoff_seconds: list[int]
+    on_chunk_done: ChunkDoneCallback
+    on_chunk_retry: ChunkRetryCallback
+
+
+class TranscriberFactory(Protocol):
+    def __call__(self, config: TranscriberConfig) -> Transcriber: ...
+
+
+def create_transcriber(config: TranscriberConfig) -> Transcriber:
+    return Transcriber(
+        api_key=config.api_key,
+        base_url=config.base_url,
+        model=config.model,
+        prompt=config.prompt,
+        concurrency=config.concurrency,
+        retry_seconds=config.retry_seconds,
+        max_retries=config.max_retries,
+        retry_backoff_seconds=config.retry_backoff_seconds,
+        on_chunk_done=config.on_chunk_done,
+        on_chunk_retry=config.on_chunk_retry,
+    )
 
 
 class TranscriptionRepository(Protocol):
@@ -182,7 +215,7 @@ class TranscriptionStage:
         self,
         settings: Settings,
         *,
-        transcriber_factory: TranscriberFactory = Transcriber,
+        transcriber_factory: TranscriberFactory = create_transcriber,
         chunk_persistence: TranscriptChunkPersistence | None = None,
         speaker_reconciler: SpeakerReconciler | None = None,
         progress_events: TranscriptionProgressEvents | None = None,
@@ -212,16 +245,18 @@ class TranscriptionStage:
             self.progress_events.record_retry(asset_id, work, index, attempt, error, retry_at)
 
         transcriber = self.transcriber_factory(
-            api_key=self.settings.openai_api_key,
-            base_url=self.settings.openai_base_url,
-            model=self.settings.openai_transcribe_model,
-            prompt=self.settings.openai_transcribe_prompt,
-            concurrency=self.settings.openai_concurrency,
-            retry_seconds=self.settings.openai_retry_seconds,
-            max_retries=self.settings.openai_max_retries,
-            retry_backoff_seconds=self.settings.parsed_openai_retry_backoff_seconds,
-            on_chunk_done=on_chunk_done,
-            on_chunk_retry=on_chunk_retry,
+            TranscriberConfig(
+                api_key=self.settings.openai_api_key,
+                base_url=self.settings.openai_base_url,
+                model=self.settings.openai_transcribe_model,
+                prompt=self.settings.openai_transcribe_prompt,
+                concurrency=self.settings.openai_concurrency,
+                retry_seconds=self.settings.openai_retry_seconds,
+                max_retries=self.settings.openai_max_retries,
+                retry_backoff_seconds=self.settings.parsed_openai_retry_backoff_seconds,
+                on_chunk_done=on_chunk_done,
+                on_chunk_retry=on_chunk_retry,
+            )
         )
         try:
             segments = transcriber.transcribe_chunks(

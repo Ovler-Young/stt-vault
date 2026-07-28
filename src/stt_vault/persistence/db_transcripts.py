@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 
 from stt_vault.core.api_models import TranscriptChunkRecord
+from stt_vault.core.speaker_names import is_local_speaker_label, is_usable_speaker_name
 from stt_vault.core.types import ErrorRecord, TranscriptSegment
 
 from .db_connection import connect, decode_record, now, transaction
@@ -90,6 +91,33 @@ def upsert_transcript_chunk(
             ),
         )
         sync_asset_transcript_cache(conn, asset_id, timestamp)
+
+
+def apply_ai_speaker_names(
+    db_path: Path,
+    asset_id: str,
+    speaker_names: dict[str, str],
+) -> dict[str, str]:
+    timestamp = now()
+    applied: dict[str, str] = {}
+    with transaction(db_path) as conn:
+        for local_speaker, display_name in speaker_names.items():
+            if not (is_local_speaker_label(local_speaker) and is_usable_speaker_name(display_name)):
+                continue
+            result = conn.execute(
+                """
+                UPDATE transcript_chunks
+                SET speaker_name = ?, updated_at = ?
+                WHERE asset_id = ? AND speaker = ?
+                  AND (speaker_name IS NULL OR trim(speaker_name) = '' OR speaker_name = speaker)
+                """,
+                (display_name.strip(), timestamp, asset_id, local_speaker),
+            )
+            if result.rowcount:
+                applied[local_speaker] = display_name.strip()
+        if applied:
+            sync_asset_transcript_cache(conn, asset_id, timestamp)
+    return applied
 
 
 def list_transcript_chunks(db_path: Path, asset_id: str) -> list[TranscriptSegment]:

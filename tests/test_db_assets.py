@@ -227,7 +227,7 @@ def test_get_asset_does_not_load_full_event_history(
         raise AssertionError("get_asset must not load event history")
 
     monkeypatch.setattr(
-        "stt_vault.persistence.db_assets.list_events", fail_if_called, raising=False
+        "stt_vault.persistence.db_asset_records.list_events", fail_if_called, raising=False
     )
 
     asset = db.get_asset(db_path, "asset-1", include_event_history=False)

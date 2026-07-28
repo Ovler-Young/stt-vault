@@ -4,7 +4,7 @@ from pathlib import Path
 from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, ExportPaths, VisualEvent
-from stt_vault.persistence.db_assets import update_asset_exports
+from stt_vault.persistence.db_asset_metadata import update_asset_exports
 from stt_vault.persistence.db_visual_events import replace_visual_events
 
 from .visual import (

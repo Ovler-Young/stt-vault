@@ -4,7 +4,7 @@ from uuid import uuid4
 from stt_vault.core.api_models import UploadSessionResponse
 from stt_vault.core.types import UploadSessionRecord
 
-from .db_assets import create_asset_from_conn
+from .db_asset_records import create_asset_from_conn
 from .db_connection import connect, now, transaction
 
 

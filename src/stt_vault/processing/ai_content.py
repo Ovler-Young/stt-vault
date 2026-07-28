@@ -1,13 +1,10 @@
 import json
 import math
-import re
 from dataclasses import dataclass
 
 from stt_vault.core.api_models import JsonValue
+from stt_vault.core.speaker_names import is_local_speaker_label, is_usable_speaker_name
 from stt_vault.core.types import TranscriptSegment
-
-_LOCAL_SPEAKER_PATTERN = re.compile(r"SPEAKER_\d+")
-_UNUSABLE_SPEAKER_NAMES = {"unknown", "unidentified", "n/a", "none"}
 
 
 @dataclass(frozen=True)
@@ -87,9 +84,9 @@ def parse_content_analysis(
         speaker = candidate.get("speaker")
         name = candidate.get("name")
         confidence = candidate.get("confidence")
-        if not isinstance(speaker, str) or not _LOCAL_SPEAKER_PATTERN.fullmatch(speaker):
+        if not isinstance(speaker, str) or not is_local_speaker_label(speaker):
             continue
-        if not _is_usable_speaker_name(name):
+        if not is_usable_speaker_name(name):
             continue
         if not _is_confident(confidence, minimum_speaker_confidence):
             continue
@@ -137,14 +134,6 @@ def format_content_summary(analysis: ContentAnalysis) -> str:
     )
     sections.append("## Highlights" + (f"\n\n{highlights}" if highlights else ""))
     return "\n\n".join(sections)
-
-
-def is_local_speaker_label(value: str) -> bool:
-    return bool(_LOCAL_SPEAKER_PATTERN.fullmatch(value))
-
-
-def is_usable_speaker_name(value: object) -> bool:
-    return _is_usable_speaker_name(value)
 
 
 def _format_timestamp(value: object) -> str:
@@ -210,16 +199,3 @@ def _is_confident(value: object, threshold: float) -> bool:
     except (TypeError, ValueError):
         return False
     return math.isfinite(confidence) and threshold <= confidence <= 1.0
-
-
-def _is_usable_speaker_name(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    name = value.strip()
-    return (
-        bool(name)
-        and len(name) <= 120
-        and name.casefold() not in _UNUSABLE_SPEAKER_NAMES
-        and not _LOCAL_SPEAKER_PATTERN.fullmatch(name)
-        and all(character.isprintable() for character in name)
-    )

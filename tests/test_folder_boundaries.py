@@ -1,7 +1,7 @@
 from pathlib import Path
 
+from stt_vault.persistence.db_asset_records import create_asset
 from stt_vault.persistence.db_asset_relocation import move_asset
-from stt_vault.persistence.db_assets import create_asset
 from stt_vault.persistence.db_folders import create_folder, move_folder, rename_folder
 from stt_vault.persistence.db_schema import initialize
 from stt_vault.persistence.folder_tree import list_folder_tree

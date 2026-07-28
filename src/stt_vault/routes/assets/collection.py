@@ -13,7 +13,11 @@ from stt_vault.core.models.api import (
     JobResponse,
 )
 from stt_vault.persistence import db
-from stt_vault.services.asset_uploads import store_asset_upload
+from stt_vault.services.asset_uploads import (
+    AssetUploadPersistenceError,
+    AssetUploadTooLargeError,
+    store_asset_upload,
+)
 
 __all__ = ["register_asset_collection_routes"]
 
@@ -29,7 +33,7 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
     async def upload_asset(file: Annotated[UploadFile, File()]) -> AssetUploadResponse:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
-        asset_id = await store_asset_upload(file, file.filename, settings)
+        asset_id = await _store_uploaded_file(file, file.filename, settings)
         return AssetUploadResponse(id=asset_id, status="queued")
 
     @router.post(
@@ -49,7 +53,7 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
         for file, relative_path in zip(files, relative_paths, strict=True):
             try:
                 filename = validate_relative_path(relative_path)
-                asset_id = await store_asset_upload(file, filename, settings)
+                asset_id = await _store_uploaded_file(file, filename, settings)
             except HTTPException as exc:
                 results.append(
                     AssetBatchUploadItem(
@@ -88,3 +92,12 @@ def validate_relative_path(value: str) -> str:
     if not value or path.is_absolute() or ".." in path.parts:
         raise HTTPException(status_code=400, detail="Relative path is invalid")
     return path.as_posix()
+
+
+async def _store_uploaded_file(file: UploadFile, filename: str, settings: Settings) -> str:
+    try:
+        return await store_asset_upload(file.read, filename, settings)
+    except AssetUploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except AssetUploadPersistenceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

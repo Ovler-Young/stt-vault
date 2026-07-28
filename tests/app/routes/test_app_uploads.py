@@ -3,7 +3,6 @@ from typing import NoReturn
 
 import pytest
 from _support.upload_routes import api_routes, auth_headers
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from stt_vault.core.config import get_settings
@@ -15,6 +14,7 @@ from stt_vault.core.models.api import (
     UploadProgressResponse,
 )
 from stt_vault.persistence import db
+from stt_vault.services.asset_uploads import AssetUploadTooLargeError
 
 
 def test_upload_completion_route_declares_named_response_model(client: TestClient) -> None:
@@ -97,10 +97,10 @@ def test_single_upload_uses_shared_persistence_sequence(client: TestClient) -> N
 def test_single_upload_preserves_storage_http_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def reject_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
-        raise HTTPException(status_code=413, detail="Upload is too large")
+    def reject_upload(*_args: object, **_kwargs: object) -> NoReturn:
+        raise AssetUploadTooLargeError("Upload is too large")
 
-    monkeypatch.setattr("stt_vault.services.asset_uploads.store_upload", reject_upload)
+    monkeypatch.setattr("stt_vault.routes.assets.collection.store_asset_upload", reject_upload)
 
     response = client.post(
         "/api/assets",

@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from stt_vault.core.models.records import ErrorRecord
+from stt_vault.core.models.records import ErrorRecord, KnownSpeaker
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.workers.worker_completion import CompletionPersistence, SummaryFollowup
 from stt_vault.workers.worker_exports import TranscriptExportStage, VisualEventStage
@@ -26,12 +26,20 @@ def test_sqlite_worker_repository_delegates_operations_with_its_database_path(
                     "renew_job_claim": True,
                     "get_asset": {"id": "asset-1"},
                     "list_transcript_chunks": [{"chunk_index": 0}],
-                    "list_speakers": [{"id": "speaker-1"}],
+                    "list_speakers": [known_speaker],
                     "apply_ai_speaker_names": {"SPEAKER_00": "Maya"},
                 }.get(name)
 
             return operation
 
+    known_speaker: KnownSpeaker = {
+        "id": "speaker-1",
+        "display_name": "Maya",
+        "centroid": [0.1, 0.2],
+        "sample_count": 3,
+        "created_at": 1,
+        "updated_at": 2,
+    }
     database = RecordingDatabase()
     monkeypatch.setattr(worker_repository, "db", database)
     db_path = tmp_path / "app.sqlite3"
@@ -55,7 +63,7 @@ def test_sqlite_worker_repository_delegates_operations_with_its_database_path(
     )
     repository.reset_transcript_chunks("asset-1")
     repository.upsert_transcript_chunk("asset-1", 0, {"chunk_index": 0}, attempts=1)
-    assert repository.list_speakers() == [{"id": "speaker-1"}]
+    assert repository.list_speakers() == [known_speaker]
     repository.add_event("asset-1", "info", "stage", "message", {"value": "ok"})
     repository.update_progress("asset-1", done_chunks=1)
     repository.mark_success(

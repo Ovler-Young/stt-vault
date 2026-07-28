@@ -44,6 +44,42 @@ def test_transcriber_uses_injected_client_and_chunk_extractor(tmp_path) -> None:
     assert result[0]["text"] == "spoken words"
 
 
+def test_transcriber_rejects_a_mapping_response_without_text(tmp_path) -> None:
+    def extract_chunk(_media_path, output_path, _start, _end):
+        output_path.write_bytes(b"audio")
+        return output_path
+
+    class FakeTranscriptions:
+        def create(self, **_kwargs):
+            return {"unexpected": "response"}
+
+    class FakeClient:
+        audio = type("Audio", (), {"transcriptions": FakeTranscriptions()})()
+
+    transcriber = Transcriber(
+        api_key="unused",
+        base_url="unused",
+        model="unused",
+        prompt="",
+        concurrency=1,
+        retry_seconds=1,
+        max_retries=1,
+        client=FakeClient(),
+        chunk_extractor=extract_chunk,
+    )
+
+    try:
+        transcriber.transcribe_chunks(
+            tmp_path / "input.wav",
+            [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_01"}],
+            tmp_path,
+        )
+    except TypeError as error:
+        assert str(error) == "transcription response mapping is missing text"
+    else:
+        raise AssertionError("expected invalid response to fail")
+
+
 def test_build_chunks_preserves_exact_60_second_request_windows() -> None:
     chunks = build_chunks(
         [{"start": 10.0, "end": 145.0, "speaker": "SPEAKER_01"}],

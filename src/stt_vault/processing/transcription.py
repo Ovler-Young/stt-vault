@@ -1,7 +1,8 @@
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
@@ -18,6 +19,11 @@ class TranscriptionResponse(Protocol):
     text: str | None
 
 
+@dataclass(frozen=True)
+class _NormalizedTranscriptionResponse:
+    text: str | None
+
+
 class AudioTranscriptions(Protocol):
     def create(
         self,
@@ -25,7 +31,7 @@ class AudioTranscriptions(Protocol):
         file: BinaryIO,
         model: str,
         prompt: str | None = None,
-    ) -> TranscriptionResponse | dict[str, object]: ...
+    ) -> TranscriptionResponse: ...
 
 
 class TranscriptionAudio(Protocol):
@@ -54,6 +60,21 @@ class ChunkDoneCallback(Protocol):
 
 class ChunkRetryCallback(Protocol):
     def __call__(self, index: int, attempt: int, error: Exception, retry_at: int) -> None: ...
+
+
+def _normalize_transcription_response(response: object) -> TranscriptionResponse:
+    if isinstance(response, Mapping):
+        if "text" not in response:
+            raise TypeError("transcription response mapping is missing text")
+        text = response["text"]
+    else:
+        missing = object()
+        text = getattr(response, "text", missing)
+        if text is missing:
+            raise TypeError("transcription response is missing text")
+    if text is not None and not isinstance(text, str):
+        raise TypeError("transcription response text must be a string or null")
+    return _NormalizedTranscriptionResponse(text=text)
 
 
 def build_chunks(
@@ -229,11 +250,9 @@ class Transcriber:
             kwargs["prompt"] = self.prompt
 
         with chunk_path.open("rb") as audio_file:
-            response = self.client.audio.transcriptions.create(file=audio_file, **kwargs)
-
-        text = getattr(response, "text", None)
-        if text is None and isinstance(response, dict):
-            text = response.get("text")
+            response = _normalize_transcription_response(
+                self.client.audio.transcriptions.create(file=audio_file, **kwargs)
+            )
 
         return {
             "start": chunk["start"],
@@ -241,7 +260,7 @@ class Transcriber:
             "chunk_start": chunk["start"],
             "chunk_end": chunk["end"],
             "speaker": chunk["speaker"],
-            "text": (text or "").strip(),
+            "text": (response.text or "").strip(),
             "attempts": attempt,
         }
 

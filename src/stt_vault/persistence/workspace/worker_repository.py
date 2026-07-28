@@ -4,6 +4,7 @@ from stt_vault.core.models.records import (
     AssetRecord,
     ErrorRecord,
     EventPayload,
+    KnownSpeaker,
     TranscriptSegment,
     VisualEvent,
 )
@@ -44,7 +45,7 @@ class SqliteWorkerRepository:
     ) -> None:
         db.upsert_transcript_chunk(self.db_path, asset_id, index, result, attempts=attempts)
 
-    def list_speakers(self) -> list[dict[str, object]]:
+    def list_speakers(self) -> list[KnownSpeaker]:
         return db.list_speakers(self.db_path)
 
     def add_event(

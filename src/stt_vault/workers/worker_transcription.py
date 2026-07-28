@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Protocol
 
 from stt_vault.core.config import Settings
-from stt_vault.core.models.records import AssetRecord, TranscriptSegment
+from stt_vault.core.models.records import AssetRecord, KnownSpeaker, TranscriptSegment
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import match_speakers
 from stt_vault.processing.transcription import (
@@ -26,7 +26,7 @@ class TranscriptionRepository(Protocol):
         self, asset_id: str, index: int, result: TranscriptSegment, *, attempts: int
     ) -> None: ...
 
-    def list_speakers(self) -> list[dict[str, object]]: ...
+    def list_speakers(self) -> list[KnownSpeaker]: ...
 
     def update_stage(self, asset_id: str, stage: str) -> None: ...
 

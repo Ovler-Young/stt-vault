@@ -1,14 +1,10 @@
-import logging
-import shutil
-import tempfile
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, UploadFile
 
 from stt_vault.core.auth import require_admin
 from stt_vault.core.config import Settings
-from stt_vault.core.diagnostics.logging import log_exception_diagnostic
 from stt_vault.core.models.api import (
     AssetBatchUploadItem,
     AssetBatchUploadResponse,
@@ -17,10 +13,9 @@ from stt_vault.core.models.api import (
     JobResponse,
 )
 from stt_vault.persistence import db
-from stt_vault.services.media_storage import store_upload
+from stt_vault.services.asset_uploads import store_asset_upload
 
 __all__ = ["register_asset_collection_routes"]
-logger = logging.getLogger(__name__)
 
 
 def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
@@ -34,7 +29,7 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
     async def upload_asset(file: Annotated[UploadFile, File()]) -> AssetUploadResponse:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
-        asset_id = await _store_uploaded_file(file, file.filename, settings)
+        asset_id = await store_asset_upload(file, file.filename, settings)
         return AssetUploadResponse(id=asset_id, status="queued")
 
     @router.post(
@@ -54,7 +49,7 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
         for file, relative_path in zip(files, relative_paths, strict=True):
             try:
                 filename = validate_relative_path(relative_path)
-                asset_id = await _store_uploaded_file(file, filename, settings)
+                asset_id = await store_asset_upload(file, filename, settings)
             except HTTPException as exc:
                 results.append(
                     AssetBatchUploadItem(
@@ -63,14 +58,7 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
                         detail=str(exc.detail),
                     )
                 )
-            except Exception as exc:
-                log_exception_diagnostic(
-                    logger,
-                    "batch upload failed",
-                    exc,
-                    event_name="upload.batch_item_failed",
-                    context={"upload_path": relative_path},
-                )
+            except Exception:
                 results.append(
                     AssetBatchUploadItem(
                         path=relative_path,
@@ -93,40 +81,6 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
         return db.list_jobs(settings.stt_db_path)
 
     app.include_router(router)
-
-
-async def _store_uploaded_file(file: UploadFile, filename: str, settings: Settings) -> str:
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        copied = 0
-        max_bytes = settings.max_upload_bytes
-        while chunk := await file.read(1024 * 1024):
-            copied += len(chunk)
-            if copied > max_bytes:
-                tmp_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Upload is too large")
-            tmp.write(chunk)
-    try:
-        asset_id, stored_path, media_type = store_upload(settings.media_dir, filename, tmp_path)
-        try:
-            db.create_asset(settings.stt_db_path, asset_id, filename, media_type, stored_path)
-        except Exception:
-            shutil.rmtree(settings.media_dir / asset_id, ignore_errors=True)
-            raise
-        return asset_id
-    except HTTPException:
-        raise
-    except Exception as exc:
-        log_exception_diagnostic(
-            logger,
-            "upload persistence failed",
-            exc,
-            event_name="upload.persistence_failed",
-            context={"upload_filename": filename},
-        )
-        raise HTTPException(status_code=500, detail="Upload could not be stored") from exc
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
 
 def validate_relative_path(value: str) -> str:

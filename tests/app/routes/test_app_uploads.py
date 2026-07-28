@@ -100,7 +100,7 @@ def test_single_upload_preserves_storage_http_error(
     def reject_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
         raise HTTPException(status_code=413, detail="Upload is too large")
 
-    monkeypatch.setattr("stt_vault.routes.assets.collection.store_upload", reject_upload)
+    monkeypatch.setattr("stt_vault.services.asset_uploads.store_upload", reject_upload)
 
     response = client.post(
         "/api/assets",
@@ -118,7 +118,7 @@ def test_single_upload_maps_storage_failure_to_generic_error(
     def fail_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
         raise OSError("storage unavailable")
 
-    monkeypatch.setattr("stt_vault.routes.assets.collection.store_upload", fail_upload)
+    monkeypatch.setattr("stt_vault.services.asset_uploads.store_upload", fail_upload)
 
     response = client.post(
         "/api/assets",

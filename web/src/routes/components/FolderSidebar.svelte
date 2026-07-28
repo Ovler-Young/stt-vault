@@ -23,12 +23,13 @@
     class="folder root"
     onclick={() => onSelect(null)}>Root</button
   >
-  {#each folders as item}
+  {#each folders as folderEntry}
     <button
-      class:active={selectedFolderId === item.folder.id}
+      class:active={selectedFolderId === folderEntry.folder.id}
       class="folder"
-      style={`padding-left: ${12 + item.depth * 18}px`}
-      onclick={() => onSelect(item.folder.id)}>{item.folder.name}</button
+      style={`padding-left: ${12 + folderEntry.depth * 18}px`}
+      onclick={() => onSelect(folderEntry.folder.id)}
+      >{folderEntry.folder.name}</button
     >
   {/each}
 </aside>

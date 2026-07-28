@@ -45,9 +45,9 @@
           onTargetChange(asset.id, event.currentTarget.value)}
       >
         <option value="">Root</option>
-        {#each folders as item}
-          <option value={item.folder.id}
-            >{"  ".repeat(item.depth)}{item.folder.name}</option
+        {#each folders as folderEntry}
+          <option value={folderEntry.folder.id}
+            >{"  ".repeat(folderEntry.depth)}{folderEntry.folder.name}</option
           >
         {/each}
       </select>

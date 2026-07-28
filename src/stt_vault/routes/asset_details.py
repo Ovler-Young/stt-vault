@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from stt_vault.core.api_models import AssetResponse, EventResponse
+from stt_vault.core.api_models import AssetResponse, AssetSummaryResponse, EventResponse
 from stt_vault.core.auth import require_admin
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
@@ -42,12 +42,18 @@ def register_asset_detail_routes(app: FastAPI, settings: Settings) -> None:
 def register_asset_summary_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.post("/api/assets/{asset_id}/summary", dependencies=[Depends(require_admin)])
-    def summarize_asset(asset_id: str) -> dict[str, object]:
+    @router.post(
+        "/api/assets/{asset_id}/summary",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetSummaryResponse,
+    )
+    def summarize_asset(asset_id: str) -> AssetSummaryResponse:
         asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         try:
             require_completed_transcript(asset)
-            return generate_asset_summary(settings, asset_id, asset)
+            return AssetSummaryResponse.model_validate(
+                generate_asset_summary(settings, asset_id, asset)
+            )
         except CompletedTranscriptRequiredError:
             raise HTTPException(
                 status_code=409, detail="A completed transcript is required"

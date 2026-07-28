@@ -176,7 +176,29 @@ def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> Non
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok"}
     assert config_response.status_code == 200
-    assert config_response.json()["auth_required"] is True
+    assert config_response.json() == {
+        "auth_required": True,
+        "transcribe_model": "gpt-4o-transcribe",
+        "senko_device": "auto",
+        "batched_embeddings_requested": True,
+    }
+
+
+def test_system_and_summary_routes_publish_named_response_schemas(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    schema = create_test_app(monkeypatch, tmp_path).openapi()
+
+    assert schema["paths"]["/api/config"]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/ConfigResponse"}
+    assert schema["paths"]["/api/auth/token"]["post"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"] == {"$ref": "#/components/schemas/AuthTokenResponse"}
+    assert schema["paths"]["/api/assets/{asset_id}/summary"]["post"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"] == {"$ref": "#/components/schemas/AssetSummaryResponse"}
 
 
 def test_asset_response_rejects_malformed_database_rows() -> None:

@@ -121,6 +121,69 @@ def test_completed_transcript_precondition_is_shared_by_service_and_endpoint(
     assert response.json() == {"detail": "A completed transcript is required"}
 
 
+def test_summary_endpoint_preserves_valid_generated_response(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
+    expected = {
+        "status": "success",
+        "summary": "Meeting summary",
+        "title": "Release planning",
+        "speaker_names": {"SPEAKER_00": "Maya Chen"},
+    }
+    monkeypatch.setattr(
+        "stt_vault.routes.asset_details.get_asset_or_404", lambda *_args, **_kwargs: asset
+    )
+    monkeypatch.setattr(
+        "stt_vault.routes.asset_details.generate_asset_summary", lambda *_args, **_kwargs: expected
+    )
+
+    response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    assert response.json() == expected
+
+
+@pytest.mark.parametrize(
+    "generated_summary",
+    [
+        pytest.param(
+            {"status": "success", "summary": "Meeting summary"},
+            id="missing-required-fields",
+        ),
+        pytest.param(
+            {
+                "status": "success",
+                "summary": "Meeting summary",
+                "title": "Release planning",
+                "speaker_names": {"SPEAKER_00": "Maya Chen"},
+                "unexpected": "field",
+            },
+            id="unexpected-extra-field",
+        ),
+    ],
+)
+def test_summary_endpoint_rejects_malformed_generated_response(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    generated_summary: dict[str, object],
+) -> None:
+    asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
+    monkeypatch.setattr(
+        "stt_vault.routes.asset_details.get_asset_or_404", lambda *_args, **_kwargs: asset
+    )
+    monkeypatch.setattr(
+        "stt_vault.routes.asset_details.generate_asset_summary",
+        lambda *_args, **_kwargs: generated_summary,
+    )
+
+    response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Summary generation failed"}
+
+
 def test_upload_session_completion_restores_temp_file_when_database_write_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

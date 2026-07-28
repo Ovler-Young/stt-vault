@@ -11,6 +11,26 @@ class ApiRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ConfigResponse(ApiRecord):
+    auth_required: bool
+    transcribe_model: str
+    senko_device: str
+    batched_embeddings_requested: bool
+
+
+class AuthTokenResponse(ApiRecord):
+    access_token: str
+    token_type: Literal["bearer"]
+    expires_in: int | None
+
+
+class AssetSummaryResponse(ApiRecord):
+    status: Literal["success"]
+    summary: str
+    title: str
+    speaker_names: dict[str, str]
+
+
 class DatabaseRecord(ApiRecord):
     """Validated representation of decoded SQLite data."""
 

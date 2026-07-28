@@ -78,6 +78,26 @@ def test_structured_formatter_redacts_sensitive_command_text() -> None:
     assert json.loads(rendered)["command"] == "ffmpeg -i [path] --[redacted]"
 
 
+def test_structured_formatter_redacts_secret_key_variants() -> None:
+    formatter = StructuredFormatter()
+    record = logging.makeLogRecord(
+        {
+            "name": "stt_vault.processing.transcription",
+            "levelno": logging.ERROR,
+            "levelname": "ERROR",
+            "msg": "provider failed",
+            "details": "secret=plain client_secret=oauth-secret CLIENT_SECRET=upper",
+        }
+    )
+
+    rendered = formatter.format(record)
+
+    assert "plain" not in rendered
+    assert "oauth-secret" not in rendered
+    assert "upper" not in rendered
+    assert json.loads(rendered)["details"] == ("[redacted] [redacted] [redacted]")
+
+
 def test_structured_formatter_preserves_stable_event_and_job_correlation() -> None:
     formatter = StructuredFormatter()
     record = logging.makeLogRecord(

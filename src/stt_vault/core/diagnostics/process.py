@@ -6,7 +6,7 @@ from typing import Protocol
 
 MAX_SUBPROCESS_DIAGNOSTIC_BYTES = 8 * 1024
 SENSITIVE_VALUE_PATTERN = re.compile(
-    r"(?:\b|_)((?:[a-z0-9]+[_-])*?(?:api[_-]?key|password|token))\s*[=:]\s*[^\s]+|\bauthorization\s*[=:]\s*(?:Bearer\s+)?[^\s]+|\bBearer\s+[^\s]+",
+    r"(?:\b|_)((?:[a-z0-9]+[_-])*?(?:api[_-]?key|client[_-]?secret|password|secret|token))\s*[=:]\s*[^\s]+|\bauthorization\s*[=:]\s*(?:Bearer\s+)?[^\s]+|\bBearer\s+[^\s]+",
     re.IGNORECASE,
 )
 PATH_PATTERN = re.compile(r"(?<![\w.-])(?:[A-Za-z]:)?[/\\][^\s:]+")

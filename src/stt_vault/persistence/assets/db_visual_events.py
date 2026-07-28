@@ -3,7 +3,7 @@ from pathlib import Path
 from stt_vault.core.api_models import VisualEventResponse
 from stt_vault.core.types import PersistedVisualEvent, VisualEvent
 
-from .db_connection import connect, decode_record, now, transaction
+from ..shared.db_connection import connect, decode_record, now, transaction
 
 
 def replace_visual_events(

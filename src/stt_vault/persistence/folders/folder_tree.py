@@ -6,7 +6,7 @@ from stt_vault.core.api_models import (
     FolderTreeResponse,
 )
 
-from .db_connection import connect
+from ..shared.db_connection import connect
 from .folder_records import FolderDataIntegrityError, decode_folder, decode_folder_asset
 
 

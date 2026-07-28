@@ -6,9 +6,9 @@ from pathlib import Path
 from stt_vault.core.api_models import AssetResponse, JsonValue
 from stt_vault.core.types import AssetRecord
 
-from .db_connection import connect, now, row_to_dict, transaction
-from .db_job_events import list_current_run_events, list_events
-from .db_job_records import get_job
+from ..jobs.db_job_events import list_current_run_events, list_events
+from ..jobs.db_job_records import get_job
+from ..shared.db_connection import connect, now, row_to_dict, transaction
 from .db_transcripts import list_transcript_chunks
 from .db_visual_events import list_visual_events
 

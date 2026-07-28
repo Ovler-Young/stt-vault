@@ -11,7 +11,7 @@ from stt_vault.core.app import create_app
 from stt_vault.core.logging_config import StructuredFormatter
 from stt_vault.core.settings import get_settings
 from stt_vault.persistence import db
-from stt_vault.persistence.db_folders import FolderDataIntegrityError
+from stt_vault.persistence.folders.db_folders import FolderDataIntegrityError
 
 
 @pytest.fixture

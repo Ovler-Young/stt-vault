@@ -12,7 +12,7 @@ from stt_vault.core.types import (
     TranscriptSegment,
     VisualEvent,
 )
-from stt_vault.persistence.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.exports import write_exports
 from stt_vault.processing.visual import (
     CommandRunner,

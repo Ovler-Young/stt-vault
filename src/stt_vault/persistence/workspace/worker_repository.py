@@ -8,7 +8,7 @@ from stt_vault.core.types import (
     VisualEvent,
 )
 
-from . import db
+from .. import db
 
 
 class SqliteWorkerRepository:

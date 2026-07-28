@@ -8,8 +8,8 @@ from stt_vault.core.auth import require_admin
 from stt_vault.core.requests import AssetMoveRequest
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
-from stt_vault.persistence.db_asset_relocation import AssetNotFoundError
-from stt_vault.persistence.folder_records import FolderNotFoundError
+from stt_vault.persistence.assets.db_asset_relocation import AssetNotFoundError
+from stt_vault.persistence.folders.folder_records import FolderNotFoundError
 
 __all__ = [
     "register_asset_cleanup_routes",

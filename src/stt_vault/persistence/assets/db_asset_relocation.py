@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import TypedDict
 
-from .db_connection import now, transaction
-from .folder_records import get_required_folder
+from ..folders.folder_records import get_required_folder
+from ..shared.db_connection import now, transaction
 
 
 class AssetNotFoundError(KeyError):

@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from stt_vault.core.api_models import FolderAssetSummary, FolderResponse
 
-from .db_connection import row_to_dict
+from ..shared.db_connection import row_to_dict
 
 
 class FolderDataIntegrityError(RuntimeError):

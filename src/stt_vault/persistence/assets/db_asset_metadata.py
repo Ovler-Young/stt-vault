@@ -4,7 +4,7 @@ from pathlib import Path
 from stt_vault.core.api_models import JsonValue
 from stt_vault.core.types import ExportPaths, SpeakerSegment
 
-from .db_connection import now, transaction
+from ..shared.db_connection import now, transaction
 
 
 def update_diarization_metadata(

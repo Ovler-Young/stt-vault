@@ -2,7 +2,7 @@ import sqlite3
 from math import isfinite
 from pathlib import Path
 
-from .db_connection import transaction
+from ..shared.db_connection import transaction
 
 
 def claim_next_job(

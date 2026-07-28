@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from stt_vault.persistence import db
-from stt_vault.persistence.db_job_queue import parse_lease_expiration
+from stt_vault.persistence.jobs.db_job_queue import parse_lease_expiration
 
 
 def create_asset(db_path: Path, asset_id: str = "asset-1") -> None:

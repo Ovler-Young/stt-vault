@@ -1,7 +1,7 @@
 from pathlib import Path
 
+from ..shared.db_connection import now, transaction
 from .db_asset_relocation import AssetNotFoundError
-from .db_connection import now, transaction
 
 
 def retry_asset(db_path: Path, asset_id: str) -> None:

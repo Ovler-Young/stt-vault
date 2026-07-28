@@ -13,7 +13,7 @@ from stt_vault.core.logging_config import log_exception_diagnostic
 from stt_vault.core.requests import FolderCreateRequest, FolderMoveRequest, FolderRenameRequest
 from stt_vault.core.settings import Settings
 from stt_vault.persistence import db
-from stt_vault.persistence.db_folders import FolderDataIntegrityError
+from stt_vault.persistence.folders.db_folders import FolderDataIntegrityError
 
 __all__ = ["register_folder_routes"]
 logger = logging.getLogger(__name__)

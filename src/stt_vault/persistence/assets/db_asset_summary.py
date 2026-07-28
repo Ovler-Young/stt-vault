@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .db_connection import now, transaction
+from ..shared.db_connection import now, transaction
 
 
 def update_asset_summary(

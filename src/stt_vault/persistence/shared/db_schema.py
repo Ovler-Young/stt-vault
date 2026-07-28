@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from .db_asset_records import recorded_at_from_filename
+from ..assets.db_asset_records import recorded_at_from_filename
 from .db_connection import transaction
 
 

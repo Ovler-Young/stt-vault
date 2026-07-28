@@ -4,8 +4,8 @@ from pathlib import Path
 from stt_vault.core.api_models import JsonValue
 from stt_vault.core.types import CleanupTask
 
+from ..shared.db_connection import connect, now, row_to_dict, transaction
 from .db_asset_relocation import AssetNotFoundError
-from .db_connection import connect, now, row_to_dict, transaction
 
 
 def record_cleanup_task(db_path: Path, asset_id: str, media_path: Path, exports_path: Path) -> None:

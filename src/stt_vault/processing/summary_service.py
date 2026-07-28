@@ -4,7 +4,7 @@ from openai import OpenAI
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, TranscriptSegment
-from stt_vault.persistence.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 
 from .ai_content import (
     build_content_analysis_prompt,

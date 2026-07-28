@@ -4,7 +4,7 @@ from pathlib import Path
 
 from stt_vault.core.types import KnownSpeaker, SpeakerMatch, SpeakerRecord
 
-from .db_connection import connect, decode_record, now, transaction
+from ..shared.db_connection import connect, decode_record, now, transaction
 from .db_transcripts import sync_asset_transcript_cache
 
 SPEAKER_JSON_FIELDS = {"centroid": list}

@@ -2,7 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from stt_vault.core.types import ErrorRecord
-from stt_vault.persistence.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.workers.worker_completion import CompletionPersistence, SummaryFollowup
 from stt_vault.workers.worker_exports import TranscriptExportStage, VisualEventStage
 from stt_vault.workers.worker_media import DiarizationStage, MediaPreparationStage
@@ -13,7 +13,7 @@ def test_sqlite_worker_repository_delegates_operations_with_its_database_path(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from stt_vault.persistence import worker_repository
+    from stt_vault.persistence.workspace import worker_repository
 
     calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
 

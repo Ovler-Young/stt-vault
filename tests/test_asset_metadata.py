@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from stt_vault.persistence import db
-from stt_vault.persistence.db_asset_records import recorded_at_from_filename
+from stt_vault.persistence.assets.db_asset_records import recorded_at_from_filename
 
 
 def test_recorded_at_from_filename_accepts_timestamp_basename() -> None:

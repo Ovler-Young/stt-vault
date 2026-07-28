@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from stt_vault.core.api_models import FolderResponse
 
-from .db_connection import connect, now, transaction
+from ..shared.db_connection import connect, now, transaction
 from .folder_records import FolderDataIntegrityError, decode_folder, get_required_folder
 
 __all__ = ["FolderDataIntegrityError"]

@@ -3,23 +3,26 @@ from pathlib import Path
 
 import pytest
 
-from stt_vault.persistence.db_asset_cleanup import (
+from stt_vault.persistence.assets.db_asset_cleanup import (
     delete_asset_with_cleanup_task,
     get_cleanup_task,
     record_cleanup_task,
 )
-from stt_vault.persistence.db_asset_metadata import (
+from stt_vault.persistence.assets.db_asset_metadata import (
     update_asset_exports,
     update_diarization_metadata,
 )
-from stt_vault.persistence.db_asset_records import create_asset, get_asset, list_assets
-from stt_vault.persistence.db_asset_relocation import AssetNotFoundError
-from stt_vault.persistence.db_asset_retry import retry_asset
-from stt_vault.persistence.db_asset_summary import update_asset_summary
-from stt_vault.persistence.db_job_events import list_events
-from stt_vault.persistence.db_job_queue import claim_next_job
-from stt_vault.persistence.db_schema import initialize
-from stt_vault.persistence.db_transcripts import apply_ai_speaker_names, upsert_transcript_chunk
+from stt_vault.persistence.assets.db_asset_records import create_asset, get_asset, list_assets
+from stt_vault.persistence.assets.db_asset_relocation import AssetNotFoundError
+from stt_vault.persistence.assets.db_asset_retry import retry_asset
+from stt_vault.persistence.assets.db_asset_summary import update_asset_summary
+from stt_vault.persistence.assets.db_transcripts import (
+    apply_ai_speaker_names,
+    upsert_transcript_chunk,
+)
+from stt_vault.persistence.jobs.db_job_events import list_events
+from stt_vault.persistence.jobs.db_job_queue import claim_next_job
+from stt_vault.persistence.shared.db_schema import initialize
 
 
 def resolve_import_from_module(module_path: Path, node: ast.ImportFrom) -> str | None:
@@ -151,7 +154,7 @@ def test_transcript_speaker_name_boundary_updates_unassigned_speakers(tmp_path: 
 
 
 def test_summary_and_transcript_speaker_name_owners_are_separate() -> None:
-    from stt_vault.persistence import db_asset_summary, db_transcripts
+    from stt_vault.persistence.assets import db_asset_summary, db_transcripts
 
     assert not hasattr(db_asset_summary, "apply_ai_speaker_names")
     assert not hasattr(db_transcripts, "update_asset_summary")

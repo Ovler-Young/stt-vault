@@ -6,7 +6,7 @@ from stt_vault.core.api_models import TranscriptChunkRecord
 from stt_vault.core.speaker_names import is_local_speaker_label, is_usable_speaker_name
 from stt_vault.core.types import ErrorRecord, TranscriptSegment
 
-from .db_connection import connect, decode_record, now, transaction
+from ..shared.db_connection import connect, decode_record, now, transaction
 
 TRANSCRIPT_CHUNK_JSON_FIELDS = {"error": dict}
 

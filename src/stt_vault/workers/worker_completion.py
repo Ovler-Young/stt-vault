@@ -7,7 +7,7 @@ from stt_vault.core.api_models import JsonValue
 from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
-from stt_vault.persistence.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
 
 from .worker_failure import classify_worker_failure

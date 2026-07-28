@@ -4,7 +4,7 @@ from pathlib import Path
 
 from stt_vault.core.api_models import EventResponse, JsonValue
 
-from .db_connection import connect, decode_record, now, transaction
+from ..shared.db_connection import connect, decode_record, now, transaction
 from .db_job_records import get_job
 
 EVENT_JSON_FIELDS = {"payload": dict}

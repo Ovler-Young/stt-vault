@@ -4,7 +4,7 @@ from typing import Protocol
 
 from stt_vault.core.settings import Settings
 from stt_vault.core.types import AssetRecord, TranscriptSegment
-from stt_vault.persistence.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import match_speakers
 from stt_vault.processing.transcription import (
     Transcriber,

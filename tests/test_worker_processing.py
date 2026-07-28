@@ -73,7 +73,7 @@ def test_visual_event_stage_persists_and_exports_video_events(monkeypatch, tmp_p
         )
     )
     monkeypatch.setattr(
-        "stt_vault.persistence.worker_repository.db.update_stage",
+        "stt_vault.persistence.workspace.worker_repository.db.update_stage",
         lambda *_args: calls.append("stage"),
     )
     monkeypatch.setattr(
@@ -81,7 +81,7 @@ def test_visual_event_stage_persists_and_exports_video_events(monkeypatch, tmp_p
         lambda *_args, **_kwargs: [{"timestamp": 2.0, "score": 20.0, "kind": "slide_change"}],
     )
     monkeypatch.setattr(
-        "stt_vault.persistence.worker_repository.db.replace_visual_events",
+        "stt_vault.persistence.workspace.worker_repository.db.replace_visual_events",
         lambda *_args: calls.append("persist"),
     )
     monkeypatch.setattr(
@@ -123,14 +123,16 @@ def test_visual_event_stage_propagates_injected_thumbnail_extractor(
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "stt_vault.persistence.worker_repository.db.update_stage", lambda *_args: None
+        "stt_vault.persistence.workspace.worker_repository.db.update_stage",
+        lambda *_args: None,
     )
     monkeypatch.setattr(
         "stt_vault.workers.worker_exports.detect_slide_changes",
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        "stt_vault.persistence.worker_repository.db.replace_visual_events", lambda *_args: None
+        "stt_vault.persistence.workspace.worker_repository.db.replace_visual_events",
+        lambda *_args: None,
     )
     monkeypatch.setattr(
         "stt_vault.workers.worker_exports.write_visual_event_thumbnails",

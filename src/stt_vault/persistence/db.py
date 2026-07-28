@@ -1,35 +1,15 @@
-from .db_asset_cleanup import (
+from .assets.db_asset_cleanup import (
     clear_cleanup_task,
     delete_asset_with_cleanup_task,
     get_cleanup_task,
     record_cleanup_task,
 )
-from .db_asset_metadata import update_asset_exports, update_diarization_metadata
-from .db_asset_records import asset_exists, create_asset, get_asset, list_assets
-from .db_asset_relocation import move_asset
-from .db_asset_retry import retry_asset
-from .db_asset_summary import update_asset_summary
-from .db_connection import connect, decode_record, now, row_to_dict, transaction
-from .db_folders import (
-    create_folder,
-    delete_folder,
-    get_folder,
-    list_folders,
-    move_folder,
-    rename_folder,
-)
-from .db_job_events import (
-    add_event,
-    list_current_run_events,
-    list_events,
-    update_progress,
-    update_stage,
-)
-from .db_job_queue import claim_next_job, recover_expired_jobs, renew_job_claim
-from .db_job_records import get_job, list_jobs
-from .db_job_status import mark_failed, mark_partial, mark_success
-from .db_schema import add_missing_columns, initialize
-from .db_speakers import (
+from .assets.db_asset_metadata import update_asset_exports, update_diarization_metadata
+from .assets.db_asset_records import asset_exists, create_asset, get_asset, list_assets
+from .assets.db_asset_relocation import move_asset
+from .assets.db_asset_retry import retry_asset
+from .assets.db_asset_summary import update_asset_summary
+from .assets.db_speakers import (
     delete_speaker,
     find_speaker_by_display_name,
     get_speaker,
@@ -43,22 +23,42 @@ from .db_speakers import (
     rename_speaker,
     upsert_speaker,
 )
-from .db_transcripts import (
+from .assets.db_transcripts import (
     apply_ai_speaker_names,
     list_transcript_chunks,
     list_transcript_chunks_from_conn,
     reset_transcript_chunks,
     upsert_transcript_chunk,
 )
-from .db_uploads import (
+from .assets.db_visual_events import list_visual_events, replace_visual_events
+from .folders.db_folders import (
+    create_folder,
+    delete_folder,
+    get_folder,
+    list_folders,
+    move_folder,
+    rename_folder,
+)
+from .folders.folder_tree import list_folder_tree
+from .jobs.db_job_events import (
+    add_event,
+    list_current_run_events,
+    list_events,
+    update_progress,
+    update_stage,
+)
+from .jobs.db_job_queue import claim_next_job, recover_expired_jobs, renew_job_claim
+from .jobs.db_job_records import get_job, list_jobs
+from .jobs.db_job_status import mark_failed, mark_partial, mark_success
+from .shared.db_connection import connect, decode_record, now, row_to_dict, transaction
+from .shared.db_schema import add_missing_columns, initialize
+from .workspace.db_uploads import (
     complete_upload_session,
     create_upload_session,
     delete_upload_session,
     get_upload_session,
     update_upload_offset,
 )
-from .db_visual_events import list_visual_events, replace_visual_events
-from .folder_tree import list_folder_tree
 
 __all__ = [
     "add_event",

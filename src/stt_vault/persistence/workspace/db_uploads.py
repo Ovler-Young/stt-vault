@@ -4,8 +4,8 @@ from uuid import uuid4
 from stt_vault.core.api_models import UploadSessionResponse
 from stt_vault.core.types import UploadSessionRecord
 
-from .db_asset_records import create_asset_from_conn
-from .db_connection import connect, now, transaction
+from ..assets.db_asset_records import create_asset_from_conn
+from ..shared.db_connection import connect, now, transaction
 
 
 def _decode_upload_session(row: object) -> UploadSessionRecord | None:

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from stt_vault.core.api_models import JobResponse
 
-from .db_connection import connect, decode_record
+from ..shared.db_connection import connect, decode_record
 
 JOB_JSON_FIELDS = {"error": dict}
 

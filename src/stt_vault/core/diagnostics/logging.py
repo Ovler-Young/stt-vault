@@ -62,7 +62,7 @@ class StructuredFormatter(logging.Formatter):
             "asset_id": getattr(record, "asset_id", None),
             "job_id": getattr(record, "job_id", None),
             "return_code": getattr(record, "return_code", None),
-            "command": getattr(record, "command", None),
+            "command": _format_optional_context(getattr(record, "command", None)),
             "stderr": _format_optional_context(getattr(record, "stderr", None)),
         }
         if record.exc_info:

@@ -43,6 +43,25 @@ def test_structured_formatter_includes_standard_context_keys() -> None:
     }
 
 
+def test_structured_formatter_redacts_sensitive_command_text() -> None:
+    formatter = StructuredFormatter()
+    record = logging.makeLogRecord(
+        {
+            "name": "stt_vault.processing.visual",
+            "levelno": logging.ERROR,
+            "levelname": "ERROR",
+            "msg": "ffmpeg failed",
+            "command": "ffmpeg -i /srv/private/clip.wav --api-key=secret-command-key",
+        }
+    )
+
+    rendered = formatter.format(record)
+
+    assert "/srv/private/clip.wav" not in rendered
+    assert "secret-command-key" not in rendered
+    assert json.loads(rendered)["command"] == "ffmpeg -i [path] --[redacted]"
+
+
 def test_structured_formatter_preserves_stable_event_and_job_correlation() -> None:
     formatter = StructuredFormatter()
     record = logging.makeLogRecord(

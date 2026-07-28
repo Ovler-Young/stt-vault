@@ -137,8 +137,16 @@ backend test suite are the configured backend quality checks.
 
 ## Architecture
 
+### Internal navigation
+
+- [Application and routes](src/stt_vault/core/app/__init__.py)
+- [Worker orchestration](src/stt_vault/workers/worker.py)
+- [Worker stage boundaries](src/stt_vault/workers/worker_media.py), [transcription](src/stt_vault/workers/worker_transcription.py), [exports](src/stt_vault/workers/worker_exports.py), [completion](src/stt_vault/workers/worker_completion.py), [failure handling](src/stt_vault/workers/worker_failure.py), [worker models](src/stt_vault/workers/worker_models.py), and [workspace access](src/stt_vault/workers/worker_workspace.py)
+- [Persistence](src/stt_vault/persistence/), [processing](src/stt_vault/processing/), and [services](src/stt_vault/services/)
+- [Frontend routes](web/src/routes/) and [API wrappers](web/src/lib/api/)
+
 - `src/stt_vault/core/app/__init__.py` composes the FastAPI application, configures its lifecycle, and registers route groups from `src/stt_vault/routes/`. `src/stt_vault/core/` owns settings, logging, diagnostics, shared types, authentication, and API request/response models. Route modules own HTTP parsing and response contracts.
-- `src/stt_vault/workers/worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `src/stt_vault/workers/worker_media.py`, `src/stt_vault/workers/worker_transcription.py`, `src/stt_vault/workers/worker_exports.py`, and `src/stt_vault/workers/worker_completion.py` own the stage boundaries.
+- `src/stt_vault/workers/worker.py` claims leased jobs and coordinates processing. Its data flow is `assets/jobs` in SQLite -> media conversion and diarization -> persisted transcript chunks -> transcript and visual exports -> completion state -> optional summary and speaker-name updates. `src/stt_vault/workers/worker_media.py`, `src/stt_vault/workers/worker_transcription.py`, `src/stt_vault/workers/worker_exports.py`, `src/stt_vault/workers/worker_completion.py`, `src/stt_vault/workers/worker_failure.py`, `src/stt_vault/workers/worker_models.py`, and `src/stt_vault/workers/worker_workspace.py` own stage behavior, shared worker types, failure handling, and repository access.
 - `src/stt_vault/persistence/` owns SQLite connection, schema, and repositories. `src/stt_vault/processing/` owns media, diarization, transcription, visual detection, export rendering, summary, and content analysis. `src/stt_vault/services/` owns upload-session coordination, media-stream process handling, and speaker operations. `web/src/lib/api/endpoints.ts` owns ordinary frontend endpoint wrappers; `web/src/lib/api/uploads.ts` owns upload-session and chunk transfer behavior.
 - `web/src/routes/` contains SvelteKit pages. The asset-detail page composes media, transcript, foldout, summary, and speaker components; playback navigation is isolated in its controller. Shared API types and UI utilities are in `web/src/lib/`.
 

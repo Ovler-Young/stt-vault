@@ -11,7 +11,6 @@ from stt_vault.processing.diarization_contracts import (
     BatchedDiarizationProvider,
     DiarizationProvider,
     DiarizerFactory,
-    ProviderCentroids,
 )
 from stt_vault.processing.diarization_instrumentation import current_rss_mb, instrument_diarizer
 from stt_vault.processing.diarization_pipeline import run_batched_diarization
@@ -171,13 +170,23 @@ def match_speakers(
     return matches
 
 
+def _validated_provider_centroids(value: object) -> dict[str, np.ndarray]:
+    if not isinstance(value, Mapping):
+        raise ValueError("Diarization provider returned invalid speaker centroids")
+    centroids: dict[str, np.ndarray] = {}
+    for speaker, centroid in value.items():
+        if not isinstance(speaker, str) or not isinstance(centroid, np.ndarray):
+            raise ValueError("Diarization provider returned invalid speaker centroid")
+        if centroid.ndim != 1 or not np.issubdtype(centroid.dtype, np.number):
+            raise ValueError("Diarization provider returned invalid speaker centroid")
+        centroids[speaker] = centroid
+    return centroids
+
+
 def _validate_provider_result(provider_result: object) -> DiarizationResult:
     if not isinstance(provider_result, Mapping):
         raise ValueError("Diarization provider returned a non-object result")
-    centroids = provider_result.get("speaker_centroids", {})
-    if not isinstance(centroids, dict):
-        raise ValueError("Diarization provider returned invalid speaker centroids")
-    typed_centroids = cast(ProviderCentroids, cast(object, centroids))
+    typed_centroids = _validated_provider_centroids(provider_result.get("speaker_centroids", {}))
     return DiarizationResult.model_validate(
         {
             "raw_segments": provider_result.get("raw_segments"),

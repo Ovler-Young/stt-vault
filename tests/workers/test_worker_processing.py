@@ -42,6 +42,24 @@ def test_diarizer_manager_rejects_malformed_provider_result() -> None:
         manager.diarize("audio.wav")
 
 
+def test_diarizer_manager_rejects_non_array_provider_centroid() -> None:
+    class MalformedProvider:
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload:
+            assert generate_colors
+            return {
+                "raw_segments": [],
+                "merged_segments": [],
+                "speaker_centroids": {"SPEAKER_00": [0.1, 0.2]},
+                "timing_stats": {},
+            }
+
+    manager = DiarizerManager(device="cpu", idle_timeout_seconds=1)
+    manager._diarizer = MalformedProvider()
+
+    with pytest.raises(ValueError, match="invalid speaker centroid"):
+        manager.diarize("audio.wav")
+
+
 def test_diarizer_manager_uses_injected_factory() -> None:
     calls: list[str] = []
 

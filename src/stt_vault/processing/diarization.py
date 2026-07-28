@@ -2,23 +2,82 @@ import logging
 import threading
 import time
 import wave
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import ParamSpec, Protocol, TypeVar
+from typing import ParamSpec, Protocol, TypeVar, cast, runtime_checkable
 
 import numpy as np
 
-from stt_vault.core.models.api import DiarizationResult
-from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch
+from stt_vault.core.models.api import DiarizationResult, JsonValue
+from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch, SpeakerSegment
 
 P = ParamSpec("P")
 R = TypeVar("R")
 logger = logging.getLogger(__name__)
 
 
+type VadSegment = Mapping[str, float]
+type Subsegment = Mapping[str, float]
+type FbankFeatures = np.ndarray
+type ProviderCentroids = dict[str, np.ndarray]
+type ProviderDiarizationValue = JsonValue | list[SpeakerSegment] | ProviderCentroids
+type ProviderDiarizationPayload = Mapping[str, ProviderDiarizationValue]
+type ProviderTimingStats = dict[str, JsonValue]
+
+
 class DiarizationProvider(Protocol):
-    def diarize(self, wav_path: str, *, generate_colors: bool) -> object: ...
+    def diarize(
+        self, wav_path: str, *, generate_colors: bool
+    ) -> ProviderDiarizationPayload | None: ...
+
+
+@runtime_checkable
+class VadDiarizationProvider(Protocol):
+    _perform_vad: Callable[[str], list[VadSegment]]
+
+
+@runtime_checkable
+class SubsegmentDiarizationProvider(Protocol):
+    _generate_subsegments: Callable[[list[VadSegment], bool | None], list[Subsegment]]
+
+
+@runtime_checkable
+class FbankDiarizationProvider(Protocol):
+    _extract_fbank_features: Callable[
+        [str, list[Subsegment]], tuple[FbankFeatures, Sequence[int], Sequence[int], int]
+    ]
+
+
+@runtime_checkable
+class EmbeddingDiarizationProvider(Protocol):
+    _generate_embeddings: Callable[[FbankFeatures, Sequence[int], Sequence[int], int], np.ndarray]
+
+
+@runtime_checkable
+class ClusteringDiarizationProvider(Protocol):
+    _perform_clustering: Callable[
+        [np.ndarray, list[Subsegment]],
+        tuple[list[SpeakerSegment], list[SpeakerSegment], ProviderCentroids],
+    ]
+
+
+class InstrumentedDiarizationProvider(Protocol):
+    _stt_vault_instrumented: bool
+
+
+class BatchedDiarizationProvider(
+    DiarizationProvider,
+    VadDiarizationProvider,
+    SubsegmentDiarizationProvider,
+    FbankDiarizationProvider,
+    EmbeddingDiarizationProvider,
+    ClusteringDiarizationProvider,
+    Protocol,
+):
+    _timing_stats: ProviderTimingStats
+
+    def _validate_wav_file(self, wav_file: wave.Wave_read, wav_path: str) -> None: ...
 
 
 DiarizerFactory = Callable[[str], DiarizationProvider]
@@ -58,7 +117,9 @@ class DiarizerManager:
             rss_before = current_rss_mb()
             start = time.perf_counter()
             if self.use_batched_embeddings:
-                provider_result = self._diarize_batched(diarizer, wav_path, generate_colors=True)
+                provider_result = self._diarize_batched(
+                    cast(BatchedDiarizationProvider, diarizer), wav_path, generate_colors=True
+                )
             else:
                 provider_result = diarizer.diarize(wav_path, generate_colors=True)
             elapsed = time.perf_counter() - start
@@ -83,7 +144,7 @@ class DiarizerManager:
             if idle_for >= self.idle_timeout_seconds:
                 self._diarizer = None
 
-    def _get_or_create(self):
+    def _get_or_create(self) -> DiarizationProvider:
         if self._diarizer is None:
             rss_before = current_rss_mb()
             start = time.perf_counter()
@@ -99,12 +160,12 @@ class DiarizerManager:
 
     def _diarize_batched(
         self,
-        diarizer: object,
+        diarizer: BatchedDiarizationProvider,
         wav_path: str,
         *,
         accurate: bool | None = None,
         generate_colors: bool = False,
-    ) -> dict[str, object] | None:
+    ) -> ProviderDiarizationPayload | None:
         diarizer._timing_stats = {}
         total_start = time.time()
 
@@ -166,23 +227,30 @@ class DiarizerManager:
 
         return result
 
-    def _instrument_diarizer(self, diarizer: object) -> None:
-        if getattr(diarizer, "_stt_vault_instrumented", False):
+    def _instrument_diarizer(self, diarizer: DiarizationProvider) -> None:
+        instrumented_diarizer = cast(InstrumentedDiarizationProvider, diarizer)
+        if getattr(instrumented_diarizer, "_stt_vault_instrumented", False):
             return
 
-        stages = {
-            "_perform_vad": "vad",
-            "_generate_subsegments": "subsegments",
-            "_extract_fbank_features": "fbank",
-            "_generate_embeddings": "embeddings",
-            "_perform_clustering": "clustering",
-        }
-        for method_name, stage_name in stages.items():
-            method = getattr(diarizer, method_name, None)
-            if method is None:
-                continue
-            setattr(diarizer, method_name, self._wrap_stage(stage_name, method))
-        diarizer._stt_vault_instrumented = True
+        if isinstance(diarizer, VadDiarizationProvider):
+            diarizer._perform_vad = self._wrap_stage("vad", diarizer._perform_vad)
+        if isinstance(diarizer, SubsegmentDiarizationProvider):
+            diarizer._generate_subsegments = self._wrap_stage(
+                "subsegments", diarizer._generate_subsegments
+            )
+        if isinstance(diarizer, FbankDiarizationProvider):
+            diarizer._extract_fbank_features = self._wrap_stage(
+                "fbank", diarizer._extract_fbank_features
+            )
+        if isinstance(diarizer, EmbeddingDiarizationProvider):
+            diarizer._generate_embeddings = self._wrap_stage(
+                "embeddings", diarizer._generate_embeddings
+            )
+        if isinstance(diarizer, ClusteringDiarizationProvider):
+            diarizer._perform_clustering = self._wrap_stage(
+                "clustering", diarizer._perform_clustering
+            )
+        instrumented_diarizer._stt_vault_instrumented = True
 
     def _wrap_stage(self, stage_name: str, method: Callable[P, R]) -> Callable[P, R]:
         @wraps(method)
@@ -282,7 +350,7 @@ def match_speakers(
     return matches
 
 
-def _validate_provider_result(provider_result: object) -> DiarizationResult:
+def _validate_provider_result(provider_result: ProviderDiarizationPayload) -> DiarizationResult:
     if not isinstance(provider_result, Mapping):
         raise ValueError("Diarization provider returned a non-object result")
     centroids = provider_result.get("speaker_centroids", {})

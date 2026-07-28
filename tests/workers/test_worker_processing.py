@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from stt_vault.core.models.api import DiarizationResult
-from stt_vault.processing.diarization import DiarizerManager
+from stt_vault.processing.diarization import DiarizerManager, ProviderDiarizationPayload
 from stt_vault.workers.worker_exports import VisualEventStage
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.workers.worker_transcription import TranscriptionStage
@@ -25,7 +25,7 @@ def test_diarization_model_rejects_malformed_provider_data() -> None:
 
 def test_diarizer_manager_rejects_malformed_provider_result() -> None:
     class MalformedProvider:
-        def diarize(self, _wav_path: str, *, generate_colors: bool) -> object:
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload:
             assert generate_colors
             return {
                 "raw_segments": [{"start": "bad", "end": 1.0, "speaker": "SPEAKER_00"}],
@@ -45,7 +45,9 @@ def test_diarizer_manager_uses_injected_factory() -> None:
     calls: list[str] = []
 
     class EmptyProvider:
-        def diarize(self, _wav_path: str, *, generate_colors: bool) -> object:
+        def diarize(
+            self, _wav_path: str, *, generate_colors: bool
+        ) -> ProviderDiarizationPayload | None:
             assert generate_colors
             return None
 

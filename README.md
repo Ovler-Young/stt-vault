@@ -115,7 +115,7 @@ cd web
 pnpm install
 pnpm build
 cd ..
-uvicorn stt_vault.core.app:create_app --factory --reload
+uv run uvicorn stt_vault.core.app:create_app --factory --reload
 ```
 
 The frontend build is copied into `src/stt_vault/static` by Docker. During local development, run `pnpm build` in `web/` and copy `web/build` to `src/stt_vault/static`, or run SvelteKit separately.

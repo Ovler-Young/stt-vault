@@ -93,6 +93,22 @@ class AssetRetryResponse(ApiRecord):
     status: Literal["queued"]
 
 
+class AssetUploadResponse(ApiRecord):
+    id: str
+    status: Literal["queued"]
+
+
+class AssetBatchUploadItem(ApiRecord):
+    path: str
+    status: Literal["queued", "failed"]
+    id: str | None = None
+    detail: str | None = None
+
+
+class AssetBatchUploadResponse(ApiRecord):
+    results: list[AssetBatchUploadItem]
+
+
 class UploadCompletionResponse(ApiRecord):
     id: str
     status: Literal["queued"]

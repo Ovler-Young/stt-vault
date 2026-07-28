@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Uplo
 from stt_vault.core.auth import require_admin
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import log_exception_diagnostic
-from stt_vault.core.models.api import AssetResponse, JobResponse
+from stt_vault.core.models.api import (
+    AssetBatchUploadItem,
+    AssetBatchUploadResponse,
+    AssetResponse,
+    AssetUploadResponse,
+    JobResponse,
+)
 from stt_vault.persistence import db
 from stt_vault.processing.media import store_upload
 
@@ -20,29 +26,42 @@ logger = logging.getLogger(__name__)
 def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.post("/api/assets", dependencies=[Depends(require_admin)])
-    async def upload_asset(file: Annotated[UploadFile, File()]) -> dict[str, str]:
+    @router.post(
+        "/api/assets",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetUploadResponse,
+    )
+    async def upload_asset(file: Annotated[UploadFile, File()]) -> AssetUploadResponse:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
         asset_id = await _store_uploaded_file(file, file.filename, settings)
-        return {"id": asset_id, "status": "queued"}
+        return AssetUploadResponse(id=asset_id, status="queued")
 
-    @router.post("/api/assets/batch", dependencies=[Depends(require_admin)])
+    @router.post(
+        "/api/assets/batch",
+        dependencies=[Depends(require_admin)],
+        response_model=AssetBatchUploadResponse,
+        response_model_exclude_none=True,
+    )
     async def upload_assets_batch(
         files: Annotated[list[UploadFile], File()],
         relative_paths: Annotated[list[str], Form()],
-    ) -> dict[str, list[dict[str, str]]]:
+    ) -> AssetBatchUploadResponse:
         if len(files) != len(relative_paths):
             raise HTTPException(status_code=400, detail="Each file requires one relative path")
 
-        results = []
+        results: list[AssetBatchUploadItem] = []
         for file, relative_path in zip(files, relative_paths, strict=True):
             try:
                 filename = validate_relative_path(relative_path)
                 asset_id = await _store_uploaded_file(file, filename, settings)
             except HTTPException as exc:
                 results.append(
-                    {"path": relative_path, "status": "failed", "detail": str(exc.detail)}
+                    AssetBatchUploadItem(
+                        path=relative_path,
+                        status="failed",
+                        detail=str(exc.detail),
+                    )
                 )
             except Exception as exc:
                 log_exception_diagnostic(
@@ -53,11 +72,17 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
                     context={"upload_path": relative_path},
                 )
                 results.append(
-                    {"path": relative_path, "status": "failed", "detail": "Upload failed"}
+                    AssetBatchUploadItem(
+                        path=relative_path,
+                        status="failed",
+                        detail="Upload failed",
+                    )
                 )
             else:
-                results.append({"path": relative_path, "status": "queued", "id": asset_id})
-        return {"results": results}
+                results.append(
+                    AssetBatchUploadItem(path=relative_path, status="queued", id=asset_id)
+                )
+        return AssetBatchUploadResponse(results=results)
 
     @router.get("/api/assets")
     def list_assets(_: Annotated[None, Depends(require_admin)]) -> list[AssetResponse]:

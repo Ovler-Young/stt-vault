@@ -7,7 +7,12 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from stt_vault.core.config import get_settings
-from stt_vault.core.models.api import AssetResponse, UploadCompletionResponse
+from stt_vault.core.models.api import (
+    AssetBatchUploadResponse,
+    AssetResponse,
+    AssetUploadResponse,
+    UploadCompletionResponse,
+)
 from stt_vault.persistence import db
 
 
@@ -19,6 +24,23 @@ def test_upload_completion_route_declares_named_response_model(client: TestClien
     )
 
     assert completion_route.response_model is UploadCompletionResponse
+
+
+def test_asset_upload_routes_declare_named_response_models(client: TestClient) -> None:
+    routes = api_routes(client.app)
+    single_route = next(
+        route
+        for route in routes
+        if route.path == "/api/assets" and "POST" in (route.methods or set())
+    )
+    batch_route = next(
+        route
+        for route in routes
+        if route.path == "/api/assets/batch" and "POST" in (route.methods or set())
+    )
+
+    assert single_route.response_model is AssetUploadResponse
+    assert batch_route.response_model is AssetBatchUploadResponse
 
 
 def test_batch_upload_isolated_per_file_and_rejects_traversal(client: TestClient) -> None:

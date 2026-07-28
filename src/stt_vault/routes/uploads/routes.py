@@ -16,9 +16,10 @@ CONTENT_RANGE_PATTERN = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 UPLOAD_LOCKS: dict[str, asyncio.Lock] = {}
 
 
-def register_upload_routes(app: FastAPI, settings: Settings) -> None:
+def register_upload_routes(
+    app: FastAPI, settings: Settings, sessions: UploadSessionService
+) -> None:
     router = APIRouter(dependencies=[Depends(require_admin)])
-    sessions = UploadSessionService(settings)
 
     @router.post("/api/uploads")
     def create_upload(payload: UploadCreateRequest) -> UploadResponse:

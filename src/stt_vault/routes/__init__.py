@@ -1,6 +1,14 @@
 from fastapi import FastAPI
 
 from stt_vault.core.config import Settings
+from stt_vault.persistence.workspace.db_uploads import (
+    complete_upload_session,
+    create_upload_session,
+    get_upload_session,
+    update_upload_offset,
+)
+from stt_vault.processing.media import move_upload
+from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 from stt_vault.workers.worker import Worker
 
 from .assets.collection import register_asset_collection_routes
@@ -29,7 +37,15 @@ __all__ = ["register_api_routes"]
 def register_api_routes(app: FastAPI, settings: Settings, worker: Worker) -> None:
     register_system_routes(app, settings)
     register_asset_collection_routes(app, settings)
-    register_upload_routes(app, settings)
+    upload_session_dependencies = UploadSessionDependencies(
+        create_upload_session=create_upload_session,
+        get_upload_session=get_upload_session,
+        update_upload_offset=update_upload_offset,
+        complete_upload_session=complete_upload_session,
+        move_upload=move_upload,
+    )
+    upload_sessions = UploadSessionService(settings, upload_session_dependencies)
+    register_upload_routes(app, settings, upload_sessions)
     register_folder_routes(app, settings)
     register_speaker_routes(app, settings)
     register_asset_detail_routes(app, settings)

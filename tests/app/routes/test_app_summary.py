@@ -14,7 +14,7 @@ from stt_vault.processing.summary_service import (
     generate_asset_summary,
     require_completed_transcript,
 )
-from stt_vault.services.upload_sessions import UploadSessionService
+from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
@@ -185,7 +185,7 @@ def test_summary_endpoint_rejects_malformed_generated_response(
 
 
 def test_upload_session_completion_restores_temp_file_when_database_write_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
     settings = SimpleNamespace(
         stt_db_path=tmp_path / "app.sqlite3",
@@ -205,21 +205,19 @@ def test_upload_session_completion_restores_temp_file_when_database_write_fails(
     stored_path = settings.media_dir / "asset-1" / "original.wav"
     stored_path.parent.mkdir(parents=True)
 
-    monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.get_upload_session", lambda *_args: upload
-    )
-    monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.move_upload",
-        lambda *_args: ("asset-1", stored_path, "audio"),
-    )
-    monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.complete_upload_session",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    dependencies = UploadSessionDependencies(
+        create_upload_session=lambda *_args: upload,
+        get_upload_session=lambda *_args: upload,
+        update_upload_offset=lambda *_args: None,
+        complete_upload_session=lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
+        move_upload=lambda *_args: ("asset-1", stored_path, "audio"),
     )
     stored_path.write_bytes(b"upload")
 
     with pytest.raises(RuntimeError, match="database unavailable"):
-        UploadSessionService(settings).complete("upload-1")
+        UploadSessionService(settings, dependencies).complete("upload-1")
 
     assert temp_path.read_bytes() == b"upload"
     assert not (settings.media_dir / "asset-1").exists()

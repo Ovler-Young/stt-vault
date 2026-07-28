@@ -4,15 +4,18 @@ from types import SimpleNamespace
 from typing import NoReturn
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
+from stt_vault.core.auth import require_admin
 from stt_vault.core.config import get_settings
 from stt_vault.core.models.api import AssetResponse, UploadCompletionResponse
+from stt_vault.core.models.records import UploadResponse
 from stt_vault.persistence import db
-from stt_vault.services.upload_sessions import UploadSessionService
+from stt_vault.routes.uploads.routes import register_upload_routes
+from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 
@@ -280,7 +283,7 @@ def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> 
 
 
 def test_upload_session_completion_returns_named_response(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
     settings = SimpleNamespace(
         stt_db_path=tmp_path / "app.sqlite3",
@@ -299,21 +302,42 @@ def test_upload_session_completion_returns_named_response(
     }
     stored_path = settings.media_dir / "asset-1" / "original.wav"
 
-    monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.get_upload_session", lambda *_args: upload
-    )
-    monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.move_upload",
-        lambda *_args: ("asset-1", stored_path, "audio"),
-    )
-    monkeypatch.setattr(
-        "stt_vault.services.upload_sessions.complete_upload_session", lambda *_args: None
+    dependencies = UploadSessionDependencies(
+        create_upload_session=lambda *_args: upload,
+        get_upload_session=lambda *_args: upload,
+        update_upload_offset=lambda *_args: None,
+        complete_upload_session=lambda *_args: None,
+        move_upload=lambda *_args: ("asset-1", stored_path, "audio"),
     )
 
-    completion = UploadSessionService(settings).complete("upload-1")
+    completion = UploadSessionService(settings, dependencies).complete("upload-1")
 
     assert isinstance(completion, UploadCompletionResponse)
     assert completion.model_dump() == {"id": "asset-1", "status": "queued"}
+
+
+def test_upload_routes_use_injected_session_service() -> None:
+    created: list[tuple[str, int]] = []
+
+    class FakeUploadSessions:
+        def create(self, filename: str, total_size: int) -> UploadResponse:
+            created.append((filename, total_size))
+            return {"id": "upload-1", "filename": filename, "size": total_size, "offset": 0}
+
+    app = FastAPI()
+    app.dependency_overrides[require_admin] = lambda: None
+    register_upload_routes(
+        app,
+        SimpleNamespace(max_upload_bytes=10),
+        FakeUploadSessions(),
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.post("/api/uploads", json={"filename": "clip.wav", "size": 4})
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "upload-1", "filename": "clip.wav", "size": 4, "offset": 0}
+    assert created == [("clip.wav", 4)]
 
 
 def test_upload_size_limit_uses_one_megabyte_boundary(

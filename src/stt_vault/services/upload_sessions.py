@@ -1,5 +1,6 @@
 import shutil
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -7,21 +8,30 @@ from fastapi import HTTPException
 from stt_vault.core.config import Settings
 from stt_vault.core.models.api import UploadCompletionResponse
 from stt_vault.core.models.records import UploadResponse, UploadSessionRecord
-from stt_vault.persistence.workspace.db_uploads import (
-    complete_upload_session,
-    create_upload_session,
-    get_upload_session,
-    update_upload_offset,
-)
-from stt_vault.processing.media import move_upload
+
+CreateUploadSession = Callable[[Path, str, int, Path], UploadSessionRecord]
+GetUploadSession = Callable[[Path, str], UploadSessionRecord | None]
+UpdateUploadOffset = Callable[[Path, str, int], None]
+CompleteUploadSession = Callable[[Path, str, str, str, Path], None]
+MoveUpload = Callable[[Path, str, Path], tuple[str, Path, str]]
+
+
+@dataclass(frozen=True)
+class UploadSessionDependencies:
+    create_upload_session: CreateUploadSession
+    get_upload_session: GetUploadSession
+    update_upload_offset: UpdateUploadOffset
+    complete_upload_session: CompleteUploadSession
+    move_upload: MoveUpload
 
 
 class UploadSessionService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, dependencies: UploadSessionDependencies) -> None:
         self.settings = settings
+        self.dependencies = dependencies
 
     def create(self, filename: str, total_size: int) -> UploadResponse:
-        upload = create_upload_session(
+        upload = self.dependencies.create_upload_session(
             self.settings.stt_db_path, filename, total_size, self.settings.uploads_dir
         )
         return upload_response(upload)
@@ -70,7 +80,7 @@ class UploadSessionService:
                 output.truncate(expected_offset)
                 raise
         next_offset = end + 1
-        update_upload_offset(self.settings.stt_db_path, upload_id, next_offset)
+        self.dependencies.update_upload_offset(self.settings.stt_db_path, upload_id, next_offset)
         upload["offset"] = next_offset
         return upload_response(upload)
 
@@ -82,11 +92,11 @@ class UploadSessionService:
         temp_path = Path(upload["temp_path"])
         if not temp_path.is_file() or temp_path.stat().st_size != total_size:
             raise HTTPException(status_code=409, detail="Stored upload size is inconsistent")
-        asset_id, stored_path, media_type = move_upload(
+        asset_id, stored_path, media_type = self.dependencies.move_upload(
             self.settings.media_dir, upload["filename"], temp_path
         )
         try:
-            complete_upload_session(
+            self.dependencies.complete_upload_session(
                 self.settings.stt_db_path, upload_id, asset_id, media_type, stored_path
             )
         except Exception:
@@ -97,7 +107,7 @@ class UploadSessionService:
         return UploadCompletionResponse(id=asset_id, status="queued")
 
     def require(self, upload_id: str) -> UploadSessionRecord:
-        upload = get_upload_session(self.settings.stt_db_path, upload_id)
+        upload = self.dependencies.get_upload_session(self.settings.stt_db_path, upload_id)
         if upload is None:
             raise HTTPException(status_code=404, detail="Upload not found")
         return upload

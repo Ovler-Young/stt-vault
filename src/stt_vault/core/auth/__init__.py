@@ -6,7 +6,7 @@ import jwt
 from fastapi import Depends, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .settings import Settings, get_settings
+from ..config import Settings, get_settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

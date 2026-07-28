@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from stt_vault.core.logging_config import (
+from stt_vault.core.diagnostics.logging import (
     StructuredFormatter,
     configure_logging,
     job_log_context,

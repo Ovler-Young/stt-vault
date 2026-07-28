@@ -3,11 +3,11 @@ import re
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 
-from stt_vault.core.api_models import UploadCompletionResponse
 from stt_vault.core.auth import require_admin
-from stt_vault.core.requests import UploadCreateRequest
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import UploadResponse
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import UploadCompletionResponse
+from stt_vault.core.models.records import UploadResponse
+from stt_vault.core.models.requests import UploadCreateRequest
 from stt_vault.services.upload_sessions import UploadSessionService
 
 from ..assets.collection import validate_relative_path

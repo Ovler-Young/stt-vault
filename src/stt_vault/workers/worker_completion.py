@@ -3,10 +3,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from stt_vault.core.api_models import JsonValue
-from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
+from stt_vault.core.config import Settings
+from stt_vault.core.diagnostics.logging import job_log_context, log_exception_diagnostic
+from stt_vault.core.models.api import JsonValue
+from stt_vault.core.models.records import (
+    ErrorRecord,
+    ExportPaths,
+    SpeakerSegment,
+    TranscriptSegment,
+)
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
 

@@ -9,10 +9,10 @@ from stt_vault.persistence import db
 from stt_vault.routes import register_api_routes
 from stt_vault.workers.worker import Worker
 
-from .auth import admin_password_matches, require_admin
-from .logging_config import configure_logging
-from .requests import SpeakerMergeRequest, SpeakerNameRequest
-from .settings import Settings, get_settings
+from ..auth import admin_password_matches, require_admin
+from ..config import Settings, get_settings
+from ..diagnostics.logging import configure_logging
+from ..models.requests import SpeakerMergeRequest, SpeakerNameRequest
 from .static_frontend import mount_static_frontend
 
 __all__ = [

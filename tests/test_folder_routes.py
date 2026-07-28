@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
-from stt_vault.core.settings import get_settings
+from stt_vault.core.config import get_settings
 from stt_vault.persistence import db
 
 

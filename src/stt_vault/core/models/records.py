@@ -1,6 +1,6 @@
 from typing import NotRequired, TypedDict
 
-from .api_models import JsonValue
+from .api import JsonValue
 
 
 class ErrorRecord(TypedDict, total=False):

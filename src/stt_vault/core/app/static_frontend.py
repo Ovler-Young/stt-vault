@@ -8,7 +8,7 @@ __all__ = ["mount_static_frontend"]
 
 
 def mount_static_frontend(app: FastAPI) -> None:
-    static_dir = Path(__file__).parent.parent / "static"
+    static_dir = Path(__file__).parent.parent.parent / "static"
     if not static_dir.exists():
         return
 

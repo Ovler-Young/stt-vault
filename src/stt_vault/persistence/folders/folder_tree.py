@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from stt_vault.core.api_models import (
+from stt_vault.core.models.api import (
     FolderAssetSummary,
     FolderTreeNodeResponse,
     FolderTreeResponse,

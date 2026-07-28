@@ -3,7 +3,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from .process_diagnostics import format_diagnostic_text
+from .process import format_diagnostic_text
 
 _STANDARD_LOG_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 _RESERVED_EXTRA_FIELDS = _STANDARD_LOG_RECORD_FIELDS | {"asctime", "message"}

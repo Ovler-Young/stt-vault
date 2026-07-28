@@ -1,8 +1,8 @@
 from pathlib import Path
 from uuid import uuid4
 
-from stt_vault.core.api_models import UploadSessionResponse
-from stt_vault.core.types import UploadSessionRecord
+from stt_vault.core.models.api import UploadSessionResponse
+from stt_vault.core.models.records import UploadSessionRecord
 
 from ..assets.db_asset_records import create_asset_from_conn
 from ..shared.db_connection import connect, now, transaction

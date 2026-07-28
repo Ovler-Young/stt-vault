@@ -3,7 +3,7 @@ from typing import overload
 
 from pydantic import ValidationError
 
-from stt_vault.core.api_models import FolderAssetSummary, FolderResponse
+from stt_vault.core.models.api import FolderAssetSummary, FolderResponse
 
 from ..shared.db_connection import row_to_dict
 

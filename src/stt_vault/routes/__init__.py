@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
 from stt_vault.workers.worker import Worker
 
 from .assets.collection import register_asset_collection_routes

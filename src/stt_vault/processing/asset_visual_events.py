@@ -1,9 +1,9 @@
 import logging
 from pathlib import Path
 
-from stt_vault.core.logging_config import job_log_context, log_exception_diagnostic
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import AssetRecord, ExportPaths, VisualEvent
+from stt_vault.core.config import Settings
+from stt_vault.core.diagnostics.logging import job_log_context, log_exception_diagnostic
+from stt_vault.core.models.records import AssetRecord, ExportPaths, VisualEvent
 from stt_vault.persistence.assets.db_asset_metadata import update_asset_exports
 from stt_vault.persistence.assets.db_visual_events import replace_visual_events
 

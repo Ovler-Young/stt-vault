@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from stt_vault.core.types import KnownSpeaker, SpeakerMatch, SpeakerRecord
+from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch, SpeakerRecord
 
 from ..shared.db_connection import connect, decode_record, now, transaction
 from .db_transcripts import sync_asset_transcript_cache

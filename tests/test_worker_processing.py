@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from stt_vault.core.api_models import DiarizationResult
+from stt_vault.core.models.api import DiarizationResult
 from stt_vault.processing.diarization import DiarizerManager
 from stt_vault.workers.worker_exports import VisualEventStage
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork

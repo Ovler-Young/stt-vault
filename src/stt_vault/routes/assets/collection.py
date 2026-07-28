@@ -6,10 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, UploadFile
 
-from stt_vault.core.api_models import AssetResponse, JobResponse
 from stt_vault.core.auth import require_admin
-from stt_vault.core.logging_config import log_exception_diagnostic
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
+from stt_vault.core.diagnostics.logging import log_exception_diagnostic
+from stt_vault.core.models.api import AssetResponse, JobResponse
 from stt_vault.persistence import db
 from stt_vault.processing.media import store_upload
 

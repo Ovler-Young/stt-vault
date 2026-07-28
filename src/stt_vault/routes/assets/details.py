@@ -2,9 +2,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from stt_vault.core.api_models import AssetResponse, AssetSummaryResponse, EventResponse
 from stt_vault.core.auth import require_admin
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import AssetResponse, AssetSummaryResponse, EventResponse
 from stt_vault.persistence import db
 from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,

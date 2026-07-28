@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from stt_vault.core.api_models import SpeakerResponse
+from stt_vault.core.models.api import SpeakerResponse
 from stt_vault.persistence import db
 
 

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from stt_vault.core.logging_config import StructuredFormatter
+from stt_vault.core.diagnostics.logging import StructuredFormatter
 from stt_vault.processing.diarization import DiarizerManager
 from stt_vault.processing.summary_service import generate_asset_summary
 from stt_vault.workers.worker import Worker

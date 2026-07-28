@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from stt_vault.core.api_models import EventResponse, JsonValue
+from stt_vault.core.models.api import EventResponse, JsonValue
 
 from ..shared.db_connection import connect, decode_record, now, transaction
 from .db_job_records import get_job

@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from stt_vault.core.types import ErrorRecord
+from stt_vault.core.models.records import ErrorRecord
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.workers.worker_completion import CompletionPersistence, SummaryFollowup
 from stt_vault.workers.worker_exports import TranscriptExportStage, VisualEventStage

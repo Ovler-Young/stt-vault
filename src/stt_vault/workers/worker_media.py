@@ -2,9 +2,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from stt_vault.core.api_models import JsonValue
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import AssetRecord, SpeakerSegment
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import JsonValue
+from stt_vault.core.models.records import AssetRecord, SpeakerSegment
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import DiarizerManager
 from stt_vault.processing.media import ffprobe_duration, to_wav_16k_mono

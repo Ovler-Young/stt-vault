@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from stt_vault.core.api_models import VisualEventResponse
-from stt_vault.core.types import PersistedVisualEvent, VisualEvent
+from stt_vault.core.models.api import VisualEventResponse
+from stt_vault.core.models.records import PersistedVisualEvent, VisualEvent
 
 from ..shared.db_connection import connect, decode_record, now, transaction
 

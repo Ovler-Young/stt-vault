@@ -2,9 +2,9 @@ import json
 import math
 from dataclasses import dataclass
 
-from stt_vault.core.api_models import JsonValue
-from stt_vault.core.speaker_names import is_local_speaker_label, is_usable_speaker_name
-from stt_vault.core.types import TranscriptSegment
+from stt_vault.core.models.api import JsonValue
+from stt_vault.core.models.records import TranscriptSegment
+from stt_vault.core.speakers.names import is_local_speaker_label, is_usable_speaker_name
 
 
 @dataclass(frozen=True)

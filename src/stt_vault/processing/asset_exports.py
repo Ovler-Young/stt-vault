@@ -1,4 +1,4 @@
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
 from stt_vault.persistence.assets.db_asset_metadata import update_asset_exports
 from stt_vault.persistence.assets.db_asset_records import get_asset
 

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from stt_vault.core.api_models import SpeakerRecomputeResponse, SpeakerResponse
 from stt_vault.core.auth import require_admin
-from stt_vault.core.requests import SpeakerNameRequest
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import SpeakerRecomputeResponse, SpeakerResponse
+from stt_vault.core.models.requests import SpeakerNameRequest
 from stt_vault.persistence import db
 from stt_vault.processing.asset_exports import rewrite_asset_exports
 from stt_vault.services.speaker_service import (

@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from stt_vault.core.api_models import UploadCompletionResponse
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import UploadResponse, UploadSessionRecord
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import UploadCompletionResponse
+from stt_vault.core.models.records import UploadResponse, UploadSessionRecord
 from stt_vault.persistence.workspace.db_uploads import (
     complete_upload_session,
     create_upload_session,

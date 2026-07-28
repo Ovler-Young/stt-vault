@@ -3,10 +3,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from stt_vault.core.api_models import AssetDeleteResponse, AssetMoveResponse, AssetRetryResponse
 from stt_vault.core.auth import require_admin
-from stt_vault.core.requests import AssetMoveRequest
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import AssetDeleteResponse, AssetMoveResponse, AssetRetryResponse
+from stt_vault.core.models.requests import AssetMoveRequest
 from stt_vault.persistence import db
 from stt_vault.persistence.assets.db_asset_relocation import AssetNotFoundError
 from stt_vault.persistence.folders.folder_records import FolderNotFoundError

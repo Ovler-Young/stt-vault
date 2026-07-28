@@ -8,9 +8,9 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from stt_vault.core.api_models import AssetResponse, UploadCompletionResponse
 from stt_vault.core.app import create_app
-from stt_vault.core.settings import get_settings
+from stt_vault.core.config import get_settings
+from stt_vault.core.models.api import AssetResponse, UploadCompletionResponse
 from stt_vault.persistence import db
 from stt_vault.services.upload_sessions import UploadSessionService
 

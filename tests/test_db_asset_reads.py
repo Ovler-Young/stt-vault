@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from _db_asset_support import create_processing_asset, initialized_db
 
-from stt_vault.core.api_models import EventResponse, JobResponse
+from stt_vault.core.models.api import EventResponse, JobResponse
 from stt_vault.persistence import db
 
 

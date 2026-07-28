@@ -3,8 +3,8 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from stt_vault.core.api_models import AssetResponse, JsonValue
-from stt_vault.core.types import AssetRecord
+from stt_vault.core.models.api import AssetResponse, JsonValue
+from stt_vault.core.models.records import AssetRecord
 
 from ..jobs.db_job_events import list_current_run_events, list_events
 from ..jobs.db_job_records import get_job

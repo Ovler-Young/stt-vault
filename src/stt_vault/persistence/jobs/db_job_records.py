@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from stt_vault.core.api_models import JobResponse
+from stt_vault.core.models.api import JobResponse
 
 from ..shared.db_connection import connect, decode_record
 

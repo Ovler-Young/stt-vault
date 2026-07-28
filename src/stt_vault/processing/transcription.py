@@ -7,7 +7,7 @@ from typing import BinaryIO, Protocol
 
 from openai import OpenAI
 
-from stt_vault.core.types import SpeakerSegment, TranscriptChunk, TranscriptSegment
+from stt_vault.core.models.records import SpeakerSegment, TranscriptChunk, TranscriptSegment
 
 from .media import extract_transcription_chunk
 

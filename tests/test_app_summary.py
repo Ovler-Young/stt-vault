@@ -7,7 +7,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
-from stt_vault.core.settings import get_settings
+from stt_vault.core.config import get_settings
 from stt_vault.persistence import db
 from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,

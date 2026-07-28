@@ -1,8 +1,8 @@
 import sqlite3
 from pathlib import Path
 
-from stt_vault.core.api_models import JsonValue
-from stt_vault.core.types import CleanupTask
+from stt_vault.core.models.api import JsonValue
+from stt_vault.core.models.records import CleanupTask
 
 from ..shared.db_connection import connect, now, row_to_dict, transaction
 from .db_asset_relocation import AssetNotFoundError

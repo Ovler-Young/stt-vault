@@ -1,9 +1,14 @@
 import json
 from pathlib import Path
 
-from stt_vault.core.api_models import JsonValue
-from stt_vault.core.process_diagnostics import format_diagnostic_text
-from stt_vault.core.types import ErrorRecord, ExportPaths, SpeakerSegment, TranscriptSegment
+from stt_vault.core.diagnostics.process import format_diagnostic_text
+from stt_vault.core.models.api import JsonValue
+from stt_vault.core.models.records import (
+    ErrorRecord,
+    ExportPaths,
+    SpeakerSegment,
+    TranscriptSegment,
+)
 
 from ..shared.db_connection import now, transaction
 from .db_job_events import add_event

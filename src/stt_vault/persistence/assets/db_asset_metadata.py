@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from stt_vault.core.api_models import JsonValue
-from stt_vault.core.types import ExportPaths, SpeakerSegment
+from stt_vault.core.models.api import JsonValue
+from stt_vault.core.models.records import ExportPaths, SpeakerSegment
 
 from ..shared.db_connection import now, transaction
 

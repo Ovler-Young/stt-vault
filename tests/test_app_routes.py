@@ -7,9 +7,9 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from stt_vault.core.api_models import AssetResponse
 from stt_vault.core.app import ApplicationDependencies, create_app
-from stt_vault.core.settings import Settings, get_settings
+from stt_vault.core.config import Settings, get_settings
+from stt_vault.core.models.api import AssetResponse
 from stt_vault.persistence import db
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"

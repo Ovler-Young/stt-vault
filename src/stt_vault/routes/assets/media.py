@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
 from stt_vault.core.auth import require_admin, require_resource_access
-from stt_vault.core.logging_config import log_exception_diagnostic
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import AudioStream
+from stt_vault.core.config import Settings
+from stt_vault.core.diagnostics.logging import log_exception_diagnostic
+from stt_vault.core.models.records import AudioStream
 from stt_vault.processing.media import ffprobe_audio_streams, playback_media_stream_command
 from stt_vault.services.media_streaming import stream_process_stdout
 

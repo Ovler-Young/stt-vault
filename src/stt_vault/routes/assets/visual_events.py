@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from stt_vault.core.auth import require_admin, require_resource_access
-from stt_vault.core.settings import Settings
-from stt_vault.core.types import VisualEvent
+from stt_vault.core.config import Settings
+from stt_vault.core.models.records import VisualEvent
 from stt_vault.persistence import db
 from stt_vault.processing.asset_visual_events import detect_asset_visual_events
 from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path

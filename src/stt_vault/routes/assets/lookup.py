@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from stt_vault.core.types import AssetRecord
+from stt_vault.core.models.records import AssetRecord
 from stt_vault.persistence import db
 
 

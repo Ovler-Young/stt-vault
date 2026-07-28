@@ -1,9 +1,9 @@
 from fastapi import APIRouter, FastAPI, HTTPException
 
-from stt_vault.core.api_models import AuthTokenResponse, ConfigResponse
 from stt_vault.core.auth import admin_password_matches, issue_access_token
-from stt_vault.core.requests import LoginRequest
-from stt_vault.core.settings import Settings
+from stt_vault.core.config import Settings
+from stt_vault.core.models.api import AuthTokenResponse, ConfigResponse
+from stt_vault.core.models.requests import LoginRequest
 
 __all__ = ["register_system_routes"]
 

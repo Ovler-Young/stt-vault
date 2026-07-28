@@ -2,9 +2,9 @@ import json
 import sqlite3
 from pathlib import Path
 
-from stt_vault.core.api_models import TranscriptChunkRecord
-from stt_vault.core.speaker_names import is_local_speaker_label, is_usable_speaker_name
-from stt_vault.core.types import ErrorRecord, TranscriptSegment
+from stt_vault.core.models.api import TranscriptChunkRecord
+from stt_vault.core.models.records import ErrorRecord, TranscriptSegment
+from stt_vault.core.speakers.names import is_local_speaker_label, is_usable_speaker_name
 
 from ..shared.db_connection import connect, decode_record, now, transaction
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from stt_vault.core.types import (
+from stt_vault.core.models.records import (
     AssetRecord,
     ErrorRecord,
     EventPayload,

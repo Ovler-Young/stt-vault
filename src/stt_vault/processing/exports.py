@@ -2,7 +2,7 @@ import html
 import json
 from pathlib import Path
 
-from stt_vault.core.types import ExportPaths, SpeakerSegment, TranscriptSegment
+from stt_vault.core.models.records import ExportPaths, SpeakerSegment, TranscriptSegment
 
 
 def write_exports(

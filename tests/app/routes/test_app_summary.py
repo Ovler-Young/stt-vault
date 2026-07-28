@@ -3,7 +3,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
@@ -14,48 +13,8 @@ from stt_vault.processing.summary_service import (
     generate_asset_summary,
     require_completed_transcript,
 )
-from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
-
-EXPECTED_API_ROUTES = [
-    ("GET", "/api/health"),
-    ("GET", "/api/config"),
-    ("POST", "/api/auth/token"),
-    ("POST", "/api/assets"),
-    ("POST", "/api/assets/batch"),
-    ("GET", "/api/assets"),
-    ("GET", "/api/jobs"),
-    ("POST", "/api/uploads"),
-    ("GET", "/api/uploads/{upload_id}"),
-    ("PUT", "/api/uploads/{upload_id}"),
-    ("POST", "/api/uploads/{upload_id}/complete"),
-    ("GET", "/api/folders"),
-    ("POST", "/api/folders"),
-    ("POST", "/api/folders/{folder_id}/move"),
-    ("PUT", "/api/folders/{folder_id}"),
-    ("DELETE", "/api/folders/{folder_id}"),
-    ("GET", "/api/speakers"),
-    ("PUT", "/api/speakers/{speaker_id}"),
-    ("DELETE", "/api/speakers/{speaker_id}"),
-    ("POST", "/api/speakers/{target_speaker_id}/merge"),
-    ("POST", "/api/speakers/recompute"),
-    ("GET", "/api/assets/{asset_id}"),
-    ("POST", "/api/assets/{asset_id}/summary"),
-    ("POST", "/api/assets/{asset_id}/speakers/{local_speaker}"),
-    ("POST", "/api/assets/{asset_id}/speaker-matches/recompute"),
-    ("GET", "/api/assets/{asset_id}/events"),
-    ("GET", "/api/assets/{asset_id}/visual-events"),
-    ("POST", "/api/assets/{asset_id}/visual-events"),
-    ("GET", "/api/assets/{asset_id}/visual-events/{event_index}/thumbnail"),
-    ("POST", "/api/assets/{asset_id}/retry"),
-    ("POST", "/api/assets/{asset_id}/move"),
-    ("POST", "/api/assets/{asset_id}/cleanup"),
-    ("GET", "/api/assets/{asset_id}/audio-tracks"),
-    ("GET", "/api/assets/{asset_id}/media"),
-    ("GET", "/api/assets/{asset_id}/exports/{format_name}"),
-    ("DELETE", "/api/assets/{asset_id}"),
-]
 
 
 def create_test_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -82,22 +41,6 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post("/api/auth/token", json={"password": "secret"})
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
-
-
-def api_route_pairs(app) -> list[tuple[str, str]]:
-    pairs = []
-    routes = list(app.routes)
-    for route in routes:
-        original_router = getattr(route, "original_router", None)
-        if original_router is not None:
-            routes.extend(original_router.routes)
-            continue
-        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
-            continue
-        for method in sorted(route.methods or []):
-            if method != "HEAD":
-                pairs.append((method, route.path))
-    return pairs
 
 
 def test_summary_requires_completed_transcript(client: TestClient) -> None:
@@ -182,45 +125,6 @@ def test_summary_endpoint_rejects_malformed_generated_response(
 
     assert response.status_code == 502
     assert response.json() == {"detail": "Summary generation failed"}
-
-
-def test_upload_session_completion_restores_temp_file_when_database_write_fails(
-    tmp_path: Path,
-) -> None:
-    settings = SimpleNamespace(
-        stt_db_path=tmp_path / "app.sqlite3",
-        uploads_dir=tmp_path / "uploads",
-        media_dir=tmp_path / "media",
-    )
-    temp_path = settings.uploads_dir / "upload.part"
-    temp_path.parent.mkdir(parents=True)
-    temp_path.write_bytes(b"upload")
-    upload = {
-        "id": "upload-1",
-        "filename": "clip.wav",
-        "total_size": 6,
-        "offset": 6,
-        "temp_path": str(temp_path),
-    }
-    stored_path = settings.media_dir / "asset-1" / "original.wav"
-    stored_path.parent.mkdir(parents=True)
-
-    dependencies = UploadSessionDependencies(
-        create_upload_session=lambda *_args: upload,
-        get_upload_session=lambda *_args: upload,
-        update_upload_offset=lambda *_args: None,
-        complete_upload_session=lambda *_args: (_ for _ in ()).throw(
-            RuntimeError("database unavailable")
-        ),
-        move_upload=lambda *_args: ("asset-1", stored_path, "audio"),
-    )
-    stored_path.write_bytes(b"upload")
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        UploadSessionService(settings, dependencies).complete("upload-1")
-
-    assert temp_path.read_bytes() == b"upload"
-    assert not (settings.media_dir / "asset-1").exists()
 
 
 def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(

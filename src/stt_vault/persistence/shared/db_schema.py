@@ -7,36 +7,57 @@ from pathlib import Path
 from ..assets.db_asset_records import recorded_at_from_filename
 from .db_connection import transaction
 
+ASSET_MIGRATION_COLUMNS = (
+    ("parent_folder_id", "TEXT REFERENCES folders(id) ON DELETE SET NULL"),
+    ("title", "TEXT"),
+    ("recorded_at", "INTEGER"),
+    ("summary_status", "TEXT"),
+    ("summary_text", "TEXT"),
+    ("summary_error", "TEXT"),
+    ("summary_model", "TEXT"),
+    ("summary_updated_at", "INTEGER"),
+)
+ASSET_COLUMN_DEFINITIONS = (
+    ("id", "TEXT PRIMARY KEY"),
+    ("filename", "TEXT NOT NULL"),
+    ("title", "TEXT"),
+    ("recorded_at", "INTEGER"),
+    ("media_type", "TEXT NOT NULL"),
+    ("parent_folder_id", "TEXT REFERENCES folders(id) ON DELETE SET NULL"),
+    ("original_path", "TEXT NOT NULL"),
+    ("wav_path", "TEXT"),
+    ("duration", "REAL"),
+    ("status", "TEXT NOT NULL"),
+    ("error", "TEXT"),
+    ("created_at", "INTEGER NOT NULL"),
+    ("updated_at", "INTEGER NOT NULL"),
+    ("diarization_stats", "TEXT"),
+    ("raw_segments", "TEXT"),
+    ("merged_segments", "TEXT"),
+    ("speaker_centroids", "TEXT"),
+    ("transcript_segments", "TEXT"),
+    ("exports", "TEXT"),
+    ("summary_status", "TEXT"),
+    ("summary_text", "TEXT"),
+    ("summary_error", "TEXT"),
+    ("summary_model", "TEXT"),
+    ("summary_updated_at", "INTEGER"),
+)
+
+
+def _asset_table_definition() -> str:
+    return ",\n                ".join(
+        f"{name} {definition}" for name, definition in ASSET_COLUMN_DEFINITIONS
+    )
+
 
 def initialize(db_path: Path) -> None:
+    asset_table_definition = _asset_table_definition()
     with schema_lock(db_path), transaction(db_path) as conn:
         conn.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS assets (
-                id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                title TEXT,
-                recorded_at INTEGER,
-                media_type TEXT NOT NULL,
-                parent_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
-                original_path TEXT NOT NULL,
-                wav_path TEXT,
-                duration REAL,
-                status TEXT NOT NULL,
-                error TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                diarization_stats TEXT,
-                raw_segments TEXT,
-                merged_segments TEXT,
-                speaker_centroids TEXT,
-                transcript_segments TEXT,
-                exports TEXT,
-                summary_status TEXT,
-                summary_text TEXT,
-                summary_error TEXT,
-                summary_model TEXT,
-                summary_updated_at INTEGER
+                {asset_table_definition}
             );
 
             CREATE TABLE IF NOT EXISTS folders (
@@ -143,24 +164,11 @@ def initialize(db_path: Path) -> None:
                 ON asset_visual_events(asset_id, event_index);
             """
         )
-        add_missing_columns(
-            conn,
-            "assets",
-            {
-                "parent_folder_id": "TEXT REFERENCES folders(id) ON DELETE SET NULL",
-                "title": "TEXT",
-                "recorded_at": "INTEGER",
-                "summary_status": "TEXT",
-                "summary_text": "TEXT",
-                "summary_error": "TEXT",
-                "summary_model": "TEXT",
-                "summary_updated_at": "INTEGER",
-            },
-        )
-        asset_columns = {
+        add_missing_columns(conn, "assets", dict(ASSET_MIGRATION_COLUMNS))
+        existing_asset_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(assets)").fetchall()
         }
-        if "filename" in asset_columns:
+        if "filename" in existing_asset_columns:
             for row in conn.execute(
                 "SELECT id, filename FROM assets WHERE recorded_at IS NULL"
             ).fetchall():

@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from stt_vault.persistence import db
+from stt_vault.persistence.shared.db_schema import ASSET_COLUMN_DEFINITIONS, ASSET_MIGRATION_COLUMNS
 
 PUBLIC_DB_FUNCTIONS = {
     "connect",
@@ -212,6 +213,30 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "run_attempt",
     }.issubset(legacy_jobs_columns)
     assert "run_attempt" in legacy_events_columns
+
+
+def test_fresh_and_migrated_asset_schema_have_the_same_columns(tmp_path: Path) -> None:
+    fresh_path = tmp_path / "fresh.sqlite3"
+    db.initialize(fresh_path)
+
+    legacy_path = tmp_path / "legacy-assets.sqlite3"
+    migration_names = {name for name, _definition in ASSET_MIGRATION_COLUMNS}
+    legacy_definitions = [
+        (name, definition)
+        for name, definition in ASSET_COLUMN_DEFINITIONS
+        if name not in migration_names
+    ]
+    with sqlite3.connect(legacy_path) as conn:
+        definitions = ", ".join(f"{name} {definition}" for name, definition in legacy_definitions)
+        conn.execute(f"CREATE TABLE assets ({definitions})")
+
+    db.initialize(legacy_path)
+
+    def asset_schema(path: Path) -> dict[str, str]:
+        with sqlite3.connect(path) as conn:
+            return {row[1]: row[2] for row in conn.execute("PRAGMA table_info(assets)").fetchall()}
+
+    assert asset_schema(legacy_path) == asset_schema(fresh_path)
 
 
 def test_initialize_serializes_legacy_schema_migrations(tmp_path: Path) -> None:

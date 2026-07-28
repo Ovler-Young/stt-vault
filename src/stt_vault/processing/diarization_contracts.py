@@ -40,32 +40,39 @@ class DiarizationProvider(Protocol):
 
 @runtime_checkable
 class VadDiarizationProvider(Protocol):
-    _perform_vad: Callable[[str], list[VadSegment]]
+    def perform_vad(self, wav_path: str) -> list[VadSegment]: ...
 
 
 @runtime_checkable
 class SubsegmentDiarizationProvider(Protocol):
-    _generate_subsegments: Callable[[list[VadSegment], bool | None], list[Subsegment]]
+    def generate_subsegments(
+        self, vad_segments: list[VadSegment], accurate: bool | None
+    ) -> list[Subsegment]: ...
 
 
 @runtime_checkable
 class FbankDiarizationProvider(Protocol):
-    _extract_fbank_features: Callable[
-        [str, list[Subsegment]], tuple[FbankFeatures, Sequence[int], Sequence[int], int]
-    ]
+    def extract_fbank_features(
+        self, wav_path: str, subsegments: list[Subsegment]
+    ) -> tuple[FbankFeatures, Sequence[int], Sequence[int], int]: ...
 
 
 @runtime_checkable
 class EmbeddingDiarizationProvider(Protocol):
-    _generate_embeddings: Callable[[FbankFeatures, Sequence[int], Sequence[int], int], np.ndarray]
+    def generate_embeddings(
+        self,
+        features: FbankFeatures,
+        frames_per_subsegment: Sequence[int],
+        subsegment_offsets: Sequence[int],
+        feature_dim: int,
+    ) -> np.ndarray: ...
 
 
 @runtime_checkable
 class ClusteringDiarizationProvider(Protocol):
-    _perform_clustering: Callable[
-        [np.ndarray, list[Subsegment]],
-        tuple[list[SpeakerSegment], list[SpeakerSegment], ProviderCentroids],
-    ]
+    def perform_clustering(
+        self, embeddings: np.ndarray, subsegments: list[Subsegment]
+    ) -> tuple[list[SpeakerSegment], list[SpeakerSegment], ProviderCentroids]: ...
 
 
 class InstrumentedDiarizationProvider(Protocol):
@@ -81,9 +88,13 @@ class BatchedDiarizationProvider(
     ClusteringDiarizationProvider,
     Protocol,
 ):
-    _timing_stats: ProviderTimingStats
+    @property
+    def timing_stats(self) -> ProviderTimingStats: ...
 
-    def _validate_wav_file(self, wav_file: wave.Wave_read, wav_path: str) -> None: ...
+    @timing_stats.setter
+    def timing_stats(self, value: ProviderTimingStats) -> None: ...
+
+    def validate_wav_file(self, wav_file: wave.Wave_read, wav_path: str) -> None: ...
 
 
 DiarizerFactory = Callable[[str], DiarizationProvider]

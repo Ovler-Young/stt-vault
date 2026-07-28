@@ -22,7 +22,7 @@ def run_batched_diarization(
     accurate: bool | None = None,
     generate_colors: bool = False,
 ) -> ProviderDiarizationPayload | None:
-    diarizer._timing_stats = {}
+    diarizer.timing_stats = {}
     total_start = time.time()
 
     logger.info(
@@ -30,22 +30,22 @@ def run_batched_diarization(
         extra={"event_name": "diarization.started", "media_filename": Path(wav_path).name},
     )
     with wave.open(wav_path, "rb") as wav_file:
-        diarizer._validate_wav_file(wav_file, wav_path)
+        diarizer.validate_wav_file(wav_file, wav_path)
 
-    vad_segments = diarizer._perform_vad(wav_path)
+    vad_segments = diarizer.perform_vad(wav_path)
     if not vad_segments:
         return None
 
-    subsegments = diarizer._generate_subsegments(vad_segments, accurate)
+    subsegments = diarizer.generate_subsegments(vad_segments, accurate)
     embeddings_batches: list[np.ndarray] = []
     for start in range(0, len(subsegments), fbank_batch_segments):
         batch_subsegments = subsegments[start : start + fbank_batch_segments]
         features_flat, frames_per_subsegment, subsegment_offsets, feature_dim = (
-            diarizer._extract_fbank_features(wav_path, batch_subsegments)
+            diarizer.extract_fbank_features(wav_path, batch_subsegments)
         )
         offsets = [int(offset) for offset in subsegment_offsets]
         embeddings_batches.append(
-            diarizer._generate_embeddings(
+            diarizer.generate_embeddings(
                 features_flat,
                 frames_per_subsegment,
                 offsets,
@@ -54,19 +54,19 @@ def run_batched_diarization(
         )
 
     embeddings = np.concatenate(embeddings_batches, axis=0)
-    raw_segments, merged_segments, centroids = diarizer._perform_clustering(
+    raw_segments, merged_segments, centroids = diarizer.perform_clustering(
         embeddings,
         subsegments,
     )
 
-    diarizer._timing_stats["total_time"] = round(time.time() - total_start, 2)
+    diarizer.timing_stats["total_time"] = round(time.time() - total_start, 2)
     result: ProviderDiarizationPayload = {
         "raw_segments": raw_segments,
         "raw_speakers_detected": len({segment["speaker"] for segment in raw_segments}),
         "merged_speakers_detected": len({segment["speaker"] for segment in merged_segments}),
         "merged_segments": merged_segments,
         "speaker_centroids": centroids,
-        "timing_stats": diarizer._timing_stats,
+        "timing_stats": diarizer.timing_stats,
         "vad": vad_segments,
     }
 

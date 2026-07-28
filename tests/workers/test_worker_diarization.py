@@ -27,8 +27,8 @@ def test_batched_diarization_logs_json_without_provider_console_output(
 
     provider = SimpleNamespace(
         diarize=lambda _wav_path, *, generate_colors: None,
-        _validate_wav_file=lambda _wav_file, _path: None,
-        _perform_vad=lambda _path: [],
+        validate_wav_file=lambda _wav_file, _path: None,
+        perform_vad=lambda _path: [],
     )
     manager = DiarizerManager(
         device="cpu",
@@ -56,28 +56,28 @@ def test_batched_diarization_instruments_each_provider_operation(tmp_path: Path)
         wav_file.writeframes(b"\x00\x00")
 
     class BatchedProvider:
-        _timing_stats: dict[str, JsonValue] = {}
+        timing_stats: dict[str, JsonValue] = {}
 
         def diarize(self, _wav_path: str, *, generate_colors: bool) -> None:
             raise AssertionError("batched diarization must use the provider stages")
 
-        def _validate_wav_file(self, _wav_file: wave.Wave_read, _wav_path: str) -> None:
+        def validate_wav_file(self, _wav_file: wave.Wave_read, _wav_path: str) -> None:
             return None
 
-        def _perform_vad(self, _wav_path: str) -> list[tuple[float, float]]:
+        def perform_vad(self, _wav_path: str) -> list[tuple[float, float]]:
             return [(0.0, 1.0)]
 
-        def _generate_subsegments(
+        def generate_subsegments(
             self, vad_segments: list[tuple[float, float]], _accurate: bool | None
         ) -> list[tuple[float, float]]:
             return vad_segments
 
-        def _extract_fbank_features(
+        def extract_fbank_features(
             self, _wav_path: str, _subsegments: list[tuple[float, float]]
         ) -> tuple[np.ndarray, list[int], list[int], int]:
             return np.array([[1.0]], dtype=np.float32), [1], [0], 1
 
-        def _generate_embeddings(
+        def generate_embeddings(
             self,
             _features: np.ndarray,
             _frames: list[int],
@@ -86,7 +86,7 @@ def test_batched_diarization_instruments_each_provider_operation(tmp_path: Path)
         ) -> np.ndarray:
             return np.array([[0.5]], dtype=np.float32)
 
-        def _perform_clustering(
+        def perform_clustering(
             self, _embeddings: np.ndarray, _subsegments: list[tuple[float, float]]
         ) -> tuple[list[SpeakerSegment], list[SpeakerSegment], dict[str, np.ndarray]]:
             segments = [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
@@ -124,28 +124,28 @@ def test_batched_factory_payload_accepts_senko_interval_shape(tmp_path: Path) ->
         wav_file.writeframes(b"\x00\x00")
 
     class TupleProvider:
-        _timing_stats: dict[str, JsonValue] = {}
+        timing_stats: dict[str, JsonValue] = {}
 
         def diarize(self, _wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload:
             raise AssertionError("the batched path must use stage operations")
 
-        def _validate_wav_file(self, _wav_file: wave.Wave_read, _wav_path: str) -> None:
+        def validate_wav_file(self, _wav_file: wave.Wave_read, _wav_path: str) -> None:
             return None
 
-        def _perform_vad(self, _wav_path: str) -> list[tuple[float, float]]:
+        def perform_vad(self, _wav_path: str) -> list[tuple[float, float]]:
             return [(0.0, 1.0)]
 
-        def _generate_subsegments(
+        def generate_subsegments(
             self, vad_segments: list[tuple[float, float]], _accurate: bool | None
         ) -> list[tuple[float, float]]:
             return vad_segments
 
-        def _extract_fbank_features(
+        def extract_fbank_features(
             self, _wav_path: str, _subsegments: list[tuple[float, float]]
         ) -> tuple[np.ndarray, list[int], list[int], int]:
             return np.array([[1.0]], dtype=np.float32), [1], [0], 1
 
-        def _generate_embeddings(
+        def generate_embeddings(
             self,
             _features: np.ndarray,
             _frames: list[int],
@@ -154,7 +154,7 @@ def test_batched_factory_payload_accepts_senko_interval_shape(tmp_path: Path) ->
         ) -> np.ndarray:
             return np.array([[0.5]], dtype=np.float32)
 
-        def _perform_clustering(
+        def perform_clustering(
             self, _embeddings: np.ndarray, _subsegments: list[tuple[float, float]]
         ) -> tuple[list[SpeakerSegment], list[SpeakerSegment], dict[str, np.ndarray]]:
             segments = [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]

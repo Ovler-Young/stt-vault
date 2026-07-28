@@ -37,22 +37,22 @@ def instrument_diarizer(diarizer: DiarizationProvider, record_stage: StageRecord
         return
 
     if isinstance(diarizer, VadDiarizationProvider):
-        diarizer._perform_vad = _wrap_stage("vad", diarizer._perform_vad, record_stage)
+        diarizer.perform_vad = _wrap_stage("vad", diarizer.perform_vad, record_stage)
     if isinstance(diarizer, SubsegmentDiarizationProvider):
-        diarizer._generate_subsegments = _wrap_stage(
-            "subsegments", diarizer._generate_subsegments, record_stage
+        diarizer.generate_subsegments = _wrap_stage(
+            "subsegments", diarizer.generate_subsegments, record_stage
         )
     if isinstance(diarizer, FbankDiarizationProvider):
-        diarizer._extract_fbank_features = _wrap_stage(
-            "fbank", diarizer._extract_fbank_features, record_stage
+        diarizer.extract_fbank_features = _wrap_stage(
+            "fbank", diarizer.extract_fbank_features, record_stage
         )
     if isinstance(diarizer, EmbeddingDiarizationProvider):
-        diarizer._generate_embeddings = _wrap_stage(
-            "embeddings", diarizer._generate_embeddings, record_stage
+        diarizer.generate_embeddings = _wrap_stage(
+            "embeddings", diarizer.generate_embeddings, record_stage
         )
     if isinstance(diarizer, ClusteringDiarizationProvider):
-        diarizer._perform_clustering = _wrap_stage(
-            "clustering", diarizer._perform_clustering, record_stage
+        diarizer.perform_clustering = _wrap_stage(
+            "clustering", diarizer.perform_clustering, record_stage
         )
     instrumented_diarizer._stt_vault_instrumented = True
 

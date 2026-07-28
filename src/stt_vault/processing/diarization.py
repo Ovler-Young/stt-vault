@@ -15,12 +15,17 @@ from stt_vault.processing.diarization_contracts import (
 )
 from stt_vault.processing.diarization_instrumentation import current_rss_mb, instrument_diarizer
 from stt_vault.processing.diarization_pipeline import run_batched_diarization
+from stt_vault.processing.senko_diarization import SenkoDiarizationProvider, _SenkoImplementation
 
 
 def _create_senko_diarizer(device: str) -> DiarizationProvider:
     from senko import Diarizer
 
-    return cast(DiarizationProvider, cast(object, Diarizer(device=device, warmup=True, quiet=True)))
+    implementation = cast(
+        _SenkoImplementation,
+        cast(object, Diarizer(device=device, warmup=True, quiet=True)),
+    )
+    return SenkoDiarizationProvider(implementation)
 
 
 class DiarizerManager:

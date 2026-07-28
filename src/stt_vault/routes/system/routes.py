@@ -2,7 +2,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 
 from stt_vault.core.auth import admin_password_matches, issue_access_token
 from stt_vault.core.config import Settings
-from stt_vault.core.models.api import AuthTokenResponse, ConfigResponse
+from stt_vault.core.models.api import AuthTokenResponse, ConfigResponse, HealthResponse
 from stt_vault.core.models.requests import LoginRequest
 
 __all__ = ["register_system_routes"]
@@ -11,9 +11,9 @@ __all__ = ["register_system_routes"]
 def register_system_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    @router.get("/api/health", response_model=HealthResponse)
+    def health() -> HealthResponse:
+        return HealthResponse(status="ok")
 
     @router.get("/api/config", response_model=ConfigResponse)
     def config() -> ConfigResponse:

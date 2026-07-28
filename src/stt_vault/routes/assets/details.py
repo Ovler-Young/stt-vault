@@ -1,9 +1,11 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
 from stt_vault.core.auth import require_admin
 from stt_vault.core.config import Settings
+from stt_vault.core.diagnostics.logging import log_exception_diagnostic
 from stt_vault.core.models.api import AssetResponse, AssetSummaryResponse, EventResponse
 from stt_vault.persistence import db
 from stt_vault.processing.summary_service import (
@@ -19,6 +21,7 @@ __all__ = [
     "register_asset_event_routes",
     "register_asset_summary_routes",
 ]
+logger = logging.getLogger(__name__)
 
 
 def register_asset_detail_routes(app: FastAPI, settings: Settings) -> None:
@@ -59,6 +62,13 @@ def register_asset_summary_routes(app: FastAPI, settings: Settings) -> None:
                 status_code=409, detail="A completed transcript is required"
             ) from None
         except Exception as exc:
+            log_exception_diagnostic(
+                logger,
+                "asset summary generation failed",
+                exc,
+                event_name="assets.summary_generation_failed",
+                context={"asset_id": asset_id},
+            )
             raise HTTPException(status_code=502, detail="Summary generation failed") from exc
 
     app.include_router(router)

@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 from stt_vault.core.auth import require_admin, require_resource_access
 from stt_vault.core.config import Settings
-from stt_vault.core.models.records import VisualEvent
+from stt_vault.core.models.api import VisualEventDetectionResponse, VisualEventResponse
 from stt_vault.persistence import db
 from stt_vault.processing.asset_visual_events import detect_asset_visual_events
 from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path
@@ -19,18 +19,25 @@ __all__ = ["register_asset_visual_event_routes"]
 def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
-    @router.get("/api/assets/{asset_id}/visual-events")
+    @router.get(
+        "/api/assets/{asset_id}/visual-events",
+        response_model=list[VisualEventResponse],
+    )
     def get_visual_events(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
-    ) -> list[VisualEvent]:
+    ) -> list[VisualEventResponse]:
         get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         return db.list_visual_events(settings.stt_db_path, asset_id)
 
-    @router.post("/api/assets/{asset_id}/visual-events", dependencies=[Depends(require_admin)])
-    def detect_visual_events(asset_id: str) -> dict[str, int]:
+    @router.post(
+        "/api/assets/{asset_id}/visual-events",
+        dependencies=[Depends(require_admin)],
+        response_model=VisualEventDetectionResponse,
+    )
+    def detect_visual_events(asset_id: str) -> VisualEventDetectionResponse:
         asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
         events = detect_asset_visual_events(settings, asset)
-        return {"events": len(events)}
+        return VisualEventDetectionResponse(events=len(events))
 
     @router.get("/api/assets/{asset_id}/visual-events/{event_index}/thumbnail")
     def get_visual_event_thumbnail(

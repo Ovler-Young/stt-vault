@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 
 from stt_vault.core.auth import require_admin
 from stt_vault.core.config import Settings
-from stt_vault.core.models.api import UploadCompletionResponse
-from stt_vault.core.models.records import UploadResponse
+from stt_vault.core.models.api import UploadCompletionResponse, UploadProgressResponse
 from stt_vault.core.models.requests import UploadCreateRequest
 from stt_vault.services.upload_sessions import UploadSessionService
 
@@ -21,23 +20,23 @@ def register_upload_routes(
 ) -> None:
     router = APIRouter(dependencies=[Depends(require_admin)])
 
-    @router.post("/api/uploads")
-    def create_upload(payload: UploadCreateRequest) -> UploadResponse:
+    @router.post("/api/uploads", response_model=UploadProgressResponse)
+    def create_upload(payload: UploadCreateRequest) -> UploadProgressResponse:
         filename = validate_relative_path(payload.filename)
         if payload.size > settings.max_upload_bytes:
             raise HTTPException(status_code=413, detail="Upload is too large")
         return sessions.create(filename, payload.size)
 
-    @router.get("/api/uploads/{upload_id}")
-    def get_upload(upload_id: str) -> UploadResponse:
+    @router.get("/api/uploads/{upload_id}", response_model=UploadProgressResponse)
+    def get_upload(upload_id: str) -> UploadProgressResponse:
         return sessions.get(upload_id)
 
-    @router.put("/api/uploads/{upload_id}")
+    @router.put("/api/uploads/{upload_id}", response_model=UploadProgressResponse)
     async def put_upload_range(
         upload_id: str,
         request: Request,
         content_range: str = Header(alias="Content-Range"),
-    ) -> UploadResponse:
+    ) -> UploadProgressResponse:
         async with _upload_lock(upload_id):
             start, end, total = _parse_content_range(content_range)
             return await sessions.append(upload_id, start, end, total, request.stream())

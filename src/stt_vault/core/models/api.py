@@ -18,6 +18,10 @@ class ConfigResponse(ApiRecord):
     batched_embeddings_requested: bool
 
 
+class HealthResponse(ApiRecord):
+    status: Literal["ok"]
+
+
 class AuthTokenResponse(ApiRecord):
     access_token: str
     token_type: Literal["bearer"]
@@ -112,6 +116,17 @@ class AssetBatchUploadResponse(ApiRecord):
 class UploadCompletionResponse(ApiRecord):
     id: str
     status: Literal["queued"]
+
+
+class UploadProgressResponse(ApiRecord):
+    id: str
+    filename: str
+    size: int
+    offset: int
+
+
+class VisualEventDetectionResponse(ApiRecord):
+    events: int
 
 
 class AssetMoveResponse(ApiRecord):

@@ -84,12 +84,12 @@ def _format_optional_context(value: object, *, depth: int = 0) -> object:
     if isinstance(value, str):
         return format_diagnostic_text(value)
     if isinstance(value, Mapping):
-        items = list(value.items())
+        items = list(islice(value.items(), MAX_CONTEXT_ITEMS + 1))
         formatted = {
             str(key): _format_optional_context(item, depth=depth + 1)
             for key, item in items[:MAX_CONTEXT_ITEMS]
         }
-        if len(items) > MAX_CONTEXT_ITEMS:
+        if len(items) == MAX_CONTEXT_ITEMS + 1:
             formatted["_truncated"] = "[truncated]"
         return formatted
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):

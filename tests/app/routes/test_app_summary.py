@@ -127,6 +127,30 @@ def test_summary_endpoint_rejects_malformed_generated_response(
     assert response.json() == {"detail": "Summary generation failed"}
 
 
+def test_summary_endpoint_logs_bounded_diagnostic_context(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
+    monkeypatch.setattr(
+        "stt_vault.routes.assets.details.get_asset_or_404", lambda *_args, **_kwargs: asset
+    )
+    monkeypatch.setattr(
+        "stt_vault.routes.assets.details.generate_asset_summary",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider secret")),
+    )
+
+    with caplog.at_level("ERROR"):
+        response = client.post("/api/assets/asset-1/summary", headers=auth_headers(client))
+
+    assert response.status_code == 502
+    record = next(record for record in caplog.records if record.name.endswith("details"))
+    assert record.event_name == "assets.summary_generation_failed"
+    assert record.asset_id == "asset-1"
+    assert record.cause == "provider secret"
+
+
 def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
     client: TestClient,
 ) -> None:

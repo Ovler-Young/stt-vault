@@ -99,6 +99,26 @@ def test_structured_formatter_preserves_stable_event_and_job_correlation() -> No
     assert event["job_id"] == "job-7"
 
 
+def test_structured_formatter_bounds_mapping_context() -> None:
+    formatter = StructuredFormatter()
+    record = logging.makeLogRecord(
+        {
+            "name": "stt_vault.routes.assets.details",
+            "levelno": logging.ERROR,
+            "levelname": "ERROR",
+            "msg": "summary failed",
+            "context": {f"key-{index}": index for index in range(100)},
+        }
+    )
+
+    event = json.loads(formatter.format(record))
+    context = event["context"]
+
+    assert len(context) == 51
+    assert context["key-49"] == 49
+    assert context["_truncated"] == "[truncated]"
+
+
 def test_job_log_context_uses_persisted_job_identifier(tmp_path: Path) -> None:
     db_path = tmp_path / "app.sqlite3"
     db.initialize(db_path)

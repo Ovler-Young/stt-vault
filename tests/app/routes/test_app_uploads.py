@@ -12,6 +12,7 @@ from stt_vault.core.models.api import (
     AssetResponse,
     AssetUploadResponse,
     UploadCompletionResponse,
+    UploadProgressResponse,
 )
 from stt_vault.persistence import db
 
@@ -24,6 +25,15 @@ def test_upload_completion_route_declares_named_response_model(client: TestClien
     )
 
     assert completion_route.response_model is UploadCompletionResponse
+
+
+def test_upload_progress_routes_declare_named_response_model(client: TestClient) -> None:
+    routes = api_routes(client.app)
+    progress_routes = [
+        route for route in routes if route.path in {"/api/uploads", "/api/uploads/{upload_id}"}
+    ]
+
+    assert {route.response_model for route in progress_routes} == {UploadProgressResponse}
 
 
 def test_asset_upload_routes_declare_named_response_models(client: TestClient) -> None:

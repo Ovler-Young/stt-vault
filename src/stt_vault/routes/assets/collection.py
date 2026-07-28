@@ -17,7 +17,7 @@ from stt_vault.core.models.api import (
     JobResponse,
 )
 from stt_vault.persistence import db
-from stt_vault.processing.media import store_upload
+from stt_vault.services.media_storage import store_upload
 
 __all__ = ["register_asset_collection_routes"]
 logger = logging.getLogger(__name__)

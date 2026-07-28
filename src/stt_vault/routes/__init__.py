@@ -7,7 +7,7 @@ from stt_vault.persistence.workspace.db_uploads import (
     get_upload_session,
     update_upload_offset,
 )
-from stt_vault.processing.media import move_upload
+from stt_vault.services.media_storage import move_upload
 from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 from stt_vault.workers.worker import Worker
 

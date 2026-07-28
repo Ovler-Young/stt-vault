@@ -1,8 +1,8 @@
-import { request } from "$lib/api-transport";
-import type { AccessToken } from "$lib/api-types";
+import { request } from "$lib/api/transport";
+import type { AccessToken } from "$lib/api/types";
 
 const accessTokenKey = "stt-vault-access-token";
-export type { AccessToken } from "$lib/api-types";
+export type { AccessToken } from "$lib/api/types";
 export function getStoredAccessToken(): string {
   if (typeof localStorage === "undefined") return "";
   const storedToken = localStorage.getItem(accessTokenKey);

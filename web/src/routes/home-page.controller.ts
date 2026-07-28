@@ -3,8 +3,8 @@ import type {
   FolderTree,
   UploadEntry,
   UploadProgress,
-} from "$lib/api-types";
-import { fetchFolderTree, moveAsset } from "$lib/api-endpoints";
+} from "$lib/api/types";
+import { fetchFolderTree, moveAsset } from "$lib/api/endpoints";
 import { uploadAsset, uploadAssetBatch } from "$lib/api/uploads";
 
 import { findFolder } from "./home-page.helpers";

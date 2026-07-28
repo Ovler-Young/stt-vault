@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { type Speaker } from "$lib/api-types";
+  import { type Speaker } from "$lib/api/types";
   import {
     deleteSpeaker,
     fetchSpeakers,
     mergeSpeaker,
     recomputeAllSpeakers,
     renameSpeaker,
-  } from "$lib/api-endpoints";
-  import { formatDate } from "$lib/format";
+  } from "$lib/api/endpoints";
+  import { formatDate } from "$lib/formatting/date-time";
 
   let speakers: Speaker[] = [];
   let drafts: Record<string, string> = {};

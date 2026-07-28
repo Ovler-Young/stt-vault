@@ -1,9 +1,9 @@
-import type { AssetDetail, JobEvent } from "$lib/api-types";
+import type { AssetDetail, JobEvent } from "$lib/api/types";
 import {
   fetchAsset,
   fetchAssetEvents,
   recomputeAssetSpeakers,
-} from "$lib/api-endpoints";
+} from "$lib/api/endpoints";
 
 export type AssetLoadResult = {
   asset: AssetDetail;

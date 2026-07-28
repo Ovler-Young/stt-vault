@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { FolderTree, UploadEntry } from "$lib/api-types";
+import type { FolderTree, UploadEntry } from "$lib/api/types";
 
 const { fetchFolderTree, moveAsset, uploadAsset, uploadAssetBatch } =
   vi.hoisted(() => ({
@@ -10,7 +10,7 @@ const { fetchFolderTree, moveAsset, uploadAsset, uploadAssetBatch } =
     uploadAssetBatch: vi.fn(),
   }));
 
-vi.mock("$lib/api-endpoints", () => ({ fetchFolderTree, moveAsset }));
+vi.mock("$lib/api/endpoints", () => ({ fetchFolderTree, moveAsset }));
 vi.mock("$lib/api/uploads", () => ({ uploadAsset, uploadAssetBatch }));
 
 import { loadHomeTree, uploadHomeFiles } from "./home-page.controller";

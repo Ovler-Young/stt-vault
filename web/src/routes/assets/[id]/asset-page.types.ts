@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from "$lib/api-types";
+import type { TranscriptSegment } from "$lib/api/types";
 
 export type SpeakerEditor = {
   localSpeaker: string;

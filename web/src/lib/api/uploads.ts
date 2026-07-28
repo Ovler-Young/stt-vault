@@ -1,11 +1,11 @@
-import { ApiError, request } from "$lib/api-transport";
+import { ApiError, request } from "$lib/api/transport";
 import type {
   BatchUploadResponse,
   UploadCompletion,
   UploadEntry,
   UploadProgress,
   UploadSession,
-} from "$lib/api-types";
+} from "$lib/api/types";
 
 const uploadChunkSize = 8 * 1024 * 1024;
 const uploadSessionPrefix = "stt-vault-upload:";

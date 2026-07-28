@@ -6,16 +6,16 @@
     type AssetDetail,
     type JobEvent,
     type TranscriptSegment,
-  } from "$lib/api-types";
+  } from "$lib/api/types";
   import {
     deleteAsset,
     detectAssetVisualEvents,
     fetchAssetAudioTracks,
     retryAsset,
-  } from "$lib/api-endpoints";
+  } from "$lib/api/endpoints";
   import { loadAssetWithSpeakerMatching } from "./asset-load.controller";
   import { segmentMediaStart } from "./asset-page.helpers";
-  import { needsActivePolling } from "$lib/polling";
+  import { needsActivePolling } from "$lib/state/polling";
   import {
     adjacentSpeakerSegment,
     boundedSeekTime,

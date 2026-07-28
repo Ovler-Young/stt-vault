@@ -1,4 +1,4 @@
-import type { AssetSummary, FolderNode, FolderTree } from "$lib/api-types";
+import type { AssetSummary, FolderNode, FolderTree } from "$lib/api/types";
 
 export type FlatFolder = { folder: FolderNode; depth: number };
 

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import pageSource from "./+page.svelte?raw";
 import AssetPageShell from "./components/AssetPageShell.svelte";
 import shellSource from "./components/AssetPageShell.svelte?raw";
-import type { AssetDetail } from "$lib/api-types";
+import type { AssetDetail } from "$lib/api/types";
 
 const asset: AssetDetail = {
   id: "asset-1",

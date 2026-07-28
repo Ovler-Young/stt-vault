@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { AssetDetail } from "$lib/api-types";
-  import { summarizeAsset } from "$lib/api-endpoints";
-  import SummaryMarkdown from "$lib/SummaryMarkdown.svelte";
+  import type { AssetDetail } from "$lib/api/types";
+  import { summarizeAsset } from "$lib/api/endpoints";
+  import SummaryMarkdown from "$lib/ui/SummaryMarkdown.svelte";
   import FoldoutPanel from "./FoldoutPanel.svelte";
 
   let {

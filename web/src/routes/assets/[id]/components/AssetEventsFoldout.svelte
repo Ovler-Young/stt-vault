@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { JobEvent } from "$lib/api-types";
-  import { formatDate } from "$lib/format";
+  import type { JobEvent } from "$lib/api/types";
+  import { formatDate } from "$lib/formatting/date-time";
   import FoldoutPanel from "./FoldoutPanel.svelte";
 
   export let events: JobEvent[] = [];

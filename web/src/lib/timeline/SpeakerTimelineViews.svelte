@@ -1,7 +1,10 @@
 <script lang="ts">
-  import type { TranscriptSegment } from "$lib/api-types";
-  import SpeakerTimelineRow from "$lib/SpeakerTimelineRow.svelte";
-  import type { TimelineHover, TimelineWindow } from "$lib/speakerTimeline";
+  import type { TranscriptSegment } from "$lib/api/types";
+  import SpeakerTimelineRow from "$lib/timeline/SpeakerTimelineRow.svelte";
+  import type {
+    TimelineHover,
+    TimelineWindow,
+  } from "$lib/timeline/speakerTimeline";
 
   export let segments: TranscriptSegment[] = [];
   export let effectiveDuration = 0;

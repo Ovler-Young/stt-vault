@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getThemePreference, setThemePreference } from "./theme";
+import { getThemePreference, setThemePreference } from "./preferences";
 
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");

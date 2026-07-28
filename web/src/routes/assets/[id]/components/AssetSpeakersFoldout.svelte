@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatTime } from "$lib/format";
+  import { formatTime } from "$lib/formatting/date-time";
   import type { LocalSpeakerRow, MaybePromise } from "../asset-page.types";
   import FoldoutPanel from "./FoldoutPanel.svelte";
 

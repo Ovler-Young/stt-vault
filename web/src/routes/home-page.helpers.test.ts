@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AssetSummary, FolderNode, FolderTree } from "$lib/api-types";
+import type { AssetSummary, FolderNode, FolderTree } from "$lib/api/types";
 import {
   assetsInTree,
   findFolderPath,

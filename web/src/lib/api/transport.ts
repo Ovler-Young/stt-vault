@@ -1,4 +1,4 @@
-import { getStoredAccessToken } from "$lib/api-auth";
+import { getStoredAccessToken } from "$lib/api/auth";
 
 export class ApiError extends Error {
   constructor(

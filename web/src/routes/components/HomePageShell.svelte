@@ -4,7 +4,7 @@
     BatchUploadResult,
     FolderNode,
     UploadProgress,
-  } from "$lib/api-types";
+  } from "$lib/api/types";
   import HomeAssetList from "./HomeAssetList.svelte";
   import FolderSidebar from "./FolderSidebar.svelte";
   import type { FlatFolder } from "../home-page.helpers";

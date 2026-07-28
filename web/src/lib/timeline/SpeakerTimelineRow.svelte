@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { TranscriptSegment } from "$lib/api-types";
-  import { formatTime } from "$lib/format";
+  import type { TranscriptSegment } from "$lib/api/types";
+  import { formatTime } from "$lib/formatting/date-time";
   import {
     segmentPosition,
     speakerColor,
     type TimelineHover,
     type TimelineRow,
-  } from "$lib/speakerTimeline";
+  } from "$lib/timeline/speakerTimeline";
 
   export let row: TimelineRow;
   export let segments: TranscriptSegment[] = [];

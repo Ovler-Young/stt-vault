@@ -1,4 +1,4 @@
-import { request } from "$lib/api-transport";
+import { request } from "$lib/api/transport";
 import type {
   AccessToken,
   ApiConfig,
@@ -13,7 +13,7 @@ import type {
   Speaker,
   SummaryResponse,
   VisualEventDetectionResponse,
-} from "$lib/api-types";
+} from "$lib/api/types";
 
 export async function fetchConfig(): Promise<ApiConfig> {
   return request("/api/config");

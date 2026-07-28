@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { TranscriptSegment } from "$lib/api-types";
-  import { formatTime } from "$lib/format";
+  import type { TranscriptSegment } from "$lib/api/types";
+  import { formatTime } from "$lib/formatting/date-time";
   import {
     activeTranscriptSegmentIndex,
     segmentMediaEnd,

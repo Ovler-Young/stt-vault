@@ -7,13 +7,13 @@
     type FolderTree,
     type UploadEntry,
     type UploadProgress,
-  } from "$lib/api-types";
-  import { ApiError } from "$lib/api-transport";
+  } from "$lib/api/types";
+  import { ApiError } from "$lib/api/transport";
   import {
     getStoredAccessToken,
     login,
     setStoredAccessToken,
-  } from "$lib/api-auth";
+  } from "$lib/api/auth";
   import {
     createFolder,
     deleteAsset,
@@ -22,8 +22,8 @@
     moveAsset,
     moveFolder,
     renameFolder,
-  } from "$lib/api-endpoints";
-  import { hasActivePolling } from "$lib/polling";
+  } from "$lib/api/endpoints";
+  import { hasActivePolling } from "$lib/state/polling";
   import HomePageShell from "./components/HomePageShell.svelte";
   import { loadHomeTree, uploadHomeFiles } from "./home-page.controller";
   import {

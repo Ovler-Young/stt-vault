@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from "$lib/api-types";
+import type { TranscriptSegment } from "$lib/api/types";
 import {
   clampRatio,
   clampTimelineWindow,
@@ -8,7 +8,7 @@ import {
   type TimelineHover,
   type TimelineRow,
   type TimelineWindow,
-} from "$lib/speakerTimeline";
+} from "$lib/timeline/speakerTimeline";
 
 export function seekTimeForTimelineEvent(
   segments: TranscriptSegment[],

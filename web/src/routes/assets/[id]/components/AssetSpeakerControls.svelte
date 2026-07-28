@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { AssetDetail, TranscriptSegment } from "$lib/api-types";
-  import { recomputeAssetSpeakers, saveAssetSpeaker } from "$lib/api-endpoints";
+  import type { AssetDetail, TranscriptSegment } from "$lib/api/types";
+  import { recomputeAssetSpeakers, saveAssetSpeaker } from "$lib/api/endpoints";
   import { localSpeakerRows } from "../asset-page.helpers";
   import type { SpeakerEditor } from "../asset-page.types";
   import SpeakerEditorPopover from "./SpeakerEditorPopover.svelte";

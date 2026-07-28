@@ -1,6 +1,6 @@
 <script lang="ts">
-  import SpeakerProgressBar from "$lib/SpeakerProgressBar.svelte";
-  import type { AudioTrack, AssetDetail } from "$lib/api-types";
+  import SpeakerProgressBar from "$lib/timeline/SpeakerProgressBar.svelte";
+  import type { AudioTrack, AssetDetail } from "$lib/api/types";
   import { audioTrackLabel, exportHref, mediaUrl } from "../asset-page.helpers";
   import type {
     MaybePromise,

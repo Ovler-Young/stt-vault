@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import type { Job } from "$lib/api-types";
-  import { fetchJobs } from "$lib/api-endpoints";
-  import { formatDate, formatTime } from "$lib/format";
-  import { hasActivePolling } from "$lib/polling";
+  import type { Job } from "$lib/api/types";
+  import { fetchJobs } from "$lib/api/endpoints";
+  import { formatDate, formatTime } from "$lib/formatting/date-time";
+  import { hasActivePolling } from "$lib/state/polling";
 
   let jobs: Job[] = [];
   let error = "";

@@ -3,8 +3,8 @@ import {
   type AssetDetail,
   type TranscriptSegment,
   type VisualEvent,
-} from "$lib/api-types";
-import { authenticatedResourceUrl } from "$lib/api-auth";
+} from "$lib/api/types";
+import { authenticatedResourceUrl } from "$lib/api/auth";
 import type { LocalSpeakerRow } from "./asset-page.types";
 
 export const MEDIA_PANE_MIN_WIDTH = 420;

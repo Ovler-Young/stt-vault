@@ -4,7 +4,7 @@
     AssetDetail,
     JobEvent,
     TranscriptSegment,
-  } from "$lib/api-types";
+  } from "$lib/api/types";
   import type {
     MaybePromise,
     SpeakerControlsHandle,

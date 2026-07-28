@@ -1,6 +1,10 @@
 <script lang="ts">
-  import type { AssetSummary } from "$lib/api-types";
-  import { formatDate, formatRecordedAt, formatTime } from "$lib/format";
+  import type { AssetSummary } from "$lib/api/types";
+  import {
+    formatDate,
+    formatRecordedAt,
+    formatTime,
+  } from "$lib/formatting/date-time";
   import type { FlatFolder } from "../home-page.helpers";
 
   let {

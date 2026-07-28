@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AssetDetail } from "$lib/api-types";
+import type { AssetDetail } from "$lib/api/types";
 
 const { fetchAsset, fetchAssetEvents, recomputeAssetSpeakers } = vi.hoisted(
   () => ({
@@ -9,7 +9,7 @@ const { fetchAsset, fetchAssetEvents, recomputeAssetSpeakers } = vi.hoisted(
   }),
 );
 
-vi.mock("$lib/api-endpoints", () => ({
+vi.mock("$lib/api/endpoints", () => ({
   fetchAsset,
   fetchAssetEvents,
   recomputeAssetSpeakers,

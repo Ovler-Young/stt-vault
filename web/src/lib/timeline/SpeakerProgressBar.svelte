@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from "svelte";
-  import type { TranscriptSegment } from "$lib/api-types";
-  import { formatTime } from "$lib/format";
-  import SpeakerTimelineViews from "$lib/SpeakerTimelineViews.svelte";
+  import type { TranscriptSegment } from "$lib/api/types";
+  import { formatTime } from "$lib/formatting/date-time";
+  import SpeakerTimelineViews from "$lib/timeline/SpeakerTimelineViews.svelte";
   import {
     clampTimelineWindow,
     clampRatio,
@@ -15,7 +15,7 @@
     type TimelineRow,
     type TimelineWindow,
     zoomWindowAround,
-  } from "$lib/speakerTimeline";
+  } from "$lib/timeline/speakerTimeline";
   import {
     doubleClickTimelineWindow,
     draggedTimelineWindow,
@@ -23,7 +23,7 @@
     seekTimeForTimelineEvent,
     timelineHover,
     wheelTimelineWindow,
-  } from "$lib/speakerTimeline.interactions";
+  } from "$lib/timeline/speakerTimeline.interactions";
 
   export let segments: TranscriptSegment[] = [];
   export let duration: number | null = null;

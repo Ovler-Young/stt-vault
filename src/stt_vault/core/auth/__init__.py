@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from secrets import compare_digest
 from typing import Annotated
@@ -9,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ..config import Settings, get_settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
+Clock = Callable[[], datetime]
 
 __all__ = [
     "admin_password_matches",
@@ -53,10 +55,14 @@ def _validate_admin_token(settings: Settings, token: str | None) -> None:
         raise HTTPException(status_code=403, detail="Administrator token required")
 
 
-def issue_access_token(settings: Settings) -> str:
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def issue_access_token(settings: Settings, *, clock: Clock | None = None) -> str:
     if not settings.jwt_secret:
         raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
-    now = datetime.now(UTC)
+    now = (clock or utc_now)()
     claims = {
         "sub": "single-user-admin",
         "role": "admin",

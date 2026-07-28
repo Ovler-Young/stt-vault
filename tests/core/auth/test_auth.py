@@ -7,7 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
-from stt_vault.core.config import get_settings
+from stt_vault.core.auth import issue_access_token
+from stt_vault.core.config import Settings, get_settings
 
 JWT_SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-signing"
 JWT_ISSUER = "stt-vault-test"
@@ -51,6 +52,29 @@ def issue_token(client: TestClient) -> str:
 
 def bearer_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_issue_access_token_uses_injected_clock() -> None:
+    issued_at = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
+    settings = Settings(
+        JWT_SECRET=JWT_SECRET,
+        JWT_ISSUER=JWT_ISSUER,
+        JWT_AUDIENCE=JWT_AUDIENCE,
+        JWT_ACCESS_TOKEN_MINUTES=5,
+    )
+
+    token = issue_access_token(settings, clock=lambda: issued_at)
+    claims = jwt.decode(
+        token,
+        JWT_SECRET,
+        algorithms=["HS256"],
+        issuer=JWT_ISSUER,
+        audience=JWT_AUDIENCE,
+        options={"verify_exp": False, "verify_iat": False},
+    )
+
+    assert claims["iat"] == int(issued_at.timestamp())
+    assert claims["exp"] == int((issued_at + timedelta(minutes=5)).timestamp())
 
 
 def test_login_issues_non_expiring_signed_administrator_access_token(client: TestClient) -> None:

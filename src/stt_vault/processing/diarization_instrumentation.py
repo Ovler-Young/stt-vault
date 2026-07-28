@@ -15,6 +15,22 @@ from stt_vault.processing.diarization_contracts import (
 StageRecorder = Callable[[str, float, float | None], None]
 
 
+def current_rss_mb() -> float | None:
+    try:
+        import resource
+
+        value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except Exception:
+        return None
+
+    # Linux reports KiB; macOS reports bytes.
+    if value > 1024 * 1024:
+        value = value / (1024 * 1024)
+    else:
+        value = value / 1024
+    return round(value, 1)
+
+
 def instrument_diarizer(diarizer: DiarizationProvider, record_stage: StageRecorder) -> None:
     instrumented_diarizer = cast(InstrumentedDiarizationProvider, cast(object, diarizer))
     if getattr(instrumented_diarizer, "_stt_vault_instrumented", False):
@@ -49,8 +65,6 @@ def _wrap_stage[**P, R](
     @wraps(method)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
         import time
-
-        from stt_vault.processing.diarization import current_rss_mb
 
         rss_before = current_rss_mb()
         start = time.perf_counter()

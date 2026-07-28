@@ -13,7 +13,7 @@ from stt_vault.processing.diarization_contracts import (
     DiarizerFactory,
     ProviderCentroids,
 )
-from stt_vault.processing.diarization_instrumentation import instrument_diarizer
+from stt_vault.processing.diarization_instrumentation import current_rss_mb, instrument_diarizer
 from stt_vault.processing.diarization_pipeline import run_batched_diarization
 
 
@@ -123,22 +123,6 @@ class DiarizerManager:
         if rss_after is not None:
             peak = stats.get("rss_mb_peak")
             stats["rss_mb_peak"] = rss_after if peak is None else max(float(peak), rss_after)
-
-
-def current_rss_mb() -> float | None:
-    try:
-        import resource
-
-        value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    except Exception:
-        return None
-
-    # Linux reports KiB; macOS reports bytes.
-    if value > 1024 * 1024:
-        value = value / (1024 * 1024)
-    else:
-        value = value / 1024
-    return round(value, 1)
 
 
 def serialize_centroids(centroids: dict[str, np.ndarray]) -> dict[str, list[float]]:

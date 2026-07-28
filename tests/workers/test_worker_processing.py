@@ -5,7 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from stt_vault.core.models.api import DiarizationResult
-from stt_vault.processing.diarization import DiarizerManager, ProviderDiarizationPayload
+from stt_vault.processing.diarization import DiarizerManager
+from stt_vault.processing.diarization_contracts import ProviderDiarizationPayload
 from stt_vault.workers.worker_exports import VisualEventStage
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.workers.worker_transcription import TranscriptionStage

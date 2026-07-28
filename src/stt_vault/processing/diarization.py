@@ -1,101 +1,20 @@
-import logging
 import threading
 import time
-import wave
-from collections.abc import Callable, Mapping, Sequence
-from functools import wraps
-from pathlib import Path
-from typing import TYPE_CHECKING, ParamSpec, Protocol, TypedDict, TypeVar, cast, runtime_checkable
+from collections.abc import Mapping
+from typing import cast
 
 import numpy as np
 
 from stt_vault.core.models.api import DiarizationResult, JsonValue
-from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch, SpeakerSegment
-
-if TYPE_CHECKING:
-    import torch
-
-P = ParamSpec("P")
-R = TypeVar("R")
-logger = logging.getLogger(__name__)
-
-
-type VadSegment = tuple[float, float]
-type Subsegment = tuple[float, float]
-if TYPE_CHECKING:
-    type FbankFeatures = np.ndarray | torch.Tensor
-else:
-    type FbankFeatures = np.ndarray
-type ProviderCentroids = dict[str, np.ndarray]
-type ProviderTimingStats = dict[str, JsonValue]
-
-
-class ProviderDiarizationPayload(TypedDict, total=False):
-    raw_segments: list[SpeakerSegment]
-    raw_speakers_detected: int
-    merged_speakers_detected: int
-    merged_segments: list[SpeakerSegment]
-    speaker_centroids: ProviderCentroids
-    timing_stats: ProviderTimingStats
-    vad: list[VadSegment]
-    speaker_color_sets: dict[str, dict[str, str]]
-
-
-class DiarizationProvider(Protocol):
-    def diarize(
-        self, wav_path: str, *, generate_colors: bool
-    ) -> ProviderDiarizationPayload | None: ...
-
-
-@runtime_checkable
-class VadDiarizationProvider(Protocol):
-    _perform_vad: Callable[[str], list[VadSegment]]
-
-
-@runtime_checkable
-class SubsegmentDiarizationProvider(Protocol):
-    _generate_subsegments: Callable[[list[VadSegment], bool | None], list[Subsegment]]
-
-
-@runtime_checkable
-class FbankDiarizationProvider(Protocol):
-    _extract_fbank_features: Callable[
-        [str, list[Subsegment]], tuple[FbankFeatures, Sequence[int], Sequence[int], int]
-    ]
-
-
-@runtime_checkable
-class EmbeddingDiarizationProvider(Protocol):
-    _generate_embeddings: Callable[[FbankFeatures, Sequence[int], Sequence[int], int], np.ndarray]
-
-
-@runtime_checkable
-class ClusteringDiarizationProvider(Protocol):
-    _perform_clustering: Callable[
-        [np.ndarray, list[Subsegment]],
-        tuple[list[SpeakerSegment], list[SpeakerSegment], ProviderCentroids],
-    ]
-
-
-class InstrumentedDiarizationProvider(Protocol):
-    _stt_vault_instrumented: bool
-
-
-class BatchedDiarizationProvider(
+from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch
+from stt_vault.processing.diarization_contracts import (
+    BatchedDiarizationProvider,
     DiarizationProvider,
-    VadDiarizationProvider,
-    SubsegmentDiarizationProvider,
-    FbankDiarizationProvider,
-    EmbeddingDiarizationProvider,
-    ClusteringDiarizationProvider,
-    Protocol,
-):
-    _timing_stats: ProviderTimingStats
-
-    def _validate_wav_file(self, wav_file: wave.Wave_read, wav_path: str) -> None: ...
-
-
-DiarizerFactory = Callable[[str], DiarizationProvider]
+    DiarizerFactory,
+    ProviderCentroids,
+)
+from stt_vault.processing.diarization_instrumentation import instrument_diarizer
+from stt_vault.processing.diarization_pipeline import run_batched_diarization
 
 
 def _create_senko_diarizer(device: str) -> DiarizationProvider:
@@ -132,8 +51,11 @@ class DiarizerManager:
             rss_before = current_rss_mb()
             start = time.perf_counter()
             if self.use_batched_embeddings:
-                provider_result = self._diarize_batched(
-                    cast(BatchedDiarizationProvider, diarizer), wav_path, generate_colors=True
+                provider_result = run_batched_diarization(
+                    cast(BatchedDiarizationProvider, diarizer),
+                    wav_path,
+                    fbank_batch_segments=self.fbank_batch_segments,
+                    generate_colors=True,
                 )
             else:
                 provider_result = diarizer.diarize(wav_path, generate_colors=True)
@@ -164,7 +86,7 @@ class DiarizerManager:
             rss_before = current_rss_mb()
             start = time.perf_counter()
             self._diarizer = self.diarizer_factory(self.device)
-            self._instrument_diarizer(self._diarizer)
+            instrument_diarizer(self._diarizer, self._record_stage_resource)
             self._last_used = time.monotonic()
             self._resource_stats["load_diarizer"] = {
                 "wall_time": round(time.perf_counter() - start, 3),
@@ -172,112 +94,6 @@ class DiarizerManager:
                 "rss_mb_after": current_rss_mb(),
             }
         return self._diarizer
-
-    def _diarize_batched(
-        self,
-        diarizer: BatchedDiarizationProvider,
-        wav_path: str,
-        *,
-        accurate: bool | None = None,
-        generate_colors: bool = False,
-    ) -> ProviderDiarizationPayload | None:
-        diarizer._timing_stats = {}
-        total_start = time.time()
-
-        logger.info(
-            "diarization started",
-            extra={"event_name": "diarization.started", "media_filename": Path(wav_path).name},
-        )
-        with wave.open(wav_path, "rb") as wav_file:
-            diarizer._validate_wav_file(wav_file, wav_path)
-
-        vad_segments = diarizer._perform_vad(wav_path)
-        if not vad_segments:
-            return None
-
-        subsegments = diarizer._generate_subsegments(vad_segments, accurate)
-        embeddings_batches = []
-        for start in range(0, len(subsegments), self.fbank_batch_segments):
-            batch_subsegments = subsegments[start : start + self.fbank_batch_segments]
-            features_flat, frames_per_subsegment, subsegment_offsets, feature_dim = (
-                diarizer._extract_fbank_features(wav_path, batch_subsegments)
-            )
-            subsegment_offsets = [int(offset) for offset in subsegment_offsets]
-            embeddings_batches.append(
-                diarizer._generate_embeddings(
-                    features_flat,
-                    frames_per_subsegment,
-                    subsegment_offsets,
-                    feature_dim,
-                )
-            )
-
-        embeddings = np.concatenate(embeddings_batches, axis=0)
-        raw_segments, merged_segments, centroids = diarizer._perform_clustering(
-            embeddings,
-            subsegments,
-        )
-
-        total_time = round(time.time() - total_start, 2)
-        diarizer._timing_stats["total_time"] = total_time
-        raw_speakers_detected = len({segment["speaker"] for segment in raw_segments})
-        merged_speakers_detected = len({segment["speaker"] for segment in merged_segments})
-
-        result = {
-            "raw_segments": raw_segments,
-            "raw_speakers_detected": raw_speakers_detected,
-            "merged_speakers_detected": merged_speakers_detected,
-            "merged_segments": merged_segments,
-            "speaker_centroids": centroids,
-            "timing_stats": diarizer._timing_stats,
-            "vad": vad_segments,
-        }
-
-        if generate_colors:
-            from senko.colors import generate_speaker_colors
-
-            result["speaker_color_sets"] = {
-                str(index): generate_speaker_colors(merged_segments, index) for index in range(10)
-            }
-
-        return cast(ProviderDiarizationPayload, cast(object, result))
-
-    def _instrument_diarizer(self, diarizer: DiarizationProvider) -> None:
-        instrumented_diarizer = cast(InstrumentedDiarizationProvider, cast(object, diarizer))
-        if getattr(instrumented_diarizer, "_stt_vault_instrumented", False):
-            return
-
-        if isinstance(diarizer, VadDiarizationProvider):
-            diarizer._perform_vad = self._wrap_stage("vad", diarizer._perform_vad)
-        if isinstance(diarizer, SubsegmentDiarizationProvider):
-            diarizer._generate_subsegments = self._wrap_stage(
-                "subsegments", diarizer._generate_subsegments
-            )
-        if isinstance(diarizer, FbankDiarizationProvider):
-            diarizer._extract_fbank_features = self._wrap_stage(
-                "fbank", diarizer._extract_fbank_features
-            )
-        if isinstance(diarizer, EmbeddingDiarizationProvider):
-            diarizer._generate_embeddings = self._wrap_stage(
-                "embeddings", diarizer._generate_embeddings
-            )
-        if isinstance(diarizer, ClusteringDiarizationProvider):
-            diarizer._perform_clustering = self._wrap_stage(
-                "clustering", diarizer._perform_clustering
-            )
-        instrumented_diarizer._stt_vault_instrumented = True
-
-    def _wrap_stage(self, stage_name: str, method: Callable[P, R]) -> Callable[P, R]:
-        @wraps(method)
-        def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-            rss_before = current_rss_mb()
-            start = time.perf_counter()
-            try:
-                return method(*args, **kwargs)
-            finally:
-                self._record_stage_resource(stage_name, time.perf_counter() - start, rss_before)
-
-        return wrapped
 
     def _record_stage_resource(
         self,

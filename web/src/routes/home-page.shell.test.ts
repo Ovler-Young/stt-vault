@@ -8,6 +8,9 @@ describe("home page shell boundary", () => {
   it("keeps route state in the page and home presentation in the scoped shell", () => {
     expect(pageSource).toContain("<HomePageShell");
     expect(pageSource).not.toContain("<style>");
+    expect(pageSource).not.toContain("createFolder");
+    expect(pageSource).not.toContain("setInterval(");
+    expect(pageSource.split("\n").length).toBeLessThan(220);
     expect(workspaceSource).toContain(
       '<nav class="breadcrumbs" aria-label="Current folder">',
     );

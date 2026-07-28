@@ -1,6 +1,7 @@
 import json
 import logging
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,21 @@ from stt_vault.core.diagnostics.logging import (
     log_exception_diagnostic,
 )
 from stt_vault.persistence import db
+
+
+class NonSliceableSequence(Sequence[int]):
+    """Sequence implementation that permits only integer indexes."""
+
+    def __init__(self, items: list[int]) -> None:
+        self._items = tuple(items)
+
+    def __getitem__(self, index: int) -> int:
+        if isinstance(index, slice):
+            raise TypeError("slice indexes are not supported")
+        return self._items[index]
+
+    def __len__(self) -> int:
+        return len(self._items)
 
 
 def test_structured_formatter_includes_standard_context_keys() -> None:
@@ -173,6 +189,23 @@ def test_structured_formatter_redacts_and_bounds_nested_context() -> None:
         "source": "[path]",
     }
     assert event["details"]["levels"]["one"]["two"]["three"] == "[truncated]"
+
+
+def test_structured_formatter_bounds_non_sliceable_sequence_context() -> None:
+    formatter = StructuredFormatter()
+    record = logging.makeLogRecord(
+        {
+            "name": "stt_vault.workers.worker",
+            "levelno": logging.ERROR,
+            "levelname": "ERROR",
+            "msg": "worker failed",
+            "details": NonSliceableSequence(list(range(51))),
+        }
+    )
+
+    event = json.loads(formatter.format(record))
+
+    assert event["details"] == [*range(50), "[truncated]"]
 
 
 def test_exception_diagnostic_logs_redacted_cause_without_traceback(

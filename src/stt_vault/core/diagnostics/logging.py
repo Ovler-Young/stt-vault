@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Mapping, Sequence
+from itertools import islice
 from pathlib import Path
 
 from .process import format_diagnostic_text
@@ -93,7 +94,8 @@ def _format_optional_context(value: object, *, depth: int = 0) -> object:
         return formatted
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         formatted = [
-            _format_optional_context(item, depth=depth + 1) for item in value[:MAX_CONTEXT_ITEMS]
+            _format_optional_context(item, depth=depth + 1)
+            for item in islice(value, MAX_CONTEXT_ITEMS)
         ]
         if len(value) > MAX_CONTEXT_ITEMS:
             formatted.append("[truncated]")

@@ -1,8 +1,10 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from stt_vault.core.config import Settings
+from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import AssetRecord, KnownSpeaker, TranscriptSegment
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import match_speakers
@@ -69,10 +71,18 @@ class TranscriptionRepository(Protocol):
         level: str,
         stage: str,
         message: str,
-        payload: dict[str, object] | None = None,
+        payload: Mapping[str, JsonValue] | None = None,
     ) -> None: ...
 
-    def update_progress(self, asset_id: str, **kwargs: int | None) -> None: ...
+    def update_progress(
+        self,
+        asset_id: str,
+        *,
+        total_chunks: int | None = None,
+        done_chunks: int | None = None,
+        failed_chunks: int | None = None,
+        next_retry_at: int | None = None,
+    ) -> None: ...
 
 
 class TranscriptChunkPersistence:

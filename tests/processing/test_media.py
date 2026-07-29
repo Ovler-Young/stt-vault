@@ -58,6 +58,13 @@ def test_ffprobe_audio_streams_rejects_malformed_stream_shape() -> None:
         ffprobe_audio_streams(Path("recording.wav"), runner=lambda *_args, **_kwargs: result)
 
 
+def test_ffprobe_audio_streams_rejects_invalid_typed_stream_field() -> None:
+    result = SimpleNamespace(stdout=json.dumps({"streams": [{"channels": "two"}]}))
+
+    with pytest.raises(ValueError, match="stream channels"):
+        ffprobe_audio_streams(Path("recording.wav"), runner=lambda *_args, **_kwargs: result)
+
+
 def test_process_diagnostic_formatter_redacts_and_bounds_credentials() -> None:
     diagnostic = format_process_diagnostics(
         b"authorization=Bearer secret-value\n" + b"x" * (MAX_SUBPROCESS_DIAGNOSTIC_BYTES + 1)

@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from stt_vault.core.models.records import ErrorRecord, KnownSpeaker
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.workers.worker_completion import CompletionPersistence, SummaryFollowup
@@ -66,6 +68,8 @@ def test_sqlite_worker_repository_delegates_operations_with_its_database_path(
     assert repository.list_speakers() == [known_speaker]
     repository.add_event("asset-1", "info", "stage", "message", {"value": "ok"})
     repository.update_progress("asset-1", done_chunks=1)
+    with pytest.raises(TypeError):
+        repository.update_progress("asset-1", unsupported=1)
     repository.mark_success(
         "asset-1",
         wav_path=tmp_path / "audio.wav",

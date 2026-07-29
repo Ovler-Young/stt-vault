@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from collections.abc import Mapping
 from pathlib import Path
 
 from stt_vault.core.models.api import EventResponse, JsonValue
@@ -50,7 +51,7 @@ def add_event(
     level: str,
     stage: str | None,
     message: str,
-    payload: dict[str, JsonValue] | None = None,
+    payload: Mapping[str, JsonValue] | None = None,
 ) -> None:
     timestamp = now()
     with transaction(db_path) as conn:

@@ -1,13 +1,14 @@
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import job_log_context, log_exception_diagnostic
 from stt_vault.core.diagnostics.process import format_diagnostic_text
+from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import (
     AssetRecord,
-    EventPayload,
     ExportPaths,
     TranscriptSegment,
     VisualEvent,
@@ -34,7 +35,12 @@ class ExportRepository(Protocol):
     def replace_visual_events(self, asset_id: str, events: list[VisualEvent]) -> None: ...
 
     def add_event(
-        self, asset_id: str, level: str, stage: str, message: str, payload: EventPayload
+        self,
+        asset_id: str,
+        level: str,
+        stage: str,
+        message: str,
+        payload: Mapping[str, JsonValue],
     ) -> None: ...
 
 

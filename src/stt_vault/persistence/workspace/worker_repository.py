@@ -1,10 +1,13 @@
+from collections.abc import Mapping
 from pathlib import Path
 
+from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import (
     AssetRecord,
     ErrorRecord,
-    EventPayload,
+    ExportPaths,
     KnownSpeaker,
+    SpeakerSegment,
     TranscriptSegment,
     VisualEvent,
 )
@@ -34,8 +37,27 @@ class SqliteWorkerRepository:
     def update_stage(self, asset_id: str, stage: str) -> None:
         db.update_stage(self.db_path, asset_id, stage)
 
-    def update_diarization_metadata(self, asset_id: str, **metadata: object) -> None:
-        db.update_diarization_metadata(self.db_path, asset_id, **metadata)
+    def update_diarization_metadata(
+        self,
+        asset_id: str,
+        *,
+        wav_path: Path,
+        duration: float,
+        diarization_stats: dict[str, JsonValue],
+        raw_segments: list[SpeakerSegment],
+        merged_segments: list[SpeakerSegment],
+        speaker_centroids: dict[str, list[float]],
+    ) -> None:
+        db.update_diarization_metadata(
+            self.db_path,
+            asset_id,
+            wav_path=wav_path,
+            duration=duration,
+            diarization_stats=diarization_stats,
+            raw_segments=raw_segments,
+            merged_segments=merged_segments,
+            speaker_centroids=speaker_centroids,
+        )
 
     def reset_transcript_chunks(self, asset_id: str) -> None:
         db.reset_transcript_chunks(self.db_path, asset_id)
@@ -54,15 +76,53 @@ class SqliteWorkerRepository:
         level: str,
         stage: str,
         message: str,
-        payload: EventPayload | ErrorRecord | None = None,
+        payload: Mapping[str, JsonValue] | None = None,
     ) -> None:
         db.add_event(self.db_path, asset_id, level, stage, message, payload)
 
-    def update_progress(self, asset_id: str, **kwargs: int | None) -> None:
-        db.update_progress(self.db_path, asset_id, **kwargs)
+    def update_progress(
+        self,
+        asset_id: str,
+        *,
+        total_chunks: int | None = None,
+        done_chunks: int | None = None,
+        failed_chunks: int | None = None,
+        next_retry_at: int | None = None,
+    ) -> None:
+        db.update_progress(
+            self.db_path,
+            asset_id,
+            total_chunks=total_chunks,
+            done_chunks=done_chunks,
+            failed_chunks=failed_chunks,
+            next_retry_at=next_retry_at,
+        )
 
-    def mark_success(self, asset_id: str, **values: object) -> None:
-        db.mark_success(self.db_path, asset_id, **values)
+    def mark_success(
+        self,
+        asset_id: str,
+        *,
+        wav_path: Path,
+        duration: float,
+        diarization_stats: dict[str, JsonValue],
+        raw_segments: list[SpeakerSegment],
+        merged_segments: list[SpeakerSegment],
+        speaker_centroids: dict[str, list[float]],
+        transcript_segments: list[TranscriptSegment],
+        exports: ExportPaths,
+    ) -> None:
+        db.mark_success(
+            self.db_path,
+            asset_id,
+            wav_path=wav_path,
+            duration=duration,
+            diarization_stats=diarization_stats,
+            raw_segments=raw_segments,
+            merged_segments=merged_segments,
+            speaker_centroids=speaker_centroids,
+            transcript_segments=transcript_segments,
+            exports=exports,
+        )
 
     def mark_partial(self, asset_id: str, error: ErrorRecord) -> None:
         db.mark_partial(self.db_path, asset_id, error)
@@ -70,8 +130,25 @@ class SqliteWorkerRepository:
     def replace_visual_events(self, asset_id: str, events: list[VisualEvent]) -> None:
         db.replace_visual_events(self.db_path, asset_id, events)
 
-    def update_asset_summary(self, asset_id: str, **values: str | None) -> None:
-        db.update_asset_summary(self.db_path, asset_id, **values)
+    def update_asset_summary(
+        self,
+        asset_id: str,
+        *,
+        status: str,
+        text: str | None = None,
+        error: str | None = None,
+        model: str | None = None,
+        title: str | None = None,
+    ) -> None:
+        db.update_asset_summary(
+            self.db_path,
+            asset_id,
+            status=status,
+            text=text,
+            error=error,
+            model=model,
+            title=title,
+        )
 
     def apply_ai_speaker_names(
         self, asset_id: str, speaker_names: dict[str, str]

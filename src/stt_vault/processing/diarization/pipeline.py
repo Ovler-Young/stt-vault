@@ -1,6 +1,7 @@
 import logging
 import time
 import wave
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -12,6 +13,7 @@ from .contracts import (
 )
 
 logger = logging.getLogger(__name__)
+Clock = Callable[[], float]
 
 
 def run_batched_diarization(
@@ -21,9 +23,10 @@ def run_batched_diarization(
     fbank_batch_segments: int,
     accurate: bool | None = None,
     generate_colors: bool = False,
+    clock: Clock = time.time,
 ) -> ProviderDiarizationPayload | None:
     diarizer.timing_stats = {}
-    total_start = time.time()
+    total_start = clock()
 
     logger.info(
         "diarization started",
@@ -59,7 +62,7 @@ def run_batched_diarization(
         subsegments,
     )
 
-    diarizer.timing_stats["total_time"] = round(time.time() - total_start, 2)
+    diarizer.timing_stats["total_time"] = round(clock() - total_start, 2)
     result: ProviderDiarizationPayload = {
         "raw_segments": raw_segments,
         "raw_speakers_detected": len({segment["speaker"] for segment in raw_segments}),

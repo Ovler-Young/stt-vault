@@ -1,5 +1,8 @@
 import asyncio
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 
@@ -13,13 +16,40 @@ from stt_vault.services.upload_sessions import UploadSessionService
 from ..assets.collection import validate_relative_path
 
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
-UPLOAD_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+@dataclass
+class _ActiveUploadLock:
+    lock: asyncio.Lock
+    users: int = 0
+
+
+class UploadLockRegistry:
+    def __init__(self) -> None:
+        self._locks: dict[str, _ActiveUploadLock] = {}
+
+    @asynccontextmanager
+    async def acquire(self, upload_id: str) -> AsyncIterator[None]:
+        active_lock = self._locks.setdefault(upload_id, _ActiveUploadLock(asyncio.Lock()))
+        active_lock.users += 1
+        try:
+            async with active_lock.lock:
+                yield
+        finally:
+            active_lock.users -= 1
+            if active_lock.users == 0:
+                del self._locks[upload_id]
 
 
 def register_upload_routes(
-    app: FastAPI, settings: Settings, sessions: UploadSessionService
+    app: FastAPI,
+    settings: Settings,
+    sessions: UploadSessionService,
+    lock_registry: UploadLockRegistry | None = None,
 ) -> None:
     router = APIRouter(dependencies=[Depends(require_admin)])
+    if lock_registry is None:
+        lock_registry = UploadLockRegistry()
 
     @router.post("/api/uploads", response_model=UploadProgressResponse)
     def create_upload(payload: UploadCreateRequest) -> UploadResponse:
@@ -38,13 +68,13 @@ def register_upload_routes(
         request: Request,
         content_range: str = Header(alias="Content-Range"),
     ) -> UploadResponse:
-        async with _upload_lock(upload_id):
+        async with lock_registry.acquire(upload_id):
             start, end, total = _parse_content_range(content_range)
             return await sessions.append(upload_id, start, end, total, request.stream())
 
     @router.post("/api/uploads/{upload_id}/complete", response_model=UploadCompletionResponse)
     async def complete_upload(upload_id: str) -> UploadCompletionResponse:
-        async with _upload_lock(upload_id):
+        async with lock_registry.acquire(upload_id):
             return sessions.complete(upload_id)
 
     app.include_router(router)
@@ -58,7 +88,3 @@ def _parse_content_range(value: str) -> tuple[int, int, int]:
     if start > end or total <= 0:
         raise HTTPException(status_code=400, detail="Content-Range is invalid")
     return start, end, total
-
-
-def _upload_lock(upload_id: str) -> asyncio.Lock:
-    return UPLOAD_LOCKS.setdefault(upload_id, asyncio.Lock())

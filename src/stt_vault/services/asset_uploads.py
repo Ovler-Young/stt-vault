@@ -1,21 +1,30 @@
 import logging
-import shutil
 import tempfile
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import log_exception_diagnostic
-from stt_vault.persistence import db
-from stt_vault.services.media_storage import store_upload
 
 __all__ = [
+    "AssetUploadDependencies",
     "AssetUploadPersistenceError",
     "AssetUploadTooLargeError",
     "store_asset_upload",
 ]
 logger = logging.getLogger(__name__)
 ChunkReader = Callable[[int], Awaitable[bytes]]
+StoreUpload = Callable[[Path, str, Path], tuple[str, Path, str]]
+CreateAsset = Callable[[Path, str, str, str, Path], None]
+RemoveAssetDirectory = Callable[[Path], None]
+
+
+@dataclass(frozen=True)
+class AssetUploadDependencies:
+    store_upload: StoreUpload
+    create_asset: CreateAsset
+    remove_asset_directory: RemoveAssetDirectory
 
 
 class AssetUploadTooLargeError(ValueError):
@@ -30,6 +39,7 @@ async def store_asset_upload(
     read_chunk: ChunkReader,
     filename: str,
     settings: Settings,
+    dependencies: AssetUploadDependencies,
 ) -> str:
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp_path = Path(tmp.name)
@@ -42,11 +52,15 @@ async def store_asset_upload(
                 raise AssetUploadTooLargeError("Upload is too large")
             tmp.write(chunk)
     try:
-        asset_id, stored_path, media_type = store_upload(settings.media_dir, filename, tmp_path)
+        asset_id, stored_path, media_type = dependencies.store_upload(
+            settings.media_dir, filename, tmp_path
+        )
         try:
-            db.create_asset(settings.stt_db_path, asset_id, filename, media_type, stored_path)
+            dependencies.create_asset(
+                settings.stt_db_path, asset_id, filename, media_type, stored_path
+            )
         except Exception:
-            shutil.rmtree(settings.media_dir / asset_id, ignore_errors=True)
+            dependencies.remove_asset_directory(settings.media_dir / asset_id)
             raise
         return asset_id
     except Exception as exc:

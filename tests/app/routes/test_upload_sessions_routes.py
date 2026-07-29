@@ -1,6 +1,8 @@
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from _support.upload_routes import auth_headers
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -10,7 +12,8 @@ from stt_vault.core.config import get_settings
 from stt_vault.core.models.api import UploadCompletionResponse
 from stt_vault.core.models.records import UploadResponse
 from stt_vault.persistence import db
-from stt_vault.routes.uploads.routes import register_upload_routes
+from stt_vault.routes.uploads import routes as upload_routes
+from stt_vault.routes.uploads.routes import UploadLockRegistry, register_upload_routes
 from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 
 
@@ -133,3 +136,74 @@ def test_upload_routes_use_injected_session_service() -> None:
     assert response.status_code == 200
     assert response.json() == {"id": "upload-1", "filename": "clip.wav", "size": 4, "offset": 0}
     assert created == [("clip.wav", 4)]
+
+
+def test_upload_lock_registry_removes_idle_upload_locks() -> None:
+    registry = UploadLockRegistry()
+
+    async def acquire_lock() -> None:
+        async with registry.acquire("upload-1"):
+            assert len(registry._locks) == 1
+
+    asyncio.run(acquire_lock())
+
+    assert registry._locks == {}
+
+
+def test_upload_lock_registry_keeps_a_lock_until_waiters_finish() -> None:
+    registry = UploadLockRegistry()
+
+    async def acquire_locks() -> None:
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def first_request() -> None:
+            async with registry.acquire("upload-1"):
+                first_started.set()
+                await release_first.wait()
+
+        async def second_request() -> None:
+            await first_started.wait()
+            async with registry.acquire("upload-1"):
+                return
+
+        first_task = asyncio.create_task(first_request())
+        await first_started.wait()
+        second_task = asyncio.create_task(second_request())
+        await asyncio.sleep(0)
+        assert len(registry._locks) == 1
+        release_first.set()
+        await first_task
+        await second_task
+
+    asyncio.run(acquire_locks())
+
+    assert registry._locks == {}
+
+
+def test_upload_routes_create_lock_registries_isolated_between_application_event_loops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registries: list[UploadLockRegistry] = []
+
+    class TrackingRegistry(UploadLockRegistry):
+        def __init__(self) -> None:
+            super().__init__()
+            registries.append(self)
+
+    monkeypatch.setattr(upload_routes, "UploadLockRegistry", TrackingRegistry)
+    settings = SimpleNamespace(max_upload_bytes=10)
+    sessions = SimpleNamespace()
+
+    for _ in range(2):
+        register_upload_routes(FastAPI(), settings, sessions)
+
+    assert len(registries) == 2
+    assert registries[0] is not registries[1]
+
+    async def acquire_lock(registry: UploadLockRegistry) -> None:
+        async with registry.acquire("upload-1"):
+            assert len(registry._locks) == 1
+
+    asyncio.run(acquire_lock(registries[0]))
+    asyncio.run(acquire_lock(registries[1]))

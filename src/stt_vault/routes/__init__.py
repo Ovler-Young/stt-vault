@@ -1,13 +1,17 @@
+import shutil
+
 from fastapi import FastAPI
 
 from stt_vault.core.config import Settings
+from stt_vault.persistence import db
 from stt_vault.persistence.workspace.db_uploads import (
     complete_upload_session,
     create_upload_session,
     get_upload_session,
     update_upload_offset,
 )
-from stt_vault.services.media_storage import move_upload
+from stt_vault.services.asset_uploads import AssetUploadDependencies
+from stt_vault.services.media_storage import move_upload, store_upload
 from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 from stt_vault.workers.worker import Worker
 
@@ -36,7 +40,12 @@ __all__ = ["register_api_routes"]
 
 def register_api_routes(app: FastAPI, settings: Settings, worker: Worker) -> None:
     register_system_routes(app, settings)
-    register_asset_collection_routes(app, settings)
+    asset_upload_dependencies = AssetUploadDependencies(
+        store_upload=store_upload,
+        create_asset=db.create_asset,
+        remove_asset_directory=lambda path: shutil.rmtree(path, ignore_errors=True),
+    )
+    register_asset_collection_routes(app, settings, asset_upload_dependencies)
     upload_session_dependencies = UploadSessionDependencies(
         create_upload_session=create_upload_session,
         get_upload_session=get_upload_session,

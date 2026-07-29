@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import NoReturn
 
 import pytest
 from _support.upload_routes import api_routes, auth_headers
@@ -14,7 +13,7 @@ from stt_vault.core.models.api import (
     UploadProgressResponse,
 )
 from stt_vault.persistence import db
-from stt_vault.services.asset_uploads import AssetUploadTooLargeError
+from stt_vault.services.asset_uploads import AssetUploadPersistenceError, AssetUploadTooLargeError
 
 
 def test_upload_completion_route_declares_named_response_model(client: TestClient) -> None:
@@ -97,7 +96,7 @@ def test_single_upload_uses_shared_persistence_sequence(client: TestClient) -> N
 def test_single_upload_preserves_storage_http_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def reject_upload(*_args: object, **_kwargs: object) -> NoReturn:
+    def reject_upload(*_args: object, **_kwargs: object) -> None:
         raise AssetUploadTooLargeError("Upload is too large")
 
     monkeypatch.setattr("stt_vault.routes.assets.collection.store_asset_upload", reject_upload)
@@ -115,10 +114,10 @@ def test_single_upload_preserves_storage_http_error(
 def test_single_upload_maps_storage_failure_to_generic_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_upload(_media_dir: Path, _filename: str, _source_path: Path) -> NoReturn:
-        raise OSError("storage unavailable")
+    def fail_upload(*_args: object, **_kwargs: object) -> None:
+        raise AssetUploadPersistenceError("Upload could not be stored")
 
-    monkeypatch.setattr("stt_vault.services.asset_uploads.store_upload", fail_upload)
+    monkeypatch.setattr("stt_vault.routes.assets.collection.store_asset_upload", fail_upload)
 
     response = client.post(
         "/api/assets",

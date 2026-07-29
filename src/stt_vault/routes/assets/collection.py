@@ -14,6 +14,7 @@ from stt_vault.core.models.api import (
 )
 from stt_vault.persistence import db
 from stt_vault.services.asset_uploads import (
+    AssetUploadDependencies,
     AssetUploadPersistenceError,
     AssetUploadTooLargeError,
     store_asset_upload,
@@ -22,7 +23,11 @@ from stt_vault.services.asset_uploads import (
 __all__ = ["register_asset_collection_routes"]
 
 
-def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
+def register_asset_collection_routes(
+    app: FastAPI,
+    settings: Settings,
+    asset_upload_dependencies: AssetUploadDependencies,
+) -> None:
     router = APIRouter()
 
     @router.post(
@@ -33,7 +38,9 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
     async def upload_asset(file: Annotated[UploadFile, File()]) -> AssetUploadResponse:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
-        asset_id = await _store_uploaded_file(file, file.filename, settings)
+        asset_id = await _store_uploaded_file(
+            file, file.filename, settings, asset_upload_dependencies
+        )
         return AssetUploadResponse(id=asset_id, status="queued")
 
     @router.post(
@@ -53,7 +60,9 @@ def register_asset_collection_routes(app: FastAPI, settings: Settings) -> None:
         for file, relative_path in zip(files, relative_paths, strict=True):
             try:
                 filename = validate_relative_path(relative_path)
-                asset_id = await _store_uploaded_file(file, filename, settings)
+                asset_id = await _store_uploaded_file(
+                    file, filename, settings, asset_upload_dependencies
+                )
             except HTTPException as exc:
                 results.append(
                     AssetBatchUploadItem(
@@ -94,9 +103,14 @@ def validate_relative_path(value: str) -> str:
     return path.as_posix()
 
 
-async def _store_uploaded_file(file: UploadFile, filename: str, settings: Settings) -> str:
+async def _store_uploaded_file(
+    file: UploadFile,
+    filename: str,
+    settings: Settings,
+    asset_upload_dependencies: AssetUploadDependencies,
+) -> str:
     try:
-        return await store_asset_upload(file.read, filename, settings)
+        return await store_asset_upload(file.read, filename, settings, asset_upload_dependencies)
     except AssetUploadTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     except AssetUploadPersistenceError as exc:

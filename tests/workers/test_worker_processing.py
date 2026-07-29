@@ -88,24 +88,70 @@ def test_diarizer_manager_uses_injected_factory() -> None:
 
 
 @pytest.mark.parametrize(
-    ("device", "expected_calls"),
+    ("device", "cuda_available", "expected_calls"),
     [
-        ("cpu", ["disable_nnpack:False", "construct:cpu"]),
-        ("cuda", ["construct:cuda"]),
+        ("cpu", False, ["disable_nnpack:False", "construct:cpu"]),
+        ("auto", False, ["cuda_available:False", "disable_nnpack:False", "construct:auto"]),
+        ("auto", True, ["cuda_available:True", "construct:auto"]),
+        ("cuda", True, ["construct:cuda"]),
+        ("mps", True, ["construct:mps"]),
     ],
 )
 def test_senko_factory_disables_nnpack_before_cpu_model_construction(
     monkeypatch: pytest.MonkeyPatch,
     device: str,
+    cuda_available: bool,
     expected_calls: list[str],
 ) -> None:
     calls: list[str] = []
+    expected_result = {
+        "raw_segments": [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+        "merged_segments": [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+        "speaker_centroids": {},
+        "timing_stats": {"inference": "representative"},
+    }
 
     class FakeDiarizer:
+        _timing_stats: dict[str, object] = {}
+
         def __init__(self, *, device: str, warmup: bool, quiet: bool) -> None:
             assert warmup
             assert quiet
             calls.append(f"construct:{device}")
+
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> dict[str, object]:
+            assert generate_colors
+            return expected_result
+
+        def _validate_wav_file(self, _wav_file: object, _wav_path: str) -> None:
+            return None
+
+        def _perform_vad(self, _wav_path: str) -> list[object]:
+            return []
+
+        def _generate_subsegments(
+            self, _vad_segments: list[object], _accurate: bool | None
+        ) -> list[object]:
+            return []
+
+        def _extract_fbank_features(
+            self, _wav_path: str, _subsegments: list[object]
+        ) -> tuple[object, list[int], list[int], int]:
+            return None, [], [], 0
+
+        def _generate_embeddings(
+            self,
+            _features: object,
+            _frames_per_subsegment: list[int],
+            _subsegment_offsets: list[int],
+            _feature_dim: int,
+        ) -> object:
+            return None
+
+        def _perform_clustering(
+            self, _embeddings: object, _subsegments: list[object]
+        ) -> tuple[list[object], list[object], dict[str, object]]:
+            return [], [], {}
 
     def is_available() -> bool:
         raise AssertionError("NNPACK availability checks emit the warning being suppressed")
@@ -117,14 +163,17 @@ def test_senko_factory_disables_nnpack_before_cpu_model_construction(
             set_flags=lambda enabled: calls.append(f"disable_nnpack:{enabled}"),
         )
     )
+    torch.cuda = SimpleNamespace(
+        is_available=lambda: calls.append(f"cuda_available:{cuda_available}") or cuda_available
+    )
     senko = ModuleType("senko")
     senko.Diarizer = FakeDiarizer
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "senko", senko)
-
-    _create_senko_diarizer(device)
+    provider = _create_senko_diarizer(device)
 
     assert calls == expected_calls
+    assert provider.diarize("audio.wav", generate_colors=True) == expected_result
 
 
 def test_create_transcriber_maps_every_config_field(monkeypatch: pytest.MonkeyPatch) -> None:

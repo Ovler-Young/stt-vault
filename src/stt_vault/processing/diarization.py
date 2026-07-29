@@ -18,6 +18,10 @@ from stt_vault.processing.senko_diarization import SenkoDiarizationProvider, _Se
 
 
 def _create_senko_diarizer(device: str) -> DiarizationProvider:
+    if device == "cpu":
+        import torch
+
+        torch.backends.nnpack.set_flags(False)
     from senko import Diarizer
 
     implementation = cast(

@@ -1,11 +1,12 @@
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from stt_vault.core.models.api import DiarizationResult
-from stt_vault.processing.diarization import DiarizerManager
+from stt_vault.processing.diarization import DiarizerManager, _create_senko_diarizer
 from stt_vault.processing.diarization_contracts import ProviderDiarizationPayload
 from stt_vault.workers.worker_exports import VisualEventStage
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
@@ -84,6 +85,46 @@ def test_diarizer_manager_uses_injected_factory() -> None:
     assert manager.diarize("audio.wav") is None
     assert calls == ["cpu"]
     assert manager._diarizer is provider
+
+
+@pytest.mark.parametrize(
+    ("device", "expected_calls"),
+    [
+        ("cpu", ["disable_nnpack:False", "construct:cpu"]),
+        ("cuda", ["construct:cuda"]),
+    ],
+)
+def test_senko_factory_disables_nnpack_before_cpu_model_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    device: str,
+    expected_calls: list[str],
+) -> None:
+    calls: list[str] = []
+
+    class FakeDiarizer:
+        def __init__(self, *, device: str, warmup: bool, quiet: bool) -> None:
+            assert warmup
+            assert quiet
+            calls.append(f"construct:{device}")
+
+    def is_available() -> bool:
+        raise AssertionError("NNPACK availability checks emit the warning being suppressed")
+
+    torch = ModuleType("torch")
+    torch.backends = SimpleNamespace(
+        nnpack=SimpleNamespace(
+            is_available=is_available,
+            set_flags=lambda enabled: calls.append(f"disable_nnpack:{enabled}"),
+        )
+    )
+    senko = ModuleType("senko")
+    senko.Diarizer = FakeDiarizer
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setitem(sys.modules, "senko", senko)
+
+    _create_senko_diarizer(device)
+
+    assert calls == expected_calls
 
 
 def test_create_transcriber_maps_every_config_field(monkeypatch: pytest.MonkeyPatch) -> None:

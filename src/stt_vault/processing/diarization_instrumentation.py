@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Callable
 from functools import wraps
 from typing import cast
@@ -23,12 +24,13 @@ def current_rss_mb() -> float | None:
     except Exception:
         return None
 
+    return _rss_value_to_mb(value, sys.platform)
+
+
+def _rss_value_to_mb(value: float, platform: str) -> float:
     # Linux reports KiB; macOS reports bytes.
-    if value > 1024 * 1024:
-        value = value / (1024 * 1024)
-    else:
-        value = value / 1024
-    return round(value, 1)
+    divisor = 1024 * 1024 if platform == "darwin" else 1024
+    return round(value / divisor, 1)
 
 
 def instrument_diarizer(diarizer: DiarizationProvider, record_stage: StageRecorder) -> None:

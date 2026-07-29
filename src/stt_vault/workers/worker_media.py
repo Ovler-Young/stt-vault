@@ -7,7 +7,8 @@ from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import AssetRecord, SpeakerSegment
 from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 from stt_vault.processing.diarization import DiarizerManager
-from stt_vault.processing.media import ffprobe_duration, to_wav_16k_mono
+from stt_vault.processing.media_probe import ffprobe_duration
+from stt_vault.processing.media_transcoding import to_wav_16k_mono
 
 from .worker_models import PreparedAsset
 

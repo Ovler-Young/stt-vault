@@ -8,7 +8,7 @@ from stt_vault.core.diagnostics.process import (
     MAX_SUBPROCESS_DIAGNOSTIC_BYTES,
     format_process_diagnostics,
 )
-from stt_vault.processing.media import (
+from stt_vault.processing.media_probe import (
     ffprobe_audio_streams,
     ffprobe_duration,
 )

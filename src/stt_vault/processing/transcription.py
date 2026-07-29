@@ -10,7 +10,7 @@ from openai import OpenAI
 
 from stt_vault.core.models.records import SpeakerSegment, TranscriptChunk, TranscriptSegment
 
-from .media import extract_transcription_chunk
+from .media_transcoding import extract_transcription_chunk
 
 ChunkExtractor = Callable[[Path, Path, float, float], Path]
 

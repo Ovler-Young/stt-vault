@@ -5,16 +5,17 @@ from pathlib import Path
 
 
 def test_module_execution_invokes_application_runner(tmp_path: Path) -> None:
+    source_directory = Path(__file__).resolve().parents[3] / "src"
     (tmp_path / "sitecustomize.py").write_text(
-        "import uvicorn\n"
+        "from stt_vault.core import app\n"
         "\n"
-        "def run(*args, **kwargs):\n"
+        "def run():\n"
         "    print('application runner invoked')\n"
         "\n"
-        "uvicorn.run = run\n"
+        "app.run = run\n"
     )
     environment = os.environ | {
-        "PYTHONPATH": os.pathsep.join(filter(None, (str(tmp_path), os.environ.get("PYTHONPATH")))),
+        "PYTHONPATH": os.pathsep.join((str(tmp_path), str(source_directory))),
     }
 
     result = subprocess.run(
@@ -23,6 +24,7 @@ def test_module_execution_invokes_application_runner(tmp_path: Path) -> None:
         check=False,
         env=environment,
         text=True,
+        timeout=10,
     )
 
     assert result.returncode == 0, result.stderr

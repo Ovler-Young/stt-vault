@@ -152,8 +152,4 @@ backend test suite are the configured backend quality checks.
 
 ## Notes
 
-The first version keeps Senko as an external dependency and wraps it behind `DiarizerManager`. Future memory optimization work should happen behind that wrapper:
-
-1. Keep one warm `Diarizer` instance per process.
-2. Add a Senko path that batches fbank extraction and embedding generation.
-3. Accumulate embeddings and keep final global clustering.
+Senko remains an external dependency wrapped behind `DiarizerManager`. The worker keeps one warm `Diarizer` instance per process, and the enabled batched path processes fbank extraction and embedding generation in configurable segment batches before concatenating embeddings for final global clustering. Configure the path with `SENKO_BATCHED_EMBEDDINGS` and `SENKO_FBANK_BATCH_SEGMENTS`.

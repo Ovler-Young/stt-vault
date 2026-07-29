@@ -1,4 +1,8 @@
+import json
+import os
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -104,54 +108,12 @@ def test_senko_factory_disables_nnpack_before_cpu_model_construction(
     expected_calls: list[str],
 ) -> None:
     calls: list[str] = []
-    expected_result = {
-        "raw_segments": [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
-        "merged_segments": [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
-        "speaker_centroids": {},
-        "timing_stats": {"inference": "representative"},
-    }
 
     class FakeDiarizer:
-        _timing_stats: dict[str, object] = {}
-
         def __init__(self, *, device: str, warmup: bool, quiet: bool) -> None:
             assert warmup
             assert quiet
             calls.append(f"construct:{device}")
-
-        def diarize(self, _wav_path: str, *, generate_colors: bool) -> dict[str, object]:
-            assert generate_colors
-            return expected_result
-
-        def _validate_wav_file(self, _wav_file: object, _wav_path: str) -> None:
-            return None
-
-        def _perform_vad(self, _wav_path: str) -> list[object]:
-            return []
-
-        def _generate_subsegments(
-            self, _vad_segments: list[object], _accurate: bool | None
-        ) -> list[object]:
-            return []
-
-        def _extract_fbank_features(
-            self, _wav_path: str, _subsegments: list[object]
-        ) -> tuple[object, list[int], list[int], int]:
-            return None, [], [], 0
-
-        def _generate_embeddings(
-            self,
-            _features: object,
-            _frames_per_subsegment: list[int],
-            _subsegment_offsets: list[int],
-            _feature_dim: int,
-        ) -> object:
-            return None
-
-        def _perform_clustering(
-            self, _embeddings: object, _subsegments: list[object]
-        ) -> tuple[list[object], list[object], dict[str, object]]:
-            return [], [], {}
 
     def is_available() -> bool:
         raise AssertionError("NNPACK availability checks emit the warning being suppressed")
@@ -170,10 +132,93 @@ def test_senko_factory_disables_nnpack_before_cpu_model_construction(
     senko.Diarizer = FakeDiarizer
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "senko", senko)
-    provider = _create_senko_diarizer(device)
+    monkeypatch.setattr(
+        "stt_vault.processing.diarization.SenkoDiarizationProvider",
+        lambda implementation: implementation,
+    )
+
+    _create_senko_diarizer(device)
 
     assert calls == expected_calls
-    assert provider.diarize("audio.wav", generate_colors=True) == expected_result
+
+
+def test_cpu_nnpack_disable_preserves_native_inference_output_and_suppresses_warning() -> None:
+    script = textwrap.dedent(
+        """
+        import json
+        import sys
+        from types import ModuleType
+
+        import torch
+
+
+        def run_model():
+            model = torch.nn.Conv1d(1, 1, kernel_size=3, bias=True)
+            with torch.no_grad():
+                model.weight.copy_(torch.tensor([[[0.25, -0.5, 0.75]]]))
+                model.bias.copy_(torch.tensor([0.125]))
+            samples = torch.tensor([[[1.0, -2.0, 3.0, -4.0, 5.0]]])
+            return model(samples).flatten().tolist()
+
+
+        if sys.argv[1] == "enabled":
+            torch.backends.nnpack.set_flags(True)
+            print(json.dumps({"output": run_model()}))
+        else:
+            disable_calls = []
+            set_flags = torch.backends.nnpack.set_flags
+
+            def track_set_flags(enabled):
+                disable_calls.append(enabled)
+                return set_flags(enabled)
+
+            torch.backends.nnpack.set_flags = track_set_flags
+
+            class Diarizer:
+                output = None
+
+                def __init__(self, *, device, warmup, quiet):
+                    assert device == "cpu"
+                    assert warmup
+                    assert quiet
+                    type(self).output = run_model()
+
+            senko = ModuleType("senko")
+            senko.Diarizer = Diarizer
+            sys.modules["senko"] = senko
+
+            import stt_vault.processing.diarization as diarization
+
+            diarization.SenkoDiarizationProvider = lambda implementation: implementation
+            diarization._create_senko_diarizer("cpu")
+            print(json.dumps({"disable_calls": disable_calls, "output": Diarizer.output}))
+        """
+    )
+    source_root = Path(__file__).parents[2] / "src"
+    environment = os.environ | {
+        "PYTHONPATH": os.pathsep.join(
+            value for value in [str(source_root), os.environ.get("PYTHONPATH", "")] if value
+        )
+    }
+
+    def run(mode: str) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            [sys.executable, "-c", script, mode],
+            capture_output=True,
+            check=False,
+            env=environment,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        return result
+
+    enabled = json.loads(run("enabled").stdout)
+    disabled = run("disabled")
+    disabled_result = json.loads(disabled.stdout)
+
+    assert disabled_result["disable_calls"] == [False]
+    assert disabled_result["output"] == pytest.approx(enabled["output"], rel=1e-6, abs=1e-6)
+    assert "NNPACK.cpp:56" not in disabled.stderr
 
 
 def test_create_transcriber_maps_every_config_field(monkeypatch: pytest.MonkeyPatch) -> None:

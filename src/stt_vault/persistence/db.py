@@ -9,18 +9,20 @@ from .assets.db_asset_records import asset_exists, create_asset, get_asset, list
 from .assets.db_asset_relocation import move_asset
 from .assets.db_asset_retry import retry_asset
 from .assets.db_asset_summary import update_asset_summary
-from .assets.db_speakers import (
+from .assets.db_speaker_assignments import (
     delete_speaker,
-    find_speaker_by_display_name,
-    get_speaker,
     list_asset_ids_for_speaker,
-    list_asset_ids_with_speaker_centroids,
-    list_speakers,
     merge_speakers,
     refresh_asset_transcripts_for_speaker_from_conn,
     relabel_asset_speaker,
     relabel_asset_speakers,
     rename_speaker,
+)
+from .assets.db_speakers import (
+    find_speaker_by_display_name,
+    get_speaker,
+    list_asset_ids_with_speaker_centroids,
+    list_speakers,
     upsert_speaker,
 )
 from .assets.db_transcripts import (

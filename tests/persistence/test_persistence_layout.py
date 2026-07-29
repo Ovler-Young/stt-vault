@@ -16,6 +16,7 @@ EXPECTED_MODULES = {
     "assets/db_asset_relocation.py",
     "assets/db_asset_retry.py",
     "assets/db_asset_summary.py",
+    "assets/db_speaker_assignments.py",
     "assets/db_speakers.py",
     "assets/db_transcripts.py",
     "assets/db_visual_events.py",

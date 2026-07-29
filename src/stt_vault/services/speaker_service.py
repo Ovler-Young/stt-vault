@@ -5,11 +5,8 @@ from fastapi import HTTPException
 from stt_vault.core.config import Settings
 from stt_vault.core.models.records import AssetRecord
 from stt_vault.persistence.assets.db_asset_records import get_asset
-from stt_vault.persistence.assets.db_speakers import (
-    find_speaker_by_display_name,
-    list_speakers,
-    relabel_asset_speakers,
-)
+from stt_vault.persistence.assets.db_speaker_assignments import relabel_asset_speakers
+from stt_vault.persistence.assets.db_speakers import find_speaker_by_display_name, list_speakers
 from stt_vault.processing.diarization import match_speakers
 
 

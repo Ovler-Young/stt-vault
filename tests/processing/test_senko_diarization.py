@@ -2,8 +2,18 @@ import wave
 from pathlib import Path
 
 import numpy as np
+import pytest
 
-from stt_vault.processing.senko_diarization import SenkoDiarizationProvider
+from stt_vault.processing.diarization.senko import SenkoDiarizationProvider
+
+
+def test_senko_adapter_rejects_incomplete_implementation() -> None:
+    class IncompleteImplementation:
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> None:
+            return None
+
+    with pytest.raises(TypeError, match="required stage operations"):
+        SenkoDiarizationProvider(IncompleteImplementation())
 
 
 def test_senko_adapter_exposes_public_stage_contract(tmp_path: Path) -> None:

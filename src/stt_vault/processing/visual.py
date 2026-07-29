@@ -2,6 +2,7 @@ import json
 import logging
 import subprocess
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path
 
 from stt_vault.core.diagnostics.process import (
@@ -103,17 +104,17 @@ def detect_slide_changes(
             previous = frame
             frame_index += 1
     finally:
-        try:
-            process.stdout.close()
-        finally:
-            try:
-                return_code = process.wait()
-            finally:
-                try:
-                    stderr_thread.join()
-                finally:
-                    if process.stderr is not None:
-                        process.stderr.close()
+
+        def wait_for_process() -> None:
+            nonlocal return_code
+            return_code = process.wait()
+
+        with ExitStack() as cleanup:
+            if process.stderr is not None:
+                cleanup.callback(process.stderr.close)
+            cleanup.callback(stderr_thread.join)
+            cleanup.callback(wait_for_process)
+            cleanup.callback(process.stdout.close)
     assert return_code is not None
     if return_code != 0:
         logger.error(

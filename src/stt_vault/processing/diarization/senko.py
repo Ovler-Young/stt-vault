@@ -1,11 +1,12 @@
 import wave
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
 from stt_vault.core.models.records import SpeakerSegment
-from stt_vault.processing.diarization_contracts import (
+
+from .contracts import (
     BatchedDiarizationProvider,
     FbankFeatures,
     ProviderCentroids,
@@ -16,6 +17,7 @@ from stt_vault.processing.diarization_contracts import (
 )
 
 
+@runtime_checkable
 class _SenkoImplementation(Protocol):
     def diarize(
         self, wav_path: str, *, generate_colors: bool
@@ -51,7 +53,9 @@ class _SenkoImplementation(Protocol):
 class SenkoDiarizationProvider(BatchedDiarizationProvider):
     """Expose Senko's stage operations through the application provider contract."""
 
-    def __init__(self, implementation: _SenkoImplementation) -> None:
+    def __init__(self, implementation: object) -> None:
+        if not isinstance(implementation, _SenkoImplementation):
+            raise TypeError("Senko diarizer does not implement the required stage operations")
         self._implementation = implementation
 
     def diarize(self, wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload | None:

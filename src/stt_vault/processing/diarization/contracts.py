@@ -75,10 +75,6 @@ class ClusteringDiarizationProvider(Protocol):
     ) -> tuple[list[SpeakerSegment], list[SpeakerSegment], ProviderCentroids]: ...
 
 
-class InstrumentedDiarizationProvider(Protocol):
-    _stt_vault_instrumented: bool
-
-
 class BatchedDiarizationProvider(
     DiarizationProvider,
     VadDiarizationProvider,
@@ -107,7 +103,6 @@ __all__ = [
     "DiarizerFactory",
     "EmbeddingDiarizationProvider",
     "FbankDiarizationProvider",
-    "InstrumentedDiarizationProvider",
     "ProviderCentroids",
     "ProviderDiarizationPayload",
     "ProviderTimingStats",

@@ -1,19 +1,18 @@
 import sys
 from collections.abc import Callable
 from functools import wraps
-from typing import cast
 
-from stt_vault.processing.diarization_contracts import (
+from .contracts import (
     ClusteringDiarizationProvider,
     DiarizationProvider,
     EmbeddingDiarizationProvider,
     FbankDiarizationProvider,
-    InstrumentedDiarizationProvider,
     SubsegmentDiarizationProvider,
     VadDiarizationProvider,
 )
 
 StageRecorder = Callable[[str, float, float | None], None]
+_INSTRUMENTED_ATTRIBUTE = "_stt_vault_instrumented"
 
 
 def current_rss_mb() -> float | None:
@@ -34,9 +33,12 @@ def _rss_value_to_mb(value: float, platform: str) -> float:
 
 
 def instrument_diarizer(diarizer: DiarizationProvider, record_stage: StageRecorder) -> None:
-    instrumented_diarizer = cast(InstrumentedDiarizationProvider, cast(object, diarizer))
-    if getattr(instrumented_diarizer, "_stt_vault_instrumented", False):
+    if getattr(diarizer, _INSTRUMENTED_ATTRIBUTE, False):
         return
+    try:
+        setattr(diarizer, _INSTRUMENTED_ATTRIBUTE, True)
+    except (AttributeError, TypeError) as error:
+        raise TypeError("Diarization provider does not support instrumentation") from error
 
     if isinstance(diarizer, VadDiarizationProvider):
         diarizer.perform_vad = _wrap_stage("vad", diarizer.perform_vad, record_stage)
@@ -56,7 +58,6 @@ def instrument_diarizer(diarizer: DiarizationProvider, record_stage: StageRecord
         diarizer.perform_clustering = _wrap_stage(
             "clustering", diarizer.perform_clustering, record_stage
         )
-    instrumented_diarizer._stt_vault_instrumented = True
 
 
 def _wrap_stage[**P, R](

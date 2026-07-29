@@ -6,7 +6,7 @@ from typing import cast
 
 import numpy as np
 
-from stt_vault.processing.diarization_contracts import (
+from .contracts import (
     BatchedDiarizationProvider,
     ProviderDiarizationPayload,
 )

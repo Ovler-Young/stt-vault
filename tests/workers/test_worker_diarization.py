@@ -11,7 +11,7 @@ from stt_vault.core.diagnostics.logging import StructuredFormatter
 from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import SpeakerSegment
 from stt_vault.processing.diarization import DiarizerManager
-from stt_vault.processing.diarization_contracts import ProviderDiarizationPayload
+from stt_vault.processing.diarization.contracts import ProviderDiarizationPayload
 
 
 def test_batched_diarization_logs_json_without_provider_console_output(
@@ -37,7 +37,7 @@ def test_batched_diarization_logs_json_without_provider_console_output(
         diarizer_factory=lambda _device: provider,
     )
 
-    with caplog.at_level(logging.INFO, logger="stt_vault.processing.diarization_pipeline"):
+    with caplog.at_level(logging.INFO, logger="stt_vault.processing.diarization.pipeline"):
         assert manager.diarize(str(wav_path)) is None
 
     record = caplog.records[-1]

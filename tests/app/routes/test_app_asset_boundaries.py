@@ -59,7 +59,12 @@ def test_asset_response_rejects_unknown_database_fields() -> None:
         )
 
 
-def test_asset_api_does_not_expose_persisted_secret_or_path(client: TestClient) -> None:
+def test_asset_api_does_not_expose_persisted_secret_or_path(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "stt_vault.services.media_storage.ffprobe_media_type", lambda _path: "audio"
+    )
     upload = client.post(
         "/api/assets",
         headers=auth_headers(client),
@@ -131,6 +136,49 @@ def test_protected_media_gets_require_bearer_token(client: TestClient) -> None:
     assert missing_response.json() == {"detail": "Missing bearer token"}
     assert authenticated_response.status_code == 404
     assert authenticated_response.json() == {"detail": "Asset not found"}
+
+
+@pytest.mark.parametrize(
+    ("media_type", "expected_content_type"),
+    [
+        ("audio", "audio/mp4"),
+        ("video", "video/mp4"),
+    ],
+)
+def test_selected_audio_track_uses_asset_media_content_type(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    media_type: str,
+    expected_content_type: str,
+) -> None:
+    extension = "m4a" if media_type == "audio" else "mp4"
+    original_path = tmp_path / f"clip.{extension}"
+    original_path.write_bytes(b"source media")
+    db.create_asset(
+        get_settings().stt_db_path,
+        f"{media_type}-asset",
+        original_path.name,
+        media_type,
+        original_path,
+    )
+    monkeypatch.setattr(
+        "stt_vault.routes.assets.media.playback_media_stream_command",
+        lambda *_args: ["ffmpeg", "-version"],
+    )
+    monkeypatch.setattr(
+        "stt_vault.routes.assets.media.stream_process_stdout",
+        lambda *_args, **_kwargs: iter([b"fragmented mp4"]),
+    )
+
+    response = client.get(
+        f"/api/assets/{media_type}-asset/media?audio_track=0",
+        headers=auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == expected_content_type
+    assert response.content == b"fragmented mp4"
 
 
 def test_mutating_routes_require_bearer_auth(client: TestClient) -> None:

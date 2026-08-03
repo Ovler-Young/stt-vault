@@ -6,6 +6,11 @@ type PlaybackSegment = Pick<
   "start" | "end" | "chunk_start" | "chunk_end" | "speaker"
 >;
 
+export function seekAndPlay(mediaElement: HTMLMediaElement, time: number) {
+  mediaElement.currentTime = time;
+  mediaElement.play().catch(() => {});
+}
+
 export function boundedSeekTime(
   current: number,
   duration: number,

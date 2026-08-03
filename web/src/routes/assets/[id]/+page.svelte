@@ -25,6 +25,7 @@
     boundedSeekTime,
     nextSegment,
     previousSegment,
+    seekAndPlay,
   } from "./asset-playback.controller";
   import type {
     SpeakerControlsHandle,
@@ -113,8 +114,7 @@
     >,
   ) {
     if (!mediaEl) return;
-    mediaEl.currentTime = segmentMediaStart(segment);
-    mediaEl.play().catch(() => {});
+    seekAndPlay(mediaEl, segmentMediaStart(segment));
   }
 
   function seekToTime(time: number) {

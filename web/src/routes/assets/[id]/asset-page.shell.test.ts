@@ -102,4 +102,45 @@ describe("asset page shell boundary", () => {
       target.remove();
     }
   });
+
+  it("renders pure-audio uploads in an audio element", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const component = mount(AssetPageShell, {
+      target,
+      props: {
+        asset: { ...asset, filename: "meeting.m4a", media_type: "audio" },
+        error: "",
+        audioTracks: [],
+        selectedAudioTrack: "default",
+        playbackRate: 1,
+        currentTime: 0,
+        visualMessage: "",
+        speakerMatchMessage: "",
+        onRetry: async () => {},
+        onRemove: async () => {},
+        onTimeUpdate: () => {},
+        onStartClock: () => {},
+        onStopClock: () => {},
+        onRestoreMediaSeek: () => {},
+        onAudioTrackChange: async () => {},
+        onPlaybackRateChange: () => {},
+        onTimelineSeek: () => {},
+        onDetectVisualEvents: async () => {},
+        onLoad: async () => {},
+        onError: () => {},
+        onTranscriptSeek: () => {},
+        onEditSpeaker: () => {},
+      },
+    });
+    await tick();
+
+    try {
+      expect(target.querySelector("audio")).not.toBeNull();
+      expect(target.querySelector("video")).toBeNull();
+    } finally {
+      unmount(component);
+      target.remove();
+    }
+  });
 });

@@ -92,9 +92,12 @@ class UploadSessionService:
         temp_path = Path(upload["temp_path"])
         if not temp_path.is_file() or temp_path.stat().st_size != total_size:
             raise HTTPException(status_code=409, detail="Stored upload size is inconsistent")
-        asset_id, stored_path, media_type = self.dependencies.move_upload(
-            self.settings.media_dir, upload["filename"], temp_path
-        )
+        try:
+            asset_id, stored_path, media_type = self.dependencies.move_upload(
+                self.settings.media_dir, upload["filename"], temp_path
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Upload could not be stored") from exc
         try:
             self.dependencies.complete_upload_session(
                 self.settings.stt_db_path, upload_id, asset_id, media_type, stored_path

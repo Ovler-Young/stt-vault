@@ -37,7 +37,8 @@
   }
 </script>
 
-<video
+<svelte:element
+  this={asset.media_type === "audio" ? "audio" : "video"}
   bind:this={mediaElement}
   controls
   src={mediaUrl(asset.id, selectedAudioTrack)}
@@ -56,7 +57,7 @@
     label="Transcript"
     default
   />
-</video>
+</svelte:element>
 
 <div class="playback-controls">
   {#if audioTracks.length > 1}
@@ -95,7 +96,8 @@
 />
 
 <style>
-  video {
+  video,
+  audio {
     width: 100%;
     max-height: 58vh;
     background: var(--color-media);

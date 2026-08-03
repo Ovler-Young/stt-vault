@@ -30,7 +30,13 @@ class FfprobeTags(TypedDict, total=False):
     title: NotRequired[str | None]
 
 
+class FfprobeDisposition(TypedDict):
+    attached_pic: int
+
+
 class FfprobeStream(TypedDict, total=False):
+    codec_type: NotRequired[str | None]
+    disposition: NotRequired[FfprobeDisposition]
     index: NotRequired[int | None]
     codec_name: NotRequired[str | None]
     channels: NotRequired[int | None]
@@ -113,6 +119,36 @@ def ffprobe_audio_streams(
     return streams
 
 
+def ffprobe_media_type(input_path: Path, *, runner: CommandRunner = subprocess.run) -> str:
+    result = runner(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type:stream_disposition=attached_pic",
+            "-of",
+            "json",
+            str(input_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    has_audio = False
+    for stream in parse_ffprobe_payload(result.stdout).get("streams", []):
+        disposition = stream.get("disposition")
+        if disposition is None:
+            raise ValueError("ffprobe response is missing stream disposition")
+        if stream.get("codec_type") == "video" and disposition["attached_pic"] == 0:
+            return "video"
+        if stream.get("codec_type") == "audio":
+            has_audio = True
+    if has_audio:
+        return "audio"
+    raise ValueError("ffprobe response contains no audio or video streams")
+
+
 def parse_ffprobe_payload(stdout: object) -> FfprobePayload:
     if not isinstance(stdout, str):
         raise ValueError("ffprobe did not return JSON text")
@@ -134,6 +170,18 @@ def _parse_ffprobe_stream(value: object) -> FfprobeStream:
     if not isinstance(value, dict):
         raise ValueError("ffprobe response contains an invalid stream")
     stream: FfprobeStream = {}
+    codec_type = value.get("codec_type")
+    if codec_type is not None and not isinstance(codec_type, str):
+        raise ValueError("ffprobe response contains an invalid codec_type")
+    stream["codec_type"] = codec_type
+    raw_disposition = value.get("disposition")
+    if raw_disposition is not None:
+        if not isinstance(raw_disposition, dict):
+            raise ValueError("ffprobe response contains an invalid stream disposition")
+        attached_pic = raw_disposition.get("attached_pic")
+        if type(attached_pic) is not int or attached_pic not in {0, 1}:
+            raise ValueError("ffprobe response contains an invalid attached_pic disposition")
+        stream["disposition"] = {"attached_pic": attached_pic}
     index = value.get("index")
     if index is not None and not isinstance(index, int):
         raise ValueError("ffprobe response contains an invalid stream index")

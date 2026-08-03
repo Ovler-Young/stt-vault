@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from stt_vault.services import asset_uploads
+from stt_vault.services import asset_uploads, media_storage
 
 
 def test_store_asset_upload_uses_injected_persistence_dependencies(tmp_path: Path) -> None:
@@ -65,6 +65,65 @@ def test_store_asset_upload_raises_domain_error_for_oversized_reader(
             await asset_uploads.store_asset_upload(read_chunk, "clip.wav", settings, dependencies)
 
     asyncio.run(exercise())
+
+
+def test_store_asset_upload_persists_the_content_classification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    persisted: dict[str, object] = {}
+    settings = SimpleNamespace(
+        media_dir=tmp_path / "media",
+        stt_db_path=tmp_path / "stt.db",
+        max_upload_bytes=1024,
+    )
+    dependencies = asset_uploads.AssetUploadDependencies(
+        store_upload=media_storage.store_upload,
+        create_asset=lambda *_args: persisted.setdefault("media_type", _args[3]),
+        remove_asset_directory=lambda _path: pytest.fail("Rollback must not be called"),
+    )
+    monkeypatch.setattr(media_storage, "ffprobe_media_type", lambda _path: "audio")
+
+    chunks = iter([b"media", b""])
+
+    async def read_chunk(_size: int) -> bytes:
+        return next(chunks)
+
+    asyncio.run(
+        asset_uploads.store_asset_upload(read_chunk, "recording.uncommon", settings, dependencies)
+    )
+
+    assert persisted["media_type"] == "audio"
+
+
+def test_store_asset_upload_maps_probe_failure_and_removes_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = SimpleNamespace(
+        media_dir=tmp_path / "media",
+        stt_db_path=tmp_path / "stt.db",
+        max_upload_bytes=1024,
+    )
+    dependencies = asset_uploads.AssetUploadDependencies(
+        store_upload=media_storage.store_upload,
+        create_asset=lambda *_args: pytest.fail("Persistence must not be called"),
+        remove_asset_directory=lambda _path: pytest.fail("Rollback must not be called"),
+    )
+    chunks = iter([b"not media", b""])
+    monkeypatch.setattr(
+        media_storage,
+        "ffprobe_media_type",
+        lambda _path: (_ for _ in ()).throw(ValueError("invalid media")),
+    )
+
+    async def read_chunk(_size: int) -> bytes:
+        return next(chunks)
+
+    with pytest.raises(asset_uploads.AssetUploadPersistenceError, match="could not be stored"):
+        asyncio.run(
+            asset_uploads.store_asset_upload(read_chunk, "recording.bin", settings, dependencies)
+        )
+
+    assert not settings.media_dir.exists()
 
 
 def test_store_asset_upload_rolls_back_through_injected_filesystem_dependency(

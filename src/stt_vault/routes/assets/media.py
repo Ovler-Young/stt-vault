@@ -54,7 +54,7 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return StreamingResponse(
             stream_process_stdout(command, asset_id=asset_id),
-            media_type="video/mp4",
+            media_type="audio/mp4" if asset["media_type"] == "audio" else "video/mp4",
             headers={"Accept-Ranges": "none"},
         )
 

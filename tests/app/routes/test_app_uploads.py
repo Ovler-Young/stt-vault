@@ -16,6 +16,13 @@ from stt_vault.persistence import db
 from stt_vault.services.asset_uploads import AssetUploadPersistenceError, AssetUploadTooLargeError
 
 
+@pytest.fixture(autouse=True)
+def mock_media_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "stt_vault.services.media_storage.ffprobe_media_type", lambda _path: "audio"
+    )
+
+
 def test_upload_completion_route_declares_named_response_model(client: TestClient) -> None:
     completion_route = next(
         route
@@ -76,14 +83,15 @@ def test_single_upload_uses_shared_persistence_sequence(client: TestClient) -> N
     response = client.post(
         "/api/assets",
         headers=auth_headers(client),
-        files={"file": ("clip.wav", b"audio", "audio/wav")},
+        files={"file": ("clip.uncommon", b"audio", "audio/wav")},
     )
 
     assert response.status_code == 200
     asset_id = response.json()["id"]
     asset = db.get_asset(get_settings().stt_db_path, asset_id)
     assert asset is not None
-    assert asset["filename"] == "clip.wav"
+    assert asset["filename"] == "clip.uncommon"
+    assert asset["media_type"] == "audio"
     assert Path(asset["original_path"]).read_bytes() == b"audio"
     list_response = client.get("/api/assets", headers=auth_headers(client))
     detail_response = client.get(f"/api/assets/{asset_id}", headers=auth_headers(client))

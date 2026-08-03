@@ -80,6 +80,7 @@ describe("home page shell boundary", () => {
     expect(workspaceSource).toContain(
       '<p class="error" aria-live="polite">{error}</p>',
     );
+    expect(workspaceSource).toContain('accept="audio/*,video/*"');
     expect(shellSource).toContain("<style>");
   });
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from _support.upload_routes import auth_headers
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from stt_vault.core.auth import require_admin
@@ -14,7 +14,15 @@ from stt_vault.core.models.records import UploadResponse
 from stt_vault.persistence import db
 from stt_vault.routes.uploads import routes as upload_routes
 from stt_vault.routes.uploads.routes import UploadLockRegistry, register_upload_routes
+from stt_vault.services import media_storage
 from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
+
+
+@pytest.fixture(autouse=True)
+def mock_media_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "stt_vault.services.media_storage.ffprobe_media_type", lambda _path: "audio"
+    )
 
 
 def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> None:
@@ -112,6 +120,78 @@ def test_upload_session_completion_returns_named_response(tmp_path: Path) -> Non
 
     assert isinstance(completion, UploadCompletionResponse)
     assert completion.model_dump() == {"id": "asset-1", "status": "queued"}
+
+
+def test_upload_session_completion_uses_content_classification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = SimpleNamespace(
+        stt_db_path=tmp_path / "app.sqlite3",
+        uploads_dir=tmp_path / "uploads",
+        media_dir=tmp_path / "media",
+    )
+    temp_path = settings.uploads_dir / "upload.part"
+    temp_path.parent.mkdir(parents=True)
+    temp_path.write_bytes(b"media")
+    upload = {
+        "id": "upload-1",
+        "filename": "recording.m4a",
+        "total_size": 5,
+        "offset": 5,
+        "temp_path": str(temp_path),
+    }
+    completed: dict[str, object] = {}
+    monkeypatch.setattr(media_storage, "ffprobe_media_type", lambda _path: "video")
+    dependencies = UploadSessionDependencies(
+        create_upload_session=lambda *_args: upload,
+        get_upload_session=lambda *_args: upload,
+        update_upload_offset=lambda *_args: None,
+        complete_upload_session=lambda *_args: completed.update(media_type=_args[3]),
+        move_upload=media_storage.move_upload,
+    )
+
+    UploadSessionService(settings, dependencies).complete("upload-1")
+
+    assert completed == {"media_type": "video"}
+    assert not temp_path.exists()
+
+
+def test_upload_session_completion_maps_probe_failure_without_moving_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = SimpleNamespace(
+        stt_db_path=tmp_path / "app.sqlite3",
+        uploads_dir=tmp_path / "uploads",
+        media_dir=tmp_path / "media",
+    )
+    temp_path = settings.uploads_dir / "upload.part"
+    temp_path.parent.mkdir(parents=True)
+    temp_path.write_bytes(b"not media")
+    upload = {
+        "id": "upload-1",
+        "filename": "recording.bin",
+        "total_size": 9,
+        "offset": 9,
+        "temp_path": str(temp_path),
+    }
+    monkeypatch.setattr(
+        media_storage,
+        "ffprobe_media_type",
+        lambda _path: (_ for _ in ()).throw(ValueError("invalid media")),
+    )
+    dependencies = UploadSessionDependencies(
+        create_upload_session=lambda *_args: upload,
+        get_upload_session=lambda *_args: upload,
+        update_upload_offset=lambda *_args: None,
+        complete_upload_session=lambda *_args: pytest.fail("Persistence must not be called"),
+        move_upload=media_storage.move_upload,
+    )
+
+    with pytest.raises(HTTPException, match="Upload could not be stored"):
+        UploadSessionService(settings, dependencies).complete("upload-1")
+
+    assert temp_path.exists()
+    assert not settings.media_dir.exists()
 
 
 def test_upload_routes_use_injected_session_service() -> None:

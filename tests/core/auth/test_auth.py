@@ -96,6 +96,87 @@ def test_login_issues_non_expiring_signed_administrator_access_token(client: Tes
     assert "exp" not in claims
 
 
+def test_login_renews_a_valid_administrator_token_without_a_password(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/auth/token",
+        json={"password": ""},
+        headers=bearer_headers(issue_token(client)),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        None,
+        "malformed-token",
+        jwt.encode(
+            {
+                "sub": "single-user-admin",
+                "role": "admin",
+                "iss": JWT_ISSUER,
+                "aud": JWT_AUDIENCE,
+                "iat": datetime.now(UTC) - timedelta(minutes=2),
+                "exp": datetime.now(UTC) - timedelta(minutes=1),
+            },
+            JWT_SECRET,
+            algorithm="HS256",
+        ),
+        jwt.encode(
+            {
+                "sub": "single-user-admin",
+                "role": "admin",
+                "iss": JWT_ISSUER,
+                "aud": JWT_AUDIENCE,
+                "iat": datetime.now(UTC),
+            },
+            "other-jwt-secret-that-is-long-enough-for-hs256-signing",
+            algorithm="HS256",
+        ),
+        jwt.encode(
+            {
+                "sub": "single-user-reader",
+                "role": "reader",
+                "iss": JWT_ISSUER,
+                "aud": JWT_AUDIENCE,
+                "iat": datetime.now(UTC),
+            },
+            JWT_SECRET,
+            algorithm="HS256",
+        ),
+    ],
+)
+def test_login_requires_the_password_when_the_bearer_token_is_not_valid(
+    client: TestClient,
+    token: str | None,
+) -> None:
+    response = client.post(
+        "/api/auth/token",
+        json={"password": ""},
+        headers=bearer_headers(token) if token else {},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid login credentials"}
+
+
+def test_login_accepts_the_password_when_the_bearer_token_is_not_valid(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/auth/token",
+        json={"password": "secret"},
+        headers=bearer_headers("malformed-token"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+
+
 def test_login_can_issue_a_finite_lifetime_access_token(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

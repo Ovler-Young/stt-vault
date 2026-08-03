@@ -14,6 +14,7 @@ Clock = Callable[[], datetime]
 
 __all__ = [
     "admin_password_matches",
+    "admin_token_is_valid",
     "issue_access_token",
     "require_admin",
     "require_resource_access",
@@ -53,6 +54,14 @@ def _validate_admin_token(settings: Settings, token: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid bearer token") from exc
     if claims.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Administrator token required")
+
+
+def admin_token_is_valid(settings: Settings, token: str | None) -> bool:
+    try:
+        _validate_admin_token(settings, token)
+    except HTTPException:
+        return False
+    return True
 
 
 def utc_now() -> datetime:

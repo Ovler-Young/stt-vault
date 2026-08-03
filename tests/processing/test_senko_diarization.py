@@ -16,12 +16,10 @@ def test_senko_adapter_rejects_incomplete_implementation() -> None:
         SenkoDiarizationProvider(IncompleteImplementation())
 
 
-def test_senko_adapter_exposes_public_stage_contract(tmp_path: Path) -> None:
+def test_senko_adapter_accepts_senko_runtime_before_timing_starts(tmp_path: Path) -> None:
     calls: list[str] = []
 
     class Implementation:
-        _timing_stats = {"initial": 1}
-
         def diarize(self, _wav_path: str, *, generate_colors: bool) -> None:
             calls.append(f"diarize:{generate_colors}")
 
@@ -65,7 +63,6 @@ def test_senko_adapter_exposes_public_stage_contract(tmp_path: Path) -> None:
     implementation = Implementation()
     provider = SenkoDiarizationProvider(implementation)
 
-    assert provider.timing_stats == {"initial": 1}
     provider.timing_stats = {"updated": 2}
     assert implementation._timing_stats == {"updated": 2}
     wav_path = tmp_path / "audio.wav"

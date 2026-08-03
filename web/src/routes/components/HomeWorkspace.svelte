@@ -10,7 +10,6 @@
     currentFolder,
     folderMoveOptions,
     folderMoveTarget,
-    uploadFile,
     uploadEntryCount,
     uploadProgress,
     error,
@@ -52,11 +51,13 @@
 
     <div class="commandbar">
       <label
-        >Choose file<input
+        >Choose files<input
           type="file"
           accept="audio/*,video/*"
-          onchange={(event) =>
-            onFileChange(event.currentTarget.files?.[0] ?? null)}
+          multiple
+          disabled={busy}
+          onchange={(event) => onFileChange(event.currentTarget.files)}
+          onclick={(event) => (event.currentTarget.value = "")}
         /></label
       >
       <label
@@ -65,13 +66,12 @@
           accept="audio/*,video/*"
           multiple
           webkitdirectory
+          disabled={busy}
           onchange={(event) => onDirectoryChange(event.currentTarget.files)}
+          onclick={(event) => (event.currentTarget.value = "")}
         /></label
       >
-      <button
-        disabled={(!uploadFile && uploadEntryCount === 0) || busy}
-        onclick={onUpload}
-      >
+      <button disabled={uploadEntryCount === 0 || busy} onclick={onUpload}>
         {busy && uploadProgress
           ? "Uploading"
           : uploadEntryCount
@@ -101,9 +101,9 @@
       {/if}
     </div>
 
-    {#if uploadFile || uploadEntryCount}
+    {#if uploadEntryCount}
       <p class="selection">
-        {uploadFile?.name ?? `${uploadEntryCount} files selected`}
+        {uploadEntryCount} files selected
       </p>
     {/if}
     {#if uploadProgress}

@@ -40,7 +40,6 @@ function renderShell(
       currentFolder: null,
       folderMoveOptions: [],
       folderMoveTarget: "",
-      uploadFile: null,
       uploadEntryCount: 0,
       uploadProgress: null,
       error: "",
@@ -81,6 +80,19 @@ describe("home page shell boundary", () => {
       '<p class="error" aria-live="polite">{error}</p>',
     );
     expect(workspaceSource).toContain('accept="audio/*,video/*"');
+    expect(workspaceSource).toContain("multiple");
+    expect(workspaceSource).toContain(
+      "onFileChange(event.currentTarget.files)",
+    );
+    expect(pageSource).toContain("file.webkitRelativePath || file.name");
+    expect(pageSource).toContain(
+      "getSingleUploadAssetId(source, result.results)",
+    );
+    expect(pageSource).toContain("await goto(`/assets/${assetId}`)");
+    expect(pageSource).toContain('selectFiles(files, "directory")');
+    expect(workspaceSource).toContain(
+      'onclick={(event) => (event.currentTarget.value = "")}',
+    );
     expect(shellSource).toContain("<style>");
   });
 
@@ -101,5 +113,23 @@ describe("home page shell boundary", () => {
 
     renderShell({ authenticated: false, authPending: false });
     expect(target?.querySelector('input[type="password"]')).not.toBeNull();
+  });
+
+  it("clears the ordinary picker before selection so the same files can be selected again", () => {
+    renderShell({ authenticated: true, authPending: false });
+    const picker = target?.querySelector<HTMLInputElement>(
+      'input[type="file"]:not([webkitdirectory])',
+    );
+    expect(picker).toBeTruthy();
+    const setValue = vi.fn();
+    Object.defineProperty(picker!, "value", {
+      configurable: true,
+      get: () => "recording.wav",
+      set: setValue,
+    });
+
+    picker!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(setValue).toHaveBeenCalledExactlyOnceWith("");
   });
 });

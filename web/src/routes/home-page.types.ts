@@ -22,7 +22,6 @@ export type HomePageShellProps = {
   currentFolder: FolderNode | null;
   folderMoveOptions: FlatFolder[];
   folderMoveTarget: string;
-  uploadFile: File | null;
   uploadEntryCount: number;
   uploadProgress: UploadProgress | null;
   error: string;
@@ -34,7 +33,7 @@ export type HomePageShellProps = {
   onLogin: () => void;
   onSelectFolder: (folderId: string | null) => void;
   onAddFolder: () => void;
-  onFileChange: (file: File | null) => void;
+  onFileChange: (files: FileList | null) => void;
   onDirectoryChange: (files: FileList | null) => void;
   onUpload: () => void;
   onRenameFolder: () => void;
@@ -55,7 +54,6 @@ export type HomeWorkspaceProps = Pick<
   | "currentFolder"
   | "folderMoveOptions"
   | "folderMoveTarget"
-  | "uploadFile"
   | "uploadEntryCount"
   | "uploadProgress"
   | "error"

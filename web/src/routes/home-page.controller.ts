@@ -5,7 +5,7 @@ import type {
   UploadProgress,
 } from "$lib/api/types";
 import { fetchFolderTree, moveAsset } from "$lib/api/endpoints";
-import { uploadAsset, uploadAssetBatch } from "$lib/api/uploads";
+import { uploadAssetBatch } from "$lib/api/uploads";
 
 import { findFolder } from "./home-page.helpers";
 
@@ -15,15 +15,14 @@ type HomeTreeLoadResult = {
 };
 
 type HomeUploadInput = {
-  file?: File | null;
   entries: UploadEntry[];
   destination: string | null;
   onProgress?: (progress: UploadProgress) => void;
 };
 
-type HomeUploadResult =
-  | { kind: "asset"; assetId: string }
-  | { kind: "batch"; results: BatchUploadResult[] };
+type HomeUploadResult = { results: BatchUploadResult[] };
+
+export type UploadSelectionSource = "files" | "directory";
 
 export async function loadHomeTree(
   authRequired: boolean,
@@ -47,19 +46,35 @@ export async function loadHomeTree(
 export async function uploadHomeFiles(
   input: HomeUploadInput,
 ): Promise<HomeUploadResult> {
-  const { destination, entries, file, onProgress } = input;
-  if (entries.length > 0) {
-    const { results } = await uploadAssetBatch(entries, onProgress);
-    for (const result of results) {
-      if (result.status === "queued" && result.id && destination) {
+  const { destination, entries, onProgress } = input;
+  const { results } = await uploadAssetBatch(entries, onProgress);
+  const movedResults: BatchUploadResult[] = [];
+  for (const result of results) {
+    if (result.status === "queued" && result.id && destination) {
+      try {
         await moveAsset(result.id, destination);
+      } catch (error) {
+        movedResults.push({
+          ...result,
+          status: "failed",
+          detail: `Uploaded but could not move to the selected folder: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        continue;
       }
     }
-    return { kind: "batch", results };
+    movedResults.push(result);
   }
+  return { results: movedResults };
+}
 
-  if (!file) throw new Error("An upload file is required.");
-  const result = await uploadAsset(file, file.name, onProgress);
-  if (destination) await moveAsset(result.id, destination);
-  return { kind: "asset", assetId: result.id };
+export function getSingleUploadAssetId(
+  source: UploadSelectionSource,
+  results: BatchUploadResult[],
+): string | null {
+  const [result] = results;
+  return source === "files" &&
+    results.length === 1 &&
+    result?.status === "queued"
+    ? (result.id ?? null)
+    : null;
 }

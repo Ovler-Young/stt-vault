@@ -15,7 +15,12 @@
     emptyHomeTree,
     type HomeAuthState,
   } from "./home-page.auth";
-  import { loadHomeTree, uploadHomeFiles } from "./home-page.controller";
+  import {
+    getSingleUploadAssetId,
+    loadHomeTree,
+    type UploadSelectionSource,
+    uploadHomeFiles,
+  } from "./home-page.controller";
   import { createHomeFileActions } from "./home-page.file-actions";
   import {
     assetsInTree,
@@ -28,8 +33,8 @@
 
   let tree: FolderTree = emptyHomeTree();
   let selectedFolderId: string | null = null;
-  let uploadFile: File | null = null;
   let uploadEntries: UploadEntry[] = [];
+  let uploadSelectionSource: UploadSelectionSource | null = null;
   let batchResults: BatchUploadResult[] = [];
   let uploadProgress: UploadProgress | null = null;
   let assetTargets: Record<string, string> = {};
@@ -95,27 +100,24 @@
   }
 
   async function submitUpload() {
-    if (!uploadFile && uploadEntries.length === 0) return;
+    if (uploadEntries.length === 0) return;
     busy = true;
     batchResults = [];
     uploadProgress = null;
     const destination = selectedFolderId;
+    const source = uploadSelectionSource;
     try {
       const result = await uploadHomeFiles({
-        file: uploadFile,
         entries: uploadEntries,
         destination,
         onProgress: (progress) => (uploadProgress = progress),
       });
-      if (result.kind === "batch") {
-        batchResults = result.results;
-        uploadEntries = [];
-        uploadFile = null;
-        await loadTree();
-        return;
-      }
-      uploadFile = null;
-      await goto(`/assets/${result.assetId}`);
+      batchResults = result.results;
+      uploadEntries = [];
+      uploadSelectionSource = null;
+      const assetId = source && getSingleUploadAssetId(source, result.results);
+      if (assetId) await goto(`/assets/${assetId}`);
+      else await loadTree();
     } catch (requestError) {
       authController.handleRequestError(requestError);
     } finally {
@@ -124,16 +126,12 @@
     }
   }
 
-  function selectDirectory(files: FileList | null) {
+  function selectFiles(files: FileList | null, source: UploadSelectionSource) {
     uploadEntries = Array.from(files ?? []).map((file) => ({
       file,
       path: file.webkitRelativePath || file.name,
     }));
-    uploadFile = null;
-  }
-
-  function setUploadFile(file: File | null) {
-    uploadFile = file;
+    uploadSelectionSource = source;
   }
 
   function setAssetTarget(assetId: string, targetId: string) {
@@ -192,7 +190,6 @@
   {currentFolder}
   {folderMoveOptions}
   {folderMoveTarget}
-  {uploadFile}
   uploadEntryCount={uploadEntries.length}
   {uploadProgress}
   error={authState.error || error}
@@ -204,8 +201,8 @@
   onLogin={submitLogin}
   onSelectFolder={selectFolder}
   onAddFolder={fileActions.addFolder}
-  onFileChange={setUploadFile}
-  onDirectoryChange={selectDirectory}
+  onFileChange={(files) => selectFiles(files, "files")}
+  onDirectoryChange={(files) => selectFiles(files, "directory")}
   onUpload={submitUpload}
   onRenameFolder={fileActions.renameFolder}
   onFolderMoveTargetChange={(value) => (folderMoveTarget = value)}

@@ -17,7 +17,6 @@
     currentFolder,
     folderMoveOptions,
     folderMoveTarget,
-    uploadFile,
     uploadEntryCount,
     uploadProgress,
     error,
@@ -78,7 +77,6 @@
       {currentFolder}
       {folderMoveOptions}
       {folderMoveTarget}
-      {uploadFile}
       {uploadEntryCount}
       {uploadProgress}
       {error}

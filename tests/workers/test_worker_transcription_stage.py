@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.workers.worker_transcription import TranscriberConfig, TranscriptionStage
 
@@ -91,3 +93,88 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
     assert error is None
     assert segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00", "text": "hello"}]
     assert calls == ["prepare", "start", "reconcile", "save", "progress", "reconcile"]
+
+
+@pytest.mark.parametrize("suffix", ["wav", "mp3", "m4a", "mp4"])
+def test_transcription_stage_uses_normalized_diarization_audio(tmp_path: Path, suffix: str) -> None:
+    media_paths: list[Path] = []
+
+    class FakeChunkPersistence:
+        def prepare_work(self, _asset_id, _prepared):
+            return (
+                TranscriptionWork(
+                    chunks=[{"chunk_index": 0, "start": 1.0, "end": 2.0, "speaker": "SPEAKER_00"}],
+                    pending_chunks=[
+                        {"chunk_index": 0, "start": 1.0, "end": 2.0, "speaker": "SPEAKER_00"}
+                    ],
+                    completed_chunks=0,
+                ),
+                False,
+            )
+
+        def save_success(self, _asset_id, _index, _result):
+            return None
+
+        def recorded_segments(self, _asset_id):
+            return []
+
+    class FakeSpeakerReconciler:
+        def reconcile(self, _prepared, segments):
+            return segments
+
+    class FakeProgressEvents:
+        def start(self, _asset_id, _work, *, plan_changed):
+            return None
+
+        def record_success(self, _asset_id, _work, _index):
+            return None
+
+        def record_retry(self, *_args):
+            return None
+
+    class FakeTranscriber:
+        def __init__(self, _config: TranscriberConfig):
+            return None
+
+        def transcribe_chunks(self, media_path, chunks, _work_dir):
+            media_paths.append(media_path)
+            return [
+                {
+                    "start": chunks[0]["start"],
+                    "end": chunks[0]["end"],
+                    "speaker": chunks[0]["speaker"],
+                    "text": "hello",
+                }
+            ]
+
+    settings = SimpleNamespace(
+        stt_db_path=tmp_path / "app.sqlite3",
+        openai_api_key="",
+        openai_base_url="",
+        openai_transcribe_model="model",
+        openai_transcribe_prompt="",
+        openai_concurrency=1,
+        openai_retry_seconds=1,
+        openai_max_retries=1,
+        parsed_openai_retry_backoff_seconds=[1],
+    )
+    normalized_path = tmp_path / "audio.16k.mono.wav"
+    stage = TranscriptionStage(
+        settings,
+        transcriber_factory=FakeTranscriber,
+        chunk_persistence=FakeChunkPersistence(),
+        speaker_reconciler=FakeSpeakerReconciler(),
+        progress_events=FakeProgressEvents(),
+        repository=SimpleNamespace(),
+    )
+
+    segments, error = stage.transcribe(
+        "asset-1",
+        {"original_path": str(tmp_path / f"clip.{suffix}")},
+        PreparedAsset(normalized_path, 2.0, {}, [], [], {}),
+        tmp_path,
+    )
+
+    assert error is None
+    assert segments[0]["text"] == "hello"
+    assert media_paths == [normalized_path]

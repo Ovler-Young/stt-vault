@@ -13,6 +13,7 @@ from stt_vault.processing.media_probe import (
     ffprobe_duration,
     ffprobe_media_type,
 )
+from stt_vault.processing.media_transcoding import extract_audio_chunk
 
 
 def test_ffprobe_duration_uses_injected_command_runner() -> None:
@@ -33,6 +34,48 @@ def test_ffprobe_duration_uses_injected_command_runner() -> None:
             "-of",
             "json",
             "recording.wav",
+        ]
+    ]
+
+
+def test_extract_audio_chunk_reencodes_normalized_audio_at_the_diarization_timestamps(
+    tmp_path: Path,
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="")
+
+    input_path = tmp_path / "audio.16k.mono.wav"
+    output_path = tmp_path / "chunk.m4a"
+
+    assert extract_audio_chunk(input_path, output_path, 1.25, 3.5, runner=run) == output_path
+    assert commands == [
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            "1.250",
+            "-t",
+            "2.250",
+            "-i",
+            str(input_path),
+            "-vn",
+            "-map",
+            "0:a:0",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k",
+            str(output_path),
         ]
     ]
 

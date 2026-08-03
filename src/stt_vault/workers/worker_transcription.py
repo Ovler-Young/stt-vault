@@ -270,7 +270,7 @@ class TranscriptionStage:
         )
         try:
             segments = transcriber.transcribe_chunks(
-                Path(asset["original_path"]), work.pending_chunks, work_dir
+                prepared.wav_path, work.pending_chunks, work_dir
             )
         except Exception as error:
             return self.chunk_persistence.recorded_segments(asset_id), error

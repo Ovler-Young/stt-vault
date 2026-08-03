@@ -1,10 +1,74 @@
 from stt_vault.processing.exports import to_ai_text
+from stt_vault.processing.media_transcoding import extract_audio_chunk
 from stt_vault.processing.transcription import (
     Transcriber,
     build_chunks,
     build_transcription_plan,
     transcript_chunks_match_plan,
 )
+
+
+def test_transcriber_defaults_to_normalized_audio_chunk_extractor() -> None:
+    class FakeTranscriptions:
+        def create(self, **_kwargs):
+            return {"text": "unused"}
+
+    class FakeClient:
+        audio = type("Audio", (), {"transcriptions": FakeTranscriptions()})()
+
+    transcriber = Transcriber(
+        api_key="unused",
+        base_url="unused",
+        model="unused",
+        prompt="",
+        concurrency=1,
+        retry_seconds=1,
+        max_retries=1,
+        client=FakeClient(),
+    )
+
+    assert transcriber.chunk_extractor is extract_audio_chunk
+
+
+def test_transcriber_extracts_normalized_audio_and_uploads_the_m4a_chunk(tmp_path) -> None:
+    extracted_paths = []
+    uploaded_chunks = []
+
+    def extract_chunk(media_path, output_path, start, end):
+        extracted_paths.append((media_path, output_path, start, end))
+        output_path.write_bytes(b"normalized audio")
+        return output_path
+
+    class FakeTranscriptions:
+        def create(self, *, file, **_kwargs):
+            uploaded_chunks.append((file.name, file.read()))
+            return {"text": "spoken words"}
+
+    class FakeClient:
+        audio = type("Audio", (), {"transcriptions": FakeTranscriptions()})()
+
+    transcriber = Transcriber(
+        api_key="unused",
+        base_url="unused",
+        model="unused",
+        prompt="",
+        concurrency=1,
+        retry_seconds=1,
+        max_retries=1,
+        client=FakeClient(),
+        chunk_extractor=extract_chunk,
+    )
+    normalized_path = tmp_path / "audio.16k.mono.wav"
+
+    result = transcriber.transcribe_chunks(
+        normalized_path,
+        [{"start": 1.0, "end": 2.5, "speaker": "SPEAKER_01"}],
+        tmp_path,
+    )
+
+    assert extracted_paths == [(normalized_path, tmp_path / "chunk-000000.m4a", 1.0, 2.5)]
+    assert uploaded_chunks == [(str(tmp_path / "chunk-000000.m4a"), b"normalized audio")]
+    assert result[0]["text"] == "spoken words"
 
 
 def test_transcriber_uses_injected_client_and_chunk_extractor(tmp_path) -> None:

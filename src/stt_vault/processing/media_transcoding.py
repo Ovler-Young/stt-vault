@@ -54,68 +54,13 @@ def extract_audio_chunk(
             f"{duration:.3f}",
             "-i",
             str(input_wav),
+            "-vn",
+            "-map",
+            "0:a:0",
             "-ac",
             "1",
             "-ar",
             "16000",
-            str(output_path),
-        ],
-        check=True,
-    )
-    return output_path
-
-
-def extract_transcription_chunk(
-    input_media: Path,
-    output_path: Path,
-    start: float,
-    end: float,
-    *,
-    runner: CommandRunner = subprocess.run,
-) -> Path:
-    duration = max(0.0, end - start)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    copy_result = runner(
-        [
-            "ffmpeg",
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            f"{start:.3f}",
-            "-t",
-            f"{duration:.3f}",
-            "-i",
-            str(input_media),
-            "-vn",
-            "-map",
-            "0:a:0",
-            "-c:a",
-            "copy",
-            str(output_path),
-        ],
-        capture_output=True,
-    )
-    if copy_result.returncode == 0:
-        return output_path
-
-    runner(
-        [
-            "ffmpeg",
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            f"{start:.3f}",
-            "-t",
-            f"{duration:.3f}",
-            "-i",
-            str(input_media),
-            "-vn",
-            "-map",
-            "0:a:0",
             "-c:a",
             "aac",
             "-b:a",

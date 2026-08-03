@@ -10,7 +10,7 @@ from openai import OpenAI
 
 from stt_vault.core.models.records import SpeakerSegment, TranscriptChunk, TranscriptSegment
 
-from .media_transcoding import extract_transcription_chunk
+from .media_transcoding import extract_audio_chunk
 
 ChunkExtractor = Callable[[Path, Path, float, float], Path]
 
@@ -143,7 +143,7 @@ class Transcriber:
         on_chunk_retry: ChunkRetryCallback | None = None,
         client: TranscriptionClient | None = None,
         client_factory: TranscriptionClientFactory = OpenAI,
-        chunk_extractor: ChunkExtractor = extract_transcription_chunk,
+        chunk_extractor: ChunkExtractor = extract_audio_chunk,
         clock: Clock = time.time,
         sleeper: Sleeper = time.sleep,
     ) -> None:

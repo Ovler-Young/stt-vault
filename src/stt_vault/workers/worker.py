@@ -35,8 +35,6 @@ def create_diarizer(settings: Settings) -> DiarizerManager:
     return DiarizerManager(
         device=settings.senko_device,
         idle_timeout_seconds=settings.diarizer_idle_timeout_seconds,
-        use_batched_embeddings=settings.senko_batched_embeddings,
-        fbank_batch_segments=settings.senko_fbank_batch_segments,
     )
 
 

@@ -177,7 +177,7 @@ def test_public_system_endpoints_do_not_require_admin(client: TestClient) -> Non
         "auth_required": True,
         "transcribe_model": "gpt-4o-transcribe",
         "senko_device": "auto",
-        "batched_embeddings_requested": True,
+        "batched_embeddings_requested": False,
     }
 
 

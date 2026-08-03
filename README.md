@@ -76,8 +76,6 @@ Important optional settings:
 - `OPENAI_CONCURRENCY`: concurrent transcription requests
 - `DIARIZATION_CONCURRENCY`: concurrent local diarization jobs, usually `1` on CPU
 - `DIARIZER_IDLE_TIMEOUT_SECONDS`: unload the in-process Senko diarizer after idle time
-- `SENKO_BATCHED_EMBEDDINGS`: process Senko fbank and embeddings in batches before global clustering
-- `SENKO_FBANK_BATCH_SEGMENTS`: number of Senko subsegments per fbank/embedding batch
 - `SPEAKER_SIMILARITY_THRESHOLD`: centroid similarity threshold for speaker identity matching
 - `ADMIN_PASSWORD`: password accepted only by `POST /api/auth/token`
 - `JWT_SECRET`: required signing secret for application-issued JWT access tokens
@@ -152,4 +150,4 @@ backend test suite are the configured backend quality checks.
 
 ## Notes
 
-Senko remains an external dependency wrapped behind `DiarizerManager`. The worker keeps one warm `Diarizer` instance per process, and the enabled batched path processes fbank extraction and embedding generation in configurable segment batches before concatenating embeddings for final global clustering. Configure the path with `SENKO_BATCHED_EMBEDDINGS` and `SENKO_FBANK_BATCH_SEGMENTS`.
+Senko remains an external dependency managed by `DiarizerManager`. The worker keeps one warm `Diarizer` instance per process and invokes Senko through its supported `diarize` API.

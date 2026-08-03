@@ -6,6 +6,7 @@ import textwrap
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -125,14 +126,63 @@ def test_senko_factory_disables_nnpack_before_cpu_model_construction(
     senko.Diarizer = FakeDiarizer
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "senko", senko)
-    monkeypatch.setattr(
-        "stt_vault.processing.diarization.SenkoDiarizationProvider",
-        lambda implementation: implementation,
-    )
-
     _create_senko_diarizer(device)
 
     assert calls == expected_calls
+
+
+def test_public_senko_runtime_preserves_diarization_payload_through_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PublicDiarizer:
+        def __init__(self, *, device: str, warmup: bool, quiet: bool) -> None:
+            assert (device, warmup, quiet) == ("cuda", True, True)
+
+        def diarize(self, wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload:
+            assert wav_path == "audio.wav"
+            assert generate_colors
+            return {
+                "raw_segments": [
+                    {"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"},
+                    {"start": 1.0, "end": 2.0, "speaker": "SPEAKER_01"},
+                ],
+                "merged_segments": [
+                    {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+                ],
+                "speaker_centroids": {
+                    "SPEAKER_00": np.array([0.25, 0.75], dtype=np.float32),
+                },
+                "timing_stats": {"provider_time": 1.25},
+            }
+
+    senko = ModuleType("senko")
+    senko.Diarizer = PublicDiarizer
+    monkeypatch.setitem(sys.modules, "senko", senko)
+
+    manager = DiarizerManager(
+        device="cuda",
+        idle_timeout_seconds=1,
+        diarizer_factory=_create_senko_diarizer,
+    )
+
+    result = manager.diarize("audio.wav")
+
+    assert result is not None
+    assert [(segment.start, segment.end, segment.speaker) for segment in result.raw_segments] == [
+        (0.0, 1.0, "SPEAKER_00"),
+        (1.0, 2.0, "SPEAKER_01"),
+    ]
+    assert [
+        (segment.start, segment.end, segment.speaker) for segment in result.merged_segments
+    ] == [
+        (0.0, 2.0, "SPEAKER_00"),
+    ]
+    assert result.speaker_centroids == {"SPEAKER_00": [0.25, 0.75]}
+    assert result.timing_stats["provider_time"] == 1.25
+    assert isinstance(result.timing_stats["manager_diarize_wall_time"], float)
+    assert "manager_rss_mb_before" in result.timing_stats
+    assert "manager_rss_mb_after" in result.timing_stats
+    assert "senko_resource_stats" in result.timing_stats
 
 
 def test_cpu_nnpack_disable_preserves_native_inference_output_and_suppresses_warning() -> None:
@@ -182,7 +232,6 @@ def test_cpu_nnpack_disable_preserves_native_inference_output_and_suppresses_war
 
             import stt_vault.processing.diarization as diarization
 
-            diarization.SenkoDiarizationProvider = lambda implementation: implementation
             diarization._create_senko_diarizer("cpu")
             print(json.dumps({"disable_calls": disable_calls, "output": Diarizer.output}))
         """

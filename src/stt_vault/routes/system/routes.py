@@ -29,7 +29,7 @@ def register_system_routes(app: FastAPI, settings: Settings) -> None:
             auth_required=True,
             transcribe_model=settings.openai_transcribe_model,
             senko_device=settings.senko_device,
-            batched_embeddings_requested=settings.senko_batched_embeddings,
+            batched_embeddings_requested=False,
         )
 
     @router.post("/api/auth/token", response_model=AuthTokenResponse)

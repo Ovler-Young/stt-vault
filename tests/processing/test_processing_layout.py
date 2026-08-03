@@ -26,6 +26,4 @@ def test_diarization_package_owns_its_cohesive_modules() -> None:
         "__init__.py",
         "contracts.py",
         "instrumentation.py",
-        "pipeline.py",
-        "senko.py",
     }

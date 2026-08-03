@@ -8,14 +8,8 @@ import numpy as np
 from stt_vault.core.models.api import DiarizationResult, JsonValue
 from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch
 
-from .contracts import (
-    BatchedDiarizationProvider,
-    DiarizationProvider,
-    DiarizerFactory,
-)
-from .instrumentation import current_rss_mb, instrument_diarizer
-from .pipeline import run_batched_diarization
-from .senko import SenkoDiarizationProvider
+from .contracts import DiarizationProvider, DiarizerFactory
+from .instrumentation import current_rss_mb
 
 
 def _create_senko_diarizer(device: str) -> DiarizationProvider:
@@ -26,7 +20,7 @@ def _create_senko_diarizer(device: str) -> DiarizationProvider:
             torch.backends.nnpack.set_flags(False)
     from senko import Diarizer
 
-    return SenkoDiarizationProvider(Diarizer(device=device, warmup=True, quiet=True))
+    return Diarizer(device=device, warmup=True, quiet=True)
 
 
 class DiarizerManager:
@@ -35,14 +29,10 @@ class DiarizerManager:
         *,
         device: str,
         idle_timeout_seconds: int,
-        use_batched_embeddings: bool = False,
-        fbank_batch_segments: int = 256,
         diarizer_factory: DiarizerFactory = _create_senko_diarizer,
     ) -> None:
         self.device = device
         self.idle_timeout_seconds = idle_timeout_seconds
-        self.use_batched_embeddings = use_batched_embeddings
-        self.fbank_batch_segments = max(1, fbank_batch_segments)
         self.diarizer_factory = diarizer_factory
         self._lock = threading.Lock()
         self._diarizer: DiarizationProvider | None = None
@@ -56,15 +46,7 @@ class DiarizerManager:
             result: DiarizationResult | None = None
             rss_before = current_rss_mb()
             start = time.perf_counter()
-            if self.use_batched_embeddings:
-                provider_result = run_batched_diarization(
-                    cast(BatchedDiarizationProvider, diarizer),
-                    wav_path,
-                    fbank_batch_segments=self.fbank_batch_segments,
-                    generate_colors=True,
-                )
-            else:
-                provider_result = diarizer.diarize(wav_path, generate_colors=True)
+            provider_result = diarizer.diarize(wav_path, generate_colors=True)
             elapsed = time.perf_counter() - start
             if provider_result is not None:
                 result = _validate_provider_result(provider_result)
@@ -72,8 +54,6 @@ class DiarizerManager:
                 timing_stats["manager_diarize_wall_time"] = round(elapsed, 3)
                 timing_stats["manager_rss_mb_before"] = rss_before
                 timing_stats["manager_rss_mb_after"] = current_rss_mb()
-                timing_stats["senko_batched_embeddings_requested"] = self.use_batched_embeddings
-                timing_stats["senko_fbank_batch_segments"] = self.fbank_batch_segments
                 timing_stats["senko_resource_stats"] = cast(JsonValue, self._resource_stats)
                 result = result.model_copy(update={"timing_stats": timing_stats})
             self._last_used = time.monotonic()
@@ -92,7 +72,6 @@ class DiarizerManager:
             rss_before = current_rss_mb()
             start = time.perf_counter()
             self._diarizer = self.diarizer_factory(self.device)
-            instrument_diarizer(self._diarizer, self._record_stage_resource)
             self._last_used = time.monotonic()
             self._resource_stats["load_diarizer"] = {
                 "wall_time": round(time.perf_counter() - start, 3),
@@ -100,35 +79,6 @@ class DiarizerManager:
                 "rss_mb_after": current_rss_mb(),
             }
         return self._diarizer
-
-    def _record_stage_resource(
-        self,
-        stage_name: str,
-        elapsed: float,
-        rss_before: float | None,
-    ) -> None:
-        rss_after = current_rss_mb()
-        stats = self._resource_stats.setdefault(
-            stage_name,
-            {
-                "calls": 0,
-                "wall_time": 0.0,
-                "rss_mb_before": rss_before,
-                "rss_mb_after": rss_after,
-                "rss_mb_peak": rss_after,
-            },
-        )
-        stats["calls"] = int(stats["calls"] or 0) + 1
-        stats["wall_time"] = round(float(stats["wall_time"] or 0.0) + elapsed, 3)
-        stats["rss_mb_after"] = rss_after
-        if rss_before is not None:
-            before = stats.get("rss_mb_before")
-            stats["rss_mb_before"] = (
-                rss_before if before is None else min(float(before), rss_before)
-            )
-        if rss_after is not None:
-            peak = stats.get("rss_mb_peak")
-            stats["rss_mb_peak"] = rss_after if peak is None else max(float(peak), rss_after)
 
 
 def serialize_centroids(centroids: dict[str, np.ndarray]) -> dict[str, list[float]]:

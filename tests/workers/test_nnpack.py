@@ -38,11 +38,6 @@ def test_cpu_factory_suppresses_fake_nnpack_warning_before_construction(
     senko.Diarizer = FakeDiarizer
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "senko", senko)
-    monkeypatch.setattr(
-        "stt_vault.processing.diarization.SenkoDiarizationProvider",
-        lambda implementation: implementation,
-    )
-
     FakeDiarizer(device="cpu", warmup=True, quiet=True)
 
     assert "Could not initialize NNPACK" in capsys.readouterr().err

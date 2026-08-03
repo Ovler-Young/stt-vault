@@ -37,8 +37,6 @@ class Settings(BaseSettings):
     job_lease_seconds: int = Field(default=120, alias="JOB_LEASE_SECONDS")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
     senko_device: str = Field(default="auto", alias="SENKO_DEVICE")
-    senko_batched_embeddings: bool = Field(default=True, alias="SENKO_BATCHED_EMBEDDINGS")
-    senko_fbank_batch_segments: int = Field(default=256, alias="SENKO_FBANK_BATCH_SEGMENTS")
 
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")

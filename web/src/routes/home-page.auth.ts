@@ -9,6 +9,7 @@ import {
 export type HomeAuthState = {
   adminPassword: string;
   authenticated: boolean;
+  authenticationPending: boolean;
   error: string;
 };
 
@@ -18,9 +19,11 @@ type HomeAuthCallbacks = {
 };
 
 export function createHomeAuthController(callbacks: HomeAuthCallbacks) {
+  const storedAccessToken = getStoredAccessToken();
   let state: HomeAuthState = {
     adminPassword: "",
-    authenticated: Boolean(getStoredAccessToken()),
+    authenticated: false,
+    authenticationPending: Boolean(storedAccessToken),
     error: "",
   };
 
@@ -36,10 +39,35 @@ export function createHomeAuthController(callbacks: HomeAuthCallbacks) {
     setPassword(adminPassword: string) {
       update({ adminPassword });
     },
+    async restoreSession(): Promise<boolean> {
+      if (!state.authenticationPending) return false;
+      try {
+        await login("");
+        update({
+          authenticated: true,
+          authenticationPending: false,
+          error: "",
+        });
+        return true;
+      } catch {
+        setStoredAccessToken("");
+        update({
+          authenticated: false,
+          authenticationPending: false,
+          error: "",
+        });
+        return false;
+      }
+    },
     async signIn(): Promise<boolean> {
       try {
         await login(state.adminPassword);
-        update({ adminPassword: "", authenticated: true, error: "" });
+        update({
+          adminPassword: "",
+          authenticated: true,
+          authenticationPending: false,
+          error: "",
+        });
         return true;
       } catch (requestError) {
         update({ error: errorMessage(requestError) });
@@ -51,6 +79,7 @@ export function createHomeAuthController(callbacks: HomeAuthCallbacks) {
         setStoredAccessToken("");
         update({
           authenticated: false,
+          authenticationPending: false,
           error: "Session expired. Sign in again.",
         });
         callbacks.onSessionExpired();
@@ -60,7 +89,7 @@ export function createHomeAuthController(callbacks: HomeAuthCallbacks) {
     },
     signOut() {
       setStoredAccessToken("");
-      update({ authenticated: false, error: "" });
+      update({ authenticated: false, authenticationPending: false, error: "" });
       callbacks.onSessionExpired();
     },
   };

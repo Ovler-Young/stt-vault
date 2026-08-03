@@ -7,6 +7,7 @@
     folderCount,
     authRequired,
     authenticated,
+    authPending,
     busy,
     adminPassword,
     selectedFolderId,
@@ -54,18 +55,20 @@
   </header>
 
   {#if authRequired && !authenticated}
-    <section class="auth">
-      <input
-        value={adminPassword}
-        type="password"
-        placeholder="Admin password"
-        oninput={(event) => onAdminPasswordChange(event.currentTarget.value)}
-        onkeydown={(event) => event.key === "Enter" && onLogin()}
-      />
-      <button disabled={!adminPassword || busy} onclick={onLogin}
-        >Sign in</button
-      >
-    </section>
+    {#if !authPending}
+      <section class="auth">
+        <input
+          value={adminPassword}
+          type="password"
+          placeholder="Admin password"
+          oninput={(event) => onAdminPasswordChange(event.currentTarget.value)}
+          onkeydown={(event) => event.key === "Enter" && onLogin()}
+        />
+        <button disabled={!adminPassword || busy} onclick={onLogin}
+          >Sign in</button
+        >
+      </section>
+    {/if}
   {:else}
     <HomeWorkspace
       {selectedFolderId}

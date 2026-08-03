@@ -40,6 +40,57 @@ describe("home page authentication controller", () => {
     expect(states.at(-1)?.error).toBe("");
   });
 
+  it("renews a stored token before considering the session authenticated", async () => {
+    getStoredAccessToken.mockReturnValue("stored-token");
+    login.mockResolvedValue({ access_token: "renewed-token" });
+    const controller = createHomeAuthController({
+      onChange: vi.fn(),
+      onSessionExpired: vi.fn(),
+    });
+
+    expect(controller.state).toMatchObject({
+      authenticated: false,
+      authenticationPending: true,
+    });
+
+    await expect(controller.restoreSession()).resolves.toBe(true);
+
+    expect(login).toHaveBeenCalledWith("");
+    expect(controller.state).toMatchObject({
+      authenticated: true,
+      authenticationPending: false,
+    });
+  });
+
+  it("clears an invalid stored token and exposes manual sign in", async () => {
+    getStoredAccessToken.mockReturnValue("expired-token");
+    login.mockRejectedValue(new ApiError(401, "expired"));
+    const controller = createHomeAuthController({
+      onChange: vi.fn(),
+      onSessionExpired: vi.fn(),
+    });
+
+    await expect(controller.restoreSession()).resolves.toBe(false);
+
+    expect(setStoredAccessToken).toHaveBeenCalledWith("");
+    expect(controller.state).toMatchObject({
+      authenticated: false,
+      authenticationPending: false,
+    });
+  });
+
+  it("does not renew when there is no stored token", async () => {
+    const controller = createHomeAuthController({
+      onChange: vi.fn(),
+      onSessionExpired: vi.fn(),
+    });
+
+    await expect(controller.restoreSession()).resolves.toBe(false);
+
+    expect(login).not.toHaveBeenCalled();
+    expect(controller.state.authenticationPending).toBe(false);
+  });
+
   it("clears credentials and notifies the route when a session expires", () => {
     const onSessionExpired = vi.fn();
     const controller = createHomeAuthController({

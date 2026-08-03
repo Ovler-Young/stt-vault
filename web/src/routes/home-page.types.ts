@@ -12,6 +12,7 @@ export type HomePageShellProps = {
   folderCount: number;
   authRequired: boolean;
   authenticated: boolean;
+  authPending: boolean;
   busy: boolean;
   adminPassword: string;
   selectedFolderId: string | null;

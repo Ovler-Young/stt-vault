@@ -40,6 +40,7 @@
   let authState: HomeAuthState = {
     adminPassword: "",
     authenticated: false,
+    authenticationPending: false,
     error: "",
   };
 
@@ -69,6 +70,7 @@
   onMount(async () => {
     const config = await fetchConfig();
     authRequired = config.auth_required;
+    if (authRequired) await authController.restoreSession();
     await loadTree();
   });
 
@@ -180,6 +182,7 @@
   folderCount={flatFolders.length}
   {authRequired}
   authenticated={authState.authenticated}
+  authPending={authState.authenticationPending}
   {busy}
   adminPassword={authState.adminPassword}
   {selectedFolderId}

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from stt_vault.core.models.records import AssetRecord, TranscriptSegment
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.workers.worker_transcription import TranscriberConfig, TranscriptionStage
 
@@ -17,10 +18,8 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
             calls.append("prepare")
             return (
                 TranscriptionWork(
-                    chunks=[{"chunk_index": 0, "start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
-                    pending_chunks=[
-                        {"chunk_index": 0, "start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}
-                    ],
+                    chunks=[TranscriptSegment(0.0, 1.0, "SPEAKER_00", "", chunk_index=0)],
+                    pending_chunks=[TranscriptSegment(0.0, 1.0, "SPEAKER_00", "", chunk_index=0)],
                     completed_chunks=0,
                 ),
                 False,
@@ -53,18 +52,14 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
             assert config.model == "model"
             self.on_chunk_done = config.on_chunk_done
 
-        def transcribe_chunks(self, _media_path, chunks, _work_dir):
+        def transcribe_chunks(self, _media_path, chunks, _work_dir, **_kwargs):
             assert len(chunks) == 1
-            result = {
-                "start": 0.0,
-                "end": 1.0,
-                "speaker": "SPEAKER_00",
-                "text": "hello",
-            }
+            result = TranscriptSegment(0.0, 1.0, "SPEAKER_00", "hello")
             self.on_chunk_done(0, result)
             return [result]
 
     settings = SimpleNamespace(
+        stt_transcription_provider="openai",
         openai_api_key="",
         openai_base_url="",
         openai_transcribe_model="model",
@@ -80,18 +75,18 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
         chunk_persistence=FakeChunkPersistence(),
         speaker_reconciler=FakeSpeakerReconciler(),
         progress_events=FakeProgressEvents(),
-        repository=SimpleNamespace(),
+        database=SimpleNamespace(),
     )
 
     segments, error = stage.transcribe(
         "asset-1",
-        {"original_path": str(tmp_path / "clip.wav")},
+        AssetRecord("asset-1", "clip.wav", "audio", str(tmp_path / "clip.wav"), "processing", 1, 1),
         PreparedAsset(tmp_path / "audio.wav", 1.0, {}, [], [], {}),
         tmp_path,
     )
 
     assert error is None
-    assert segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00", "text": "hello"}]
+    assert segments == [TranscriptSegment(0.0, 1.0, "SPEAKER_00", "hello")]
     assert calls == ["prepare", "start", "reconcile", "save", "progress", "reconcile"]
 
 
@@ -103,10 +98,8 @@ def test_transcription_stage_uses_normalized_diarization_audio(tmp_path: Path, s
         def prepare_work(self, _asset_id, _prepared):
             return (
                 TranscriptionWork(
-                    chunks=[{"chunk_index": 0, "start": 1.0, "end": 2.0, "speaker": "SPEAKER_00"}],
-                    pending_chunks=[
-                        {"chunk_index": 0, "start": 1.0, "end": 2.0, "speaker": "SPEAKER_00"}
-                    ],
+                    chunks=[TranscriptSegment(1.0, 2.0, "SPEAKER_00", "", chunk_index=0)],
+                    pending_chunks=[TranscriptSegment(1.0, 2.0, "SPEAKER_00", "", chunk_index=0)],
                     completed_chunks=0,
                 ),
                 False,
@@ -136,19 +129,13 @@ def test_transcription_stage_uses_normalized_diarization_audio(tmp_path: Path, s
         def __init__(self, _config: TranscriberConfig):
             return None
 
-        def transcribe_chunks(self, media_path, chunks, _work_dir):
+        def transcribe_chunks(self, media_path, chunks, _work_dir, **_kwargs):
             media_paths.append(media_path)
-            return [
-                {
-                    "start": chunks[0]["start"],
-                    "end": chunks[0]["end"],
-                    "speaker": chunks[0]["speaker"],
-                    "text": "hello",
-                }
-            ]
+            return [TranscriptSegment(chunks[0].start, chunks[0].end, chunks[0].speaker, "hello")]
 
     settings = SimpleNamespace(
         stt_db_path=tmp_path / "app.sqlite3",
+        stt_transcription_provider="openai",
         openai_api_key="",
         openai_base_url="",
         openai_transcribe_model="model",
@@ -165,16 +152,24 @@ def test_transcription_stage_uses_normalized_diarization_audio(tmp_path: Path, s
         chunk_persistence=FakeChunkPersistence(),
         speaker_reconciler=FakeSpeakerReconciler(),
         progress_events=FakeProgressEvents(),
-        repository=SimpleNamespace(),
+        database=SimpleNamespace(),
     )
 
     segments, error = stage.transcribe(
         "asset-1",
-        {"original_path": str(tmp_path / f"clip.{suffix}")},
+        AssetRecord(
+            "asset-1",
+            f"clip.{suffix}",
+            "audio",
+            str(tmp_path / f"clip.{suffix}"),
+            "processing",
+            1,
+            1,
+        ),
         PreparedAsset(normalized_path, 2.0, {}, [], [], {}),
         tmp_path,
     )
 
     assert error is None
-    assert segments[0]["text"] == "hello"
+    assert segments[0].text == "hello"
     assert media_paths == [normalized_path]

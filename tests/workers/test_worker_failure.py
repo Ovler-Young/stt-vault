@@ -6,18 +6,17 @@ from types import SimpleNamespace
 import pytest
 
 from stt_vault.core.diagnostics.logging import StructuredFormatter
+from stt_vault.core.models.records import ErrorRecord
 from stt_vault.workers.worker_failure import WorkerFailureHandler, classify_worker_failure
 
 
 def test_classify_worker_failure_returns_safe_persisted_errors() -> None:
-    assert classify_worker_failure(OSError("/srv/private/clip.wav")) == {
-        "category": "filesystem",
-        "message": "A local processing operation failed",
-    }
-    assert classify_worker_failure(RuntimeError("processing failed")) == {
-        "category": "processing",
-        "message": "Asset processing failed",
-    }
+    assert classify_worker_failure(OSError("/srv/private/clip.wav")) == ErrorRecord(
+        "filesystem", "A local processing operation failed"
+    )
+    assert classify_worker_failure(RuntimeError("processing failed")) == ErrorRecord(
+        "processing", "Asset processing failed"
+    )
 
 
 def test_worker_failure_handler_persists_category_and_logs_safe_diagnostics(
@@ -25,9 +24,9 @@ def test_worker_failure_handler_persists_category_and_logs_safe_diagnostics(
 ) -> None:
     class FakeRepository:
         def __init__(self) -> None:
-            self.failures: list[tuple[str, dict[str, str]]] = []
+            self.failures: list[tuple[str, ErrorRecord]] = []
 
-        def mark_failed(self, asset_id: str, error: dict[str, str]) -> None:
+        def mark_failed(self, asset_id: str, error: ErrorRecord) -> None:
             self.failures.append((asset_id, error))
 
     monkeypatch.setattr(
@@ -52,7 +51,7 @@ def test_worker_failure_handler_persists_category_and_logs_safe_diagnostics(
     assert repository.failures == [
         (
             "asset-1",
-            {"category": "filesystem", "message": "A local processing operation failed"},
+            ErrorRecord("filesystem", "A local processing operation failed"),
         )
     ]
     events = [json.loads(StructuredFormatter().format(record)) for record in caplog.records]

@@ -6,13 +6,14 @@ from typing import cast
 import numpy as np
 
 from stt_vault.core.models.api import DiarizationResult, JsonValue
-from stt_vault.core.models.records import KnownSpeaker, SpeakerMatch
+from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
+from stt_vault.core.models.records import SpeakerMatch, SpeakerRecord
 
-from .contracts import DiarizationProvider, DiarizerFactory
+from .contracts import DiarizationProvider, DiarizerFactory, SenkoDiarizationProvider
 from .instrumentation import current_rss_mb
 
 
-def _create_senko_diarizer(device: str) -> DiarizationProvider:
+def _create_senko_diarizer(device: str, embedding_space: EmbeddingSpaceV1) -> DiarizationProvider:
     if device in {"auto", "cpu"}:
         import torch
 
@@ -20,7 +21,10 @@ def _create_senko_diarizer(device: str) -> DiarizationProvider:
             torch.backends.nnpack.set_flags(False)
     from senko import Diarizer
 
-    return Diarizer(device=device, warmup=True, quiet=True)
+    return SenkoDiarizationProvider(
+        Diarizer(device=device, warmup=True, quiet=True),
+        embedding_space,
+    )
 
 
 class DiarizerManager:
@@ -29,10 +33,12 @@ class DiarizerManager:
         *,
         device: str,
         idle_timeout_seconds: int,
+        embedding_space: EmbeddingSpaceV1,
         diarizer_factory: DiarizerFactory = _create_senko_diarizer,
     ) -> None:
         self.device = device
         self.idle_timeout_seconds = idle_timeout_seconds
+        self.embedding_space = embedding_space
         self.diarizer_factory = diarizer_factory
         self._lock = threading.Lock()
         self._diarizer: DiarizationProvider | None = None
@@ -71,7 +77,7 @@ class DiarizerManager:
         if self._diarizer is None:
             rss_before = current_rss_mb()
             start = time.perf_counter()
-            self._diarizer = self.diarizer_factory(self.device)
+            self._diarizer = self.diarizer_factory(self.device, self.embedding_space)
             self._last_used = time.monotonic()
             self._resource_stats["load_diarizer"] = {
                 "wall_time": round(time.perf_counter() - start, 3),
@@ -96,30 +102,46 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
 
 def match_speakers(
     centroids: dict[str, list[float]],
-    known_speakers: list[KnownSpeaker],
+    known_speakers: list[SpeakerRecord],
     threshold: float,
+    *,
+    embedding_space: EmbeddingSpaceV1 | Mapping[str, object] | None,
 ) -> dict[str, SpeakerMatch]:
     matches: dict[str, SpeakerMatch] = {}
+    asset_embedding_space = _cosine_embedding_space(embedding_space)
     for local_speaker, centroid in centroids.items():
         best: SpeakerMatch | None = None
+        if not _centroid_matches_embedding_space(centroid, asset_embedding_space):
+            matches[local_speaker] = SpeakerMatch(local_speaker, local_speaker, None)
+            continue
         for known in known_speakers:
-            score = cosine_similarity(centroid, known["centroid"])
-            best_score = best["score"] if best and best["score"] is not None else float("-inf")
+            if asset_embedding_space is None:
+                continue
+            known_embedding_space = _cosine_embedding_space(known.embedding_space)
+            if known_embedding_space != asset_embedding_space:
+                continue
+            if not _centroid_matches_embedding_space(known.centroid, known_embedding_space):
+                continue
+            score = cosine_similarity(centroid, list(known.centroid))
+            best_score = best.score if best and best.score is not None else float("-inf")
             if best is None or score > best_score:
-                best = {
-                    "speaker_id": known["id"],
-                    "display_name": known["display_name"],
-                    "score": score,
-                }
-        if best is not None and best["score"] is not None and best["score"] >= threshold:
+                best = SpeakerMatch(known.id, known.display_name, score)
+        if best is not None and best.score is not None and best.score >= threshold:
             matches[local_speaker] = best
         else:
-            matches[local_speaker] = {
-                "speaker_id": local_speaker,
-                "display_name": local_speaker,
-                "score": None,
-            }
+            matches[local_speaker] = SpeakerMatch(local_speaker, local_speaker, None)
     return matches
+
+
+def _cosine_embedding_space(value: object) -> EmbeddingSpaceV1 | None:
+    if isinstance(value, EmbeddingSpaceV1):
+        return value
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        return EmbeddingSpaceV1.model_validate(value)
+    except ValueError:
+        return None
 
 
 def _validated_provider_centroids(value: object) -> dict[str, np.ndarray]:
@@ -135,15 +157,60 @@ def _validated_provider_centroids(value: object) -> dict[str, np.ndarray]:
     return centroids
 
 
+def validate_centroids_for_embedding_space(
+    centroids: Mapping[str, object],
+    embedding_space: EmbeddingSpaceV1 | Mapping[str, object] | None,
+) -> None:
+    if not centroids:
+        return
+    if embedding_space is None:
+        raise ValueError("Diarization result has centroids without an embedding space")
+    try:
+        space = (
+            embedding_space
+            if isinstance(embedding_space, EmbeddingSpaceV1)
+            else EmbeddingSpaceV1.model_validate(embedding_space)
+        )
+    except ValueError as error:
+        raise ValueError("Diarization result has an invalid embedding space") from error
+    for centroid in centroids.values():
+        vector = np.asarray(centroid)
+        if vector.ndim != 1 or not np.issubdtype(vector.dtype, np.number):
+            raise ValueError("Diarization result has an invalid speaker centroid")
+        if len(vector) != space.dimension:
+            raise ValueError("Diarization centroid dimension does not match its embedding space")
+        if not np.all(np.isfinite(vector)):
+            raise ValueError("Diarization centroid values must be finite")
+        if not np.any(vector != 0):
+            raise ValueError("Diarization centroid norm must be nonzero")
+
+
+def _centroid_matches_embedding_space(
+    centroid: object,
+    embedding_space: EmbeddingSpaceV1 | None,
+) -> bool:
+    try:
+        validate_centroids_for_embedding_space({"centroid": centroid}, embedding_space)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _validate_provider_result(provider_result: object) -> DiarizationResult:
     if not isinstance(provider_result, Mapping):
         raise ValueError("Diarization provider returned a non-object result")
     typed_centroids = _validated_provider_centroids(provider_result.get("speaker_centroids", {}))
+    embedding_space = provider_result.get("embedding_space")
+    try:
+        validate_centroids_for_embedding_space(typed_centroids, embedding_space)
+    except ValueError as error:
+        raise ValueError(f"Diarization provider returned {error.args[0].lower()}") from error
     return DiarizationResult.model_validate(
         {
             "raw_segments": provider_result.get("raw_segments"),
             "merged_segments": provider_result.get("merged_segments"),
             "speaker_centroids": serialize_centroids(typed_centroids),
             "timing_stats": provider_result.get("timing_stats"),
+            "embedding_space": embedding_space,
         }
     )

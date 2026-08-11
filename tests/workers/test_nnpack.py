@@ -3,7 +3,17 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
 from stt_vault.processing.diarization import _create_senko_diarizer
+
+EMBEDDING_SPACE = EmbeddingSpaceV1(
+    space_id="test-space",
+    model_id="test-model",
+    revision="r1",
+    sha256="a" * 64,
+    dimension=192,
+    metric="cosine",
+)
 
 
 def test_cpu_factory_suppresses_fake_nnpack_warning_before_construction(
@@ -42,7 +52,7 @@ def test_cpu_factory_suppresses_fake_nnpack_warning_before_construction(
 
     assert "Could not initialize NNPACK" in capsys.readouterr().err
     calls.clear()
-    _create_senko_diarizer("cpu")
+    _create_senko_diarizer("cpu", EMBEDDING_SPACE)
 
     assert calls == ["set_flags:False", "construct"]
     assert "Could not initialize NNPACK" not in capsys.readouterr().err

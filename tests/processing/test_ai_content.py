@@ -1,3 +1,4 @@
+from stt_vault.core.models.records import TranscriptSegment
 from stt_vault.processing.ai_content import (
     build_content_analysis_prompt,
     format_content_summary,
@@ -7,8 +8,8 @@ from stt_vault.processing.ai_content import (
 
 def test_content_analysis_contract_keeps_content_fields_and_filters_candidates() -> None:
     transcript = [
-        {"start": 0.0, "end": 4.0, "speaker": "SPEAKER_00", "text": "We should ship Friday."},
-        {"start": 5.0, "end": 8.0, "speaker": "SPEAKER_01", "text": "I approve the plan."},
+        TranscriptSegment(0.0, 4.0, "SPEAKER_00", "We should ship Friday."),
+        TranscriptSegment(5.0, 8.0, "SPEAKER_01", "I approve the plan."),
     ]
     prompt = build_content_analysis_prompt(transcript)
     analysis = parse_content_analysis(

@@ -3,30 +3,19 @@ from pathlib import Path
 import pytest
 from _support.db_assets import initialized_db
 
-from stt_vault.persistence import db
+from stt_vault.core.models.records import AssetMove, FolderCreate, FolderMove, NewAsset
 
 
 def test_folder_tree_and_asset_moves_preserve_a_single_hierarchy(tmp_path: Path) -> None:
-    db_path = initialized_db(tmp_path)
-    root = db.create_folder(db_path, "Meetings")
-    child = db.create_folder(db_path, "Planning", parent_id=root.id)
-    db.create_asset(
-        db_path,
-        "asset-1",
-        "roadmap.wav",
-        "audio",
-        tmp_path / "roadmap.wav",
-        parent_folder_id=child.id,
+    database = initialized_db(tmp_path)
+    root = database.create_folder(FolderCreate("Meetings"))
+    child = database.create_folder(FolderCreate("Planning", root.id))
+    database.create_asset(
+        NewAsset("asset-1", "roadmap.wav", "audio", tmp_path / "roadmap.wav", child.id)
     )
-    db.create_asset(
-        db_path,
-        "asset-2",
-        "inbox.wav",
-        "audio",
-        tmp_path / "inbox.wav",
-    )
+    database.create_asset(NewAsset("asset-2", "inbox.wav", "audio", tmp_path / "inbox.wav"))
 
-    tree = db.list_folder_tree(db_path)
+    tree = database.list_folder_tree()
 
     assert [asset.id for asset in tree.assets] == ["asset-2"]
     [tree_root] = tree.folders
@@ -36,38 +25,37 @@ def test_folder_tree_and_asset_moves_preserve_a_single_hierarchy(tmp_path: Path)
     assert tree_child.id == child.id
     assert [asset.id for asset in tree_child.assets] == ["asset-1"]
 
-    moved_asset = db.move_asset(db_path, "asset-2", child.id)
-    moved_folder = db.move_folder(db_path, child.id, None)
+    moved_asset = database.move_asset(AssetMove("asset-2", child.id))
+    moved_folder = database.move_folder(FolderMove(child.id, None))
 
-    assert moved_asset["parent_folder_id"] == child.id
+    assert moved_asset.parent_folder_id == child.id
     assert moved_folder.parent_id is None
-    assert db.get_asset(db_path, "asset-2")["parent_folder_id"] == child.id
-    moved_folder_record = db.get_folder(db_path, child.id)
+    moved_folder_record = database.get_folder(child.id)
     assert moved_folder_record is not None
     assert moved_folder_record.parent_id is None
 
 
 def test_folder_moves_reject_missing_parents_and_descendant_cycles(tmp_path: Path) -> None:
-    db_path = initialized_db(tmp_path)
-    root = db.create_folder(db_path, "Root")
-    child = db.create_folder(db_path, "Child", parent_id=root.id)
-    grandchild = db.create_folder(db_path, "Grandchild", parent_id=child.id)
-    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
+    database = initialized_db(tmp_path)
+    root = database.create_folder(FolderCreate("Root"))
+    child = database.create_folder(FolderCreate("Child", root.id))
+    grandchild = database.create_folder(FolderCreate("Grandchild", child.id))
+    database.create_asset(NewAsset("asset-1", "clip.wav", "audio", tmp_path / "clip.wav"))
 
     with pytest.raises(KeyError):
-        db.create_folder(db_path, "Missing parent", parent_id="missing")
+        database.create_folder(FolderCreate("Missing parent", "missing"))
     with pytest.raises(KeyError):
-        db.move_folder(db_path, child.id, "missing")
+        database.move_folder(FolderMove(child.id, "missing"))
     with pytest.raises(KeyError):
-        db.move_asset(db_path, "asset-1", "missing")
+        database.move_asset(AssetMove("asset-1", "missing"))
     with pytest.raises(ValueError, match="descendant"):
-        db.move_folder(db_path, root.id, grandchild.id)
+        database.move_folder(FolderMove(root.id, grandchild.id))
     with pytest.raises(ValueError, match="itself"):
-        db.move_folder(db_path, child.id, child.id)
+        database.move_folder(FolderMove(child.id, child.id))
 
-    root_record = db.get_folder(db_path, root.id)
-    child_record = db.get_folder(db_path, child.id)
-    grandchild_record = db.get_folder(db_path, grandchild.id)
+    root_record = database.get_folder(root.id)
+    child_record = database.get_folder(child.id)
+    grandchild_record = database.get_folder(grandchild.id)
     assert root_record is not None
     assert child_record is not None
     assert grandchild_record is not None

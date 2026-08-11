@@ -15,25 +15,28 @@ def write_exports(
 ) -> ExportPaths:
     target = export_dir / asset_id
     target.mkdir(parents=True, exist_ok=True)
-    outputs: ExportPaths = {}
+    outputs: dict[str, str] = {}
 
     if "json" in formats:
         path = target / "transcript.json"
-        path.write_text(json.dumps(transcript_segments, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps([segment.__dict__ for segment in transcript_segments], indent=2),
+            encoding="utf-8",
+        )
         outputs["json"] = str(path)
 
     if "whisper_json" in formats:
         path = target / "whisper_like.json"
         payload = {
-            "text": " ".join(segment["text"] for segment in transcript_segments).strip(),
+            "text": " ".join(segment.text for segment in transcript_segments).strip(),
             "segments": [
                 {
                     "id": index,
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "text": segment["text"],
-                    "speaker": segment["speaker"],
-                    "speaker_name": segment.get("speaker_name"),
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text,
+                    "speaker": segment.speaker,
+                    "speaker_name": segment.speaker_name,
                 }
                 for index, segment in enumerate(transcript_segments)
             ],
@@ -66,19 +69,19 @@ def write_exports(
         path.write_text(to_rttm(asset_id, raw_segments), encoding="utf-8")
         outputs["rttm"] = str(path)
 
-    return outputs
+    return ExportPaths(**outputs)
 
 
 def to_srt(segments: list[TranscriptSegment]) -> str:
     blocks = []
     for index, segment in enumerate(segments, start=1):
-        speaker = segment.get("speaker_name") or segment["speaker"]
+        speaker = segment.speaker_name or segment.speaker
         blocks.append(
             "\n".join(
                 [
                     str(index),
-                    f"{format_srt_time(segment['start'])} --> {format_srt_time(segment['end'])}",
-                    f"{speaker}: {segment['text']}",
+                    f"{format_srt_time(segment.start)} --> {format_srt_time(segment.end)}",
+                    f"{speaker}: {segment.text}",
                 ]
             )
         )
@@ -88,11 +91,11 @@ def to_srt(segments: list[TranscriptSegment]) -> str:
 def to_ai_text(segments: list[TranscriptSegment]) -> str:
     blocks = []
     for segment in segments:
-        speaker = segment.get("speaker_name") or segment["speaker"]
-        text = segment["text"].strip()
+        speaker = segment.speaker_name or segment.speaker
+        text = segment.text.strip()
         if not text:
             continue
-        blocks.append(f"[{format_vtt_time(segment['start'])}] {speaker}:\n{text}")
+        blocks.append(f"[{format_vtt_time(segment.start)}] {speaker}:\n{text}")
 
     return "\n\n".join(blocks) + "\n"
 
@@ -100,11 +103,11 @@ def to_ai_text(segments: list[TranscriptSegment]) -> str:
 def to_vtt(segments: list[TranscriptSegment]) -> str:
     lines = ["WEBVTT", ""]
     for segment in segments:
-        speaker = segment.get("speaker_name") or segment["speaker"]
+        speaker = segment.speaker_name or segment.speaker
         lines.extend(
             [
-                f"{format_vtt_time(segment['start'])} --> {format_vtt_time(segment['end'])}",
-                f"{speaker}: {segment['text']}",
+                f"{format_vtt_time(segment.start)} --> {format_vtt_time(segment.end)}",
+                f"{speaker}: {segment.text}",
                 "",
             ]
         )
@@ -114,10 +117,10 @@ def to_vtt(segments: list[TranscriptSegment]) -> str:
 def to_hyperaudio_html(filename: str, segments: list[TranscriptSegment]) -> str:
     body = []
     for segment in segments:
-        speaker = html.escape(segment.get("speaker_name") or segment["speaker"])
-        text = html.escape(segment["text"])
-        start_ms = int(float(segment["start"]) * 1000)
-        duration_ms = int((float(segment["end"]) - float(segment["start"])) * 1000)
+        speaker = html.escape(segment.speaker_name or segment.speaker)
+        text = html.escape(segment.text)
+        start_ms = int(segment.start * 1000)
+        duration_ms = int((segment.end - segment.start) * 1000)
         body.append(
             f'<p><span class="speaker" data-m="{start_ms}" data-d="0">{speaker}: </span>'
             f'<span data-m="{start_ms}" data-d="{duration_ms}">{text}</span></p>'
@@ -143,9 +146,9 @@ def to_hyperaudio_html(filename: str, segments: list[TranscriptSegment]) -> str:
 def to_rttm(asset_id: str, segments: list[SpeakerSegment]) -> str:
     lines = []
     for segment in segments:
-        start = float(segment["start"])
-        duration = max(0.0, float(segment["end"]) - start)
-        speaker = segment["speaker"]
+        start = segment.start
+        duration = max(0.0, segment.end - start)
+        speaker = segment.speaker
         lines.append(
             f"SPEAKER {asset_id} 1 {start:.3f} {duration:.3f} <NA> <NA> {speaker} <NA> <NA>"
         )

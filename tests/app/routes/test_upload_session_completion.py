@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from stt_vault.core.models.records import UploadSessionRecord
 from stt_vault.services.upload_sessions import UploadSessionDependencies, UploadSessionService
 
 
@@ -17,13 +18,7 @@ def test_upload_session_completion_restores_temp_file_when_database_write_fails(
     temp_path = settings.uploads_dir / "upload.part"
     temp_path.parent.mkdir(parents=True)
     temp_path.write_bytes(b"upload")
-    upload = {
-        "id": "upload-1",
-        "filename": "clip.wav",
-        "total_size": 6,
-        "offset": 6,
-        "temp_path": str(temp_path),
-    }
+    upload = UploadSessionRecord("upload-1", "clip.wav", 6, 6, str(temp_path), 1, 1)
     stored_path = settings.media_dir / "asset-1" / "original.wav"
     stored_path.parent.mkdir(parents=True)
 

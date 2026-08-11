@@ -3,125 +3,43 @@ import threading
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
-from stt_vault.persistence import db
-from stt_vault.persistence.shared.db_schema import ASSET_COLUMN_DEFINITIONS, ASSET_MIGRATION_COLUMNS
+from stt_vault.core.models.persistence_errors import MigrationStateError
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
-PUBLIC_DB_FUNCTIONS = {
-    "connect",
-    "transaction",
-    "initialize",
-    "add_missing_columns",
-    "now",
-    "row_to_dict",
-    "create_asset",
-    "create_folder",
-    "delete_asset_with_cleanup_task",
-    "list_assets",
-    "list_folder_tree",
-    "list_folders",
-    "list_jobs",
-    "get_job",
-    "get_asset",
-    "get_folder",
-    "claim_next_job",
-    "recover_expired_jobs",
-    "renew_job_claim",
-    "update_stage",
-    "update_progress",
-    "add_event",
-    "list_events",
-    "list_current_run_events",
-    "mark_failed",
-    "mark_partial",
-    "mark_success",
-    "update_diarization_metadata",
-    "update_asset_exports",
-    "update_asset_summary",
-    "apply_ai_speaker_names",
-    "retry_asset",
-    "replace_visual_events",
-    "list_visual_events",
-    "reset_transcript_chunks",
-    "upsert_transcript_chunk",
-    "list_transcript_chunks",
-    "list_transcript_chunks_from_conn",
-    "list_speakers",
-    "list_asset_ids_with_speaker_centroids",
-    "get_speaker",
-    "find_speaker_by_display_name",
-    "upsert_speaker",
-    "rename_speaker",
-    "merge_speakers",
-    "move_asset",
-    "move_folder",
-    "delete_speaker",
-    "relabel_asset_speaker",
-    "relabel_asset_speakers",
-    "list_asset_ids_for_speaker",
-    "refresh_asset_transcripts_for_speaker_from_conn",
-}
+HISTORICAL_MIGRATIONS = (
+    "H0001_assets",
+    "H0002_folders",
+    "H0003_speakers",
+    "H0004_jobs_and_claim_columns",
+    "H0005_job_events_run_attempt",
+    "H0006_transcript_chunks",
+    "H0007_asset_metadata_columns",
+    "H0008_upload_sessions",
+    "H0009_historical_indexes",
+)
+D0008_MIGRATIONS = (
+    "D0008_001_provider_ledger_tables",
+    "D0008_002_embedding_space_columns",
+    "D0008_003_provider_ledger_indexes_and_triggers",
+    "D0008_004_timed_transcript_units",
+)
 
 
-def test_db_facade_preserves_public_import_surface() -> None:
-    missing = [
-        name for name in sorted(PUBLIC_DB_FUNCTIONS) if not callable(getattr(db, name, None))
-    ]
+def test_initialize_schema_is_idempotent_and_creates_the_required_tables(tmp_path: Path) -> None:
+    database = SqliteDatabase(tmp_path / "schema.sqlite3")
+    database.initialize()
+    database.initialize()
 
-    assert missing == []
-
-
-def test_record_decoder_rejects_json_with_the_wrong_schema_type() -> None:
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT '[1, 2]' AS error").fetchone()
-
-    with pytest.raises(ValueError, match="error must decode to dict"):
-        db.decode_record(row, json_fields={"error": dict})
-
-
-def test_asset_decoder_rejects_malformed_persisted_segment(tmp_path: Path) -> None:
-    db_path = tmp_path / "schema.sqlite3"
-    db.initialize(db_path)
-    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
-    with db.transaction(db_path) as conn:
-        conn.execute(
-            "UPDATE assets SET raw_segments = ? WHERE id = ?",
-            ('[{"start":"bad","end":1.0,"speaker":"SPEAKER_00"}]', "asset-1"),
-        )
-
-    with pytest.raises(ValidationError):
-        db.get_asset(db_path, "asset-1")
-
-
-def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: Path) -> None:
-    db_path = tmp_path / "schema.sqlite3"
-    db.initialize(db_path)
-    db.initialize(db_path)
-
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with sqlite3.connect(tmp_path / "schema.sqlite3") as connection:
         tables = {
-            row["name"]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         indexes = {
-            row["name"]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index'"
-            ).fetchall()
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
         }
-        assets_columns = {row["name"] for row in conn.execute("PRAGMA table_info(assets)")}
-        folders_columns = {row["name"] for row in conn.execute("PRAGMA table_info(folders)")}
-        jobs_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
-        events_columns = {row["name"] for row in conn.execute("PRAGMA table_info(job_events)")}
-        chunk_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(transcript_chunks)")
-        }
-        upload_columns = {row["name"] for row in conn.execute("PRAGMA table_info(upload_sessions)")}
 
     assert {
         "assets",
@@ -133,144 +51,131 @@ def test_initialize_schema_is_idempotent_and_upgrades_legacy_columns(tmp_path: P
         "folders",
         "upload_sessions",
     }.issubset(tables)
-    assert {
-        "idx_assets_created_at",
-        "idx_jobs_status_created_at",
-        "idx_job_events_asset_created_at",
-        "idx_transcript_chunks_asset_index",
-        "idx_visual_events_asset_index",
-        "idx_assets_parent_folder_id",
-        "idx_folders_parent_id",
-    }.issubset(indexes)
-    assert {
-        "diarization_stats",
-        "raw_segments",
-        "merged_segments",
-        "speaker_centroids",
-        "transcript_segments",
-        "exports",
-        "parent_folder_id",
-        "title",
-        "recorded_at",
-    }.issubset(assets_columns)
-    assert {
-        "id",
-        "filename",
-        "total_size",
-        "offset",
-        "temp_path",
-        "created_at",
-        "updated_at",
-    }.issubset(upload_columns)
-    assert {"id", "name", "parent_id", "created_at", "updated_at"}.issubset(folders_columns)
-    assert {
-        "progress_total_chunks",
-        "progress_done_chunks",
-        "progress_failed_chunks",
-        "next_retry_at",
-        "run_attempt",
-    }.issubset(jobs_columns)
-    assert {"run_attempt"}.issubset(events_columns)
-    assert {"chunk_start", "chunk_end", "speaker_id", "speaker_name"}.issubset(chunk_columns)
+    assert {"idx_jobs_status_created_at", "idx_provider_active_invocations"}.issubset(indexes)
+    assert "transcript_timed_units" in tables
 
-    legacy_path = tmp_path / "legacy.sqlite3"
-    with sqlite3.connect(legacy_path) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE assets (
-                id TEXT PRIMARY KEY,
-                created_at INTEGER NOT NULL
-            );
-            CREATE TABLE jobs (
-                id TEXT PRIMARY KEY,
-                asset_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at INTEGER NOT NULL
-            );
-            CREATE TABLE job_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_id TEXT NOT NULL,
-                asset_id TEXT NOT NULL,
-                created_at INTEGER NOT NULL
-            );
-            """
-        )
-
-    db.initialize(legacy_path)
-
-    with sqlite3.connect(legacy_path) as conn:
-        conn.row_factory = sqlite3.Row
-        legacy_jobs_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
-        legacy_events_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(job_events)")
+    with sqlite3.connect(tmp_path / "schema.sqlite3") as connection:
+        migrations = {
+            row[0] for row in connection.execute("SELECT id FROM schema_migrations ORDER BY id")
         }
-
-    assert {
-        "progress_total_chunks",
-        "progress_done_chunks",
-        "progress_failed_chunks",
-        "next_retry_at",
-        "run_attempt",
-    }.issubset(legacy_jobs_columns)
-    assert "run_attempt" in legacy_events_columns
+    assert migrations == set(HISTORICAL_MIGRATIONS + D0008_MIGRATIONS)
 
 
-def test_fresh_and_migrated_asset_schema_have_the_same_columns(tmp_path: Path) -> None:
-    fresh_path = tmp_path / "fresh.sqlite3"
-    db.initialize(fresh_path)
-
-    legacy_path = tmp_path / "legacy-assets.sqlite3"
-    migration_names = set(ASSET_MIGRATION_COLUMNS)
-    legacy_definitions = [
-        (name, definition)
-        for name, definition in ASSET_COLUMN_DEFINITIONS
-        if name not in migration_names
-    ]
-    with sqlite3.connect(legacy_path) as conn:
-        definitions = ", ".join(f"{name} {definition}" for name, definition in legacy_definitions)
-        conn.execute(f"CREATE TABLE assets ({definitions})")
-
-    db.initialize(legacy_path)
-
-    def asset_schema(path: Path) -> dict[str, str]:
-        with sqlite3.connect(path) as conn:
-            return {row[1]: row[2] for row in conn.execute("PRAGMA table_info(assets)").fetchall()}
-
-    assert asset_schema(legacy_path) == asset_schema(fresh_path)
-
-
-def test_initialize_serializes_legacy_schema_migrations(tmp_path: Path) -> None:
-    legacy_path = tmp_path / "legacy-concurrent.sqlite3"
-    with sqlite3.connect(legacy_path) as conn:
-        conn.execute("CREATE TABLE assets (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)")
-        conn.execute(
-            "CREATE TABLE jobs ("
-            "id TEXT PRIMARY KEY, asset_id TEXT NOT NULL, status TEXT NOT NULL, "
-            "created_at INTEGER NOT NULL)"
-        )
-        conn.execute(
-            "CREATE TABLE job_events ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, "
-            "asset_id TEXT NOT NULL, created_at INTEGER NOT NULL)"
-        )
-
+def test_initialize_serializes_concurrent_schema_bootstraps(tmp_path: Path) -> None:
+    database_path = tmp_path / "concurrent.sqlite3"
     barrier = threading.Barrier(2)
     errors: list[Exception] = []
 
-    def initialize_concurrently() -> None:
-        barrier.wait()
+    def initialize() -> None:
         try:
-            db.initialize(legacy_path)
+            barrier.wait()
+            SqliteDatabase(database_path).initialize()
         except Exception as error:
             errors.append(error)
 
-    threads = [threading.Thread(target=initialize_concurrently) for _ in range(2)]
+    threads = [threading.Thread(target=initialize) for _ in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
 
     assert errors == []
-    with sqlite3.connect(legacy_path) as conn:
-        jobs_columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
-    assert {"run_attempt", "claim_owner", "claim_expires_at"}.issubset(jobs_columns)
+    assert SqliteDatabase(database_path).list_assets() == []
+
+
+@pytest.mark.parametrize("migration_id", HISTORICAL_MIGRATIONS + D0008_MIGRATIONS)
+def test_initialize_rejects_a_ledgered_migration_when_its_required_schema_is_missing(
+    tmp_path: Path, migration_id: str
+) -> None:
+    """A migration record is accepted only after its schema has been verified."""
+    database_path = tmp_path / f"missing-{migration_id}.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+            (migration_id, 1),
+        )
+
+    with pytest.raises(MigrationStateError):
+        SqliteDatabase(database_path).initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT id FROM schema_migrations").fetchall() == [
+            (migration_id,)
+        ]
+
+
+def test_initialize_rejects_a_partial_provider_schema_without_recording_d0008_migrations(
+    tmp_path: Path,
+) -> None:
+    """Provider adoption must not infer a missing part of an existing provider set."""
+    database_path = tmp_path / "partial-provider.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
+        )
+        connection.execute("CREATE TABLE provider_work_items (work_item_id TEXT PRIMARY KEY)")
+
+    with pytest.raises(MigrationStateError):
+        SqliteDatabase(database_path).initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        migration_ids = {row[0] for row in connection.execute("SELECT id FROM schema_migrations")}
+        assert not migration_ids.intersection(D0008_MIGRATIONS)
+
+
+def test_initialize_rejects_a_recorded_migration_with_an_incompatible_table_definition(
+    tmp_path: Path,
+) -> None:
+    """Recorded history must verify keys and types, not only column names."""
+    database_path = tmp_path / "incompatible-assets.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE assets (id INTEGER, filename TEXT, media_type TEXT, "
+            "original_path TEXT, status TEXT, created_at INTEGER, updated_at INTEGER)"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+            ("H0001_assets", 1),
+        )
+
+    with pytest.raises(MigrationStateError):
+        SqliteDatabase(database_path).initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT id FROM schema_migrations").fetchall() == [
+            ("H0001_assets",)
+        ]
+        assert connection.execute("PRAGMA table_info(assets)").fetchone()[5] == 0
+
+
+def test_initialize_adopts_a_no_ledger_historical_schema_without_rewriting_rows(
+    tmp_path: Path,
+) -> None:
+    """A historical database gains only additive schema and preserves durable data."""
+    database_path = tmp_path / "historical.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE assets (id TEXT PRIMARY KEY, filename TEXT NOT NULL, "
+            "media_type TEXT NOT NULL, original_path TEXT NOT NULL, status TEXT NOT NULL, "
+            "created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO assets VALUES "
+            "('asset-1', 'clip.wav', 'audio', '/media/clip.wav', 'queued', 1, 1)"
+        )
+
+    database = SqliteDatabase(database_path)
+    database.initialize()
+    database.initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT id, filename FROM assets").fetchall() == [
+            ("asset-1", "clip.wav")
+        ]
+        assert connection.execute("SELECT id FROM schema_migrations").fetchall()

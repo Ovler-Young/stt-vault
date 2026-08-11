@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from stt_vault.core.models.records import VisualEvent
 from stt_vault.processing.visual import (
     VisualProcessingError,
     detect_slide_changes,
@@ -122,7 +123,7 @@ def test_write_visual_event_thumbnails_uses_injected_extractor(tmp_path: Path) -
         tmp_path / "clip.mp4",
         tmp_path / "exports",
         "asset-1",
-        [{"timestamp": 2.5, "score": 20.0, "kind": "slide_change"}],
+        [VisualEvent(2.5, 20.0, "slide_change")],
         extractor=lambda media_path, output_path, timestamp, _runner: (
             calls.append((media_path, output_path, timestamp)),
             output_path,

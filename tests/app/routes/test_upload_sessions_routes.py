@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from stt_vault.core.auth import require_admin
 from stt_vault.core.config import get_settings
 from stt_vault.core.models.api import UploadCompletionResponse
-from stt_vault.core.models.records import UploadResponse
-from stt_vault.persistence import db
+from stt_vault.core.models.records import UploadResponse, UploadSessionRecord
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.routes.uploads import routes as upload_routes
 from stt_vault.routes.uploads.routes import UploadLockRegistry, register_upload_routes
 from stt_vault.services import media_storage
@@ -35,9 +35,10 @@ def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> 
 
     assert create_response.status_code == 200
     upload_id = create_response.json()["id"]
-    upload = db.get_upload_session(get_settings().stt_db_path, upload_id)
+    database = SqliteDatabase(get_settings().stt_db_path)
+    upload = database.get_upload_session(upload_id)
     assert upload is not None
-    Path(upload["temp_path"]).write_bytes(b"unconfirmed")
+    Path(upload.temp_path).write_bytes(b"unconfirmed")
     first_response = client.put(
         f"/api/uploads/{upload_id}",
         headers={**headers, "Content-Range": "bytes 0-4/10"},
@@ -82,11 +83,11 @@ def test_ranged_upload_tracks_offset_and_completes_asset(client: TestClient) -> 
             "status": "queued",
         }
     )
-    asset = db.get_asset(get_settings().stt_db_path, complete_response.json()["id"])
+    asset = database.get_asset(complete_response.json()["id"])
     assert asset is not None
-    assert asset["filename"] == "2026-07-15_12-57-52.mp4"
-    assert asset["recorded_at"] == 1_784_120_272
-    assert Path(asset["original_path"]).read_bytes() == b"firstfinal"
+    assert asset.filename == "2026-07-15_12-57-52.mp4"
+    assert asset.recorded_at == 1_784_120_272
+    assert Path(asset.original_path).read_bytes() == b"firstfinal"
     assert client.get(f"/api/uploads/{upload_id}", headers=headers).status_code == 404
 
 
@@ -99,13 +100,7 @@ def test_upload_session_completion_returns_named_response(tmp_path: Path) -> Non
     temp_path = settings.uploads_dir / "upload.part"
     temp_path.parent.mkdir(parents=True)
     temp_path.write_bytes(b"upload")
-    upload = {
-        "id": "upload-1",
-        "filename": "clip.wav",
-        "total_size": 6,
-        "offset": 6,
-        "temp_path": str(temp_path),
-    }
+    upload = UploadSessionRecord("upload-1", "clip.wav", 6, 6, str(temp_path), 1, 1)
     stored_path = settings.media_dir / "asset-1" / "original.wav"
 
     dependencies = UploadSessionDependencies(
@@ -133,20 +128,14 @@ def test_upload_session_completion_uses_content_classification(
     temp_path = settings.uploads_dir / "upload.part"
     temp_path.parent.mkdir(parents=True)
     temp_path.write_bytes(b"media")
-    upload = {
-        "id": "upload-1",
-        "filename": "recording.m4a",
-        "total_size": 5,
-        "offset": 5,
-        "temp_path": str(temp_path),
-    }
+    upload = UploadSessionRecord("upload-1", "recording.m4a", 5, 5, str(temp_path), 1, 1)
     completed: dict[str, object] = {}
     monkeypatch.setattr(media_storage, "ffprobe_media_type", lambda _path: "video")
     dependencies = UploadSessionDependencies(
         create_upload_session=lambda *_args: upload,
         get_upload_session=lambda *_args: upload,
         update_upload_offset=lambda *_args: None,
-        complete_upload_session=lambda *_args: completed.update(media_type=_args[3]),
+        complete_upload_session=lambda command: completed.update(media_type=command.media_type),
         move_upload=media_storage.move_upload,
     )
 
@@ -167,13 +156,7 @@ def test_upload_session_completion_maps_probe_failure_without_moving_upload(
     temp_path = settings.uploads_dir / "upload.part"
     temp_path.parent.mkdir(parents=True)
     temp_path.write_bytes(b"not media")
-    upload = {
-        "id": "upload-1",
-        "filename": "recording.bin",
-        "total_size": 9,
-        "offset": 9,
-        "temp_path": str(temp_path),
-    }
+    upload = UploadSessionRecord("upload-1", "recording.bin", 9, 9, str(temp_path), 1, 1)
     monkeypatch.setattr(
         media_storage,
         "ffprobe_media_type",
@@ -200,7 +183,7 @@ def test_upload_routes_use_injected_session_service() -> None:
     class FakeUploadSessions:
         def create(self, filename: str, total_size: int) -> UploadResponse:
             created.append((filename, total_size))
-            return {"id": "upload-1", "filename": filename, "size": total_size, "offset": 0}
+            return UploadResponse("upload-1", filename, total_size, 0)
 
     app = FastAPI()
     app.dependency_overrides[require_admin] = lambda: None

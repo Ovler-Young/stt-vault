@@ -1,19 +1,17 @@
 import logging
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
 
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import job_log_context, log_exception_diagnostic
 from stt_vault.core.diagnostics.process import format_diagnostic_text
-from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import (
     AssetRecord,
+    ErrorRecord,
     ExportPaths,
+    JobEventCreate,
     TranscriptSegment,
-    VisualEvent,
 )
-from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.exports import write_exports
 from stt_vault.processing.visual import (
     CommandRunner,
@@ -29,25 +27,10 @@ from .worker_models import PreparedAsset
 logger = logging.getLogger(__name__)
 
 
-class ExportRepository(Protocol):
-    def update_stage(self, asset_id: str, stage: str) -> None: ...
-
-    def replace_visual_events(self, asset_id: str, events: list[VisualEvent]) -> None: ...
-
-    def add_event(
-        self,
-        asset_id: str,
-        level: str,
-        stage: str,
-        message: str,
-        payload: Mapping[str, JsonValue],
-    ) -> None: ...
-
-
 class TranscriptExportStage:
-    def __init__(self, settings: Settings, *, repository: ExportRepository | None = None) -> None:
+    def __init__(self, settings: Settings, database: SqliteDatabase) -> None:
         self.settings = settings
-        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
+        self.database = database
 
     def write(
         self,
@@ -58,13 +41,13 @@ class TranscriptExportStage:
         *,
         partial: bool,
     ) -> ExportPaths:
-        self.repository.update_stage(
-            asset_id, "writing partial exports" if partial else "writing exports"
+        self.database.update_stage(
+            asset_id=asset_id, stage="writing partial exports" if partial else "writing exports"
         )
         return write_exports(
             self.settings.exports_dir,
             asset_id,
-            asset["filename"],
+            asset.filename,
             transcript_segments,
             prepared.raw_segments,
             self.settings.parsed_export_formats,
@@ -75,58 +58,60 @@ class VisualEventStage:
     def __init__(
         self,
         settings: Settings,
+        database: SqliteDatabase,
         *,
         thumbnail_runner: CommandRunner = run_checked_command,
         thumbnail_extractor: ThumbnailExtractor | None = None,
-        repository: ExportRepository | None = None,
     ) -> None:
         self.settings = settings
         self.thumbnail_runner = thumbnail_runner
         self.thumbnail_extractor = thumbnail_extractor
-        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
+        self.database = database
 
     def detect(self, asset_id: str, asset: AssetRecord) -> ExportPaths:
-        if asset.get("media_type") != "video":
-            return {}
-        self.repository.update_stage(asset_id, "detecting slide changes")
+        if asset.media_type != "video":
+            return ExportPaths()
+        self.database.update_stage(asset_id=asset_id, stage="detecting slide changes")
         try:
             events = detect_slide_changes(
-                Path(asset["original_path"]),
+                Path(asset.original_path),
                 sample_interval_seconds=self.settings.visual_sample_interval_seconds,
                 threshold=self.settings.visual_change_threshold,
                 min_gap_seconds=self.settings.visual_min_gap_seconds,
             )
-            self.repository.replace_visual_events(asset_id, events)
+            self.database.replace_visual_events(asset_id, events)
             write_visual_event_thumbnails(
-                Path(asset["original_path"]),
+                Path(asset.original_path),
                 self.settings.exports_dir,
                 asset_id,
                 events,
                 runner=self.thumbnail_runner,
                 extractor=self.thumbnail_extractor,
             )
-            return {
-                "visual_events": write_visual_events_export(
+            return ExportPaths(
+                visual_events=write_visual_events_export(
                     self.settings.exports_dir, asset_id, events
                 )
-            }
+            )
         except Exception as error:
             log_exception_diagnostic(
                 logger,
                 "slide-change detection failed",
                 error,
                 event_name="worker.visual_detection_failed",
-                context=job_log_context(self.settings.stt_db_path, asset_id),
+                context=job_log_context(self.database, asset_id),
             )
-            self.repository.add_event(
-                asset_id,
-                "warning",
-                "detecting slide changes",
-                "Slide-change detection failed",
-                {
-                    "category": "visual",
-                    "message": "Slide-change detection failed",
-                    "cause": format_diagnostic_text(str(error)),
-                },
+            self.database.add_event(
+                JobEventCreate(
+                    asset_id,
+                    "warning",
+                    "detecting slide changes",
+                    "Slide-change detection failed",
+                    ErrorRecord(
+                        "visual",
+                        "Slide-change detection failed",
+                        format_diagnostic_text(str(error)),
+                    ),
+                )
             )
-            return {}
+            return ExportPaths()

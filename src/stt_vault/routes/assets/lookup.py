@@ -1,18 +1,14 @@
-from pathlib import Path
-
 from fastapi import HTTPException
 
 from stt_vault.core.models.records import AssetRecord
-from stt_vault.persistence import db
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
 
 def get_asset_or_404(
-    db_path: Path,
+    database: SqliteDatabase,
     asset_id: str,
-    *,
-    include_event_history: bool = True,
 ) -> AssetRecord:
-    asset = db.get_asset(db_path, asset_id, include_event_history=include_event_history)
+    asset = database.get_asset(asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     return asset

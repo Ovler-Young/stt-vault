@@ -48,7 +48,7 @@ def test_extract_audio_chunk_reencodes_normalized_audio_at_the_diarization_times
         return SimpleNamespace(returncode=0, stdout="")
 
     input_path = tmp_path / "audio.16k.mono.wav"
-    output_path = tmp_path / "chunk.m4a"
+    output_path = tmp_path / "chunk.wav"
 
     assert extract_audio_chunk(input_path, output_path, 1.25, 3.5, runner=run) == output_path
     assert commands == [
@@ -72,9 +72,7 @@ def test_extract_audio_chunk_reencodes_normalized_audio_at_the_diarization_times
             "-ar",
             "16000",
             "-c:a",
-            "aac",
-            "-b:a",
-            "96k",
+            "pcm_s16le",
             str(output_path),
         ]
     ]

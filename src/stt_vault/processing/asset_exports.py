@@ -1,27 +1,28 @@
 from stt_vault.core.config import Settings
-from stt_vault.persistence.assets.db_asset_metadata import update_asset_exports
-from stt_vault.persistence.assets.db_asset_records import get_asset
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
 from .exports import write_exports
 
 
-def rewrite_asset_exports(settings: Settings, asset_ids: list[str]) -> None:
+def rewrite_asset_exports(
+    settings: Settings, database: SqliteDatabase, asset_ids: list[str]
+) -> None:
     for asset_id in asset_ids:
-        asset = get_asset(settings.stt_db_path, asset_id, include_event_history=False)
+        asset = database.get_asset(asset_id)
         if asset is None:
             continue
 
-        transcript_segments = asset.get("transcript_segments") or []
-        raw_segments = asset.get("raw_segments") or []
+        transcript_segments = asset.transcript_segments
+        raw_segments = asset.raw_segments
         if not transcript_segments or not raw_segments:
             continue
 
         exports = write_exports(
             settings.exports_dir,
             asset_id,
-            asset["filename"],
-            transcript_segments,
-            raw_segments,
+            asset.filename,
+            list(transcript_segments),
+            list(raw_segments),
             settings.parsed_export_formats,
         )
-        update_asset_exports(settings.stt_db_path, asset_id, exports)
+        database.update_asset_exports(asset_id, exports)

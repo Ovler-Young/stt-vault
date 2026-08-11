@@ -12,7 +12,7 @@ from stt_vault.core.models.api import (
     AssetUploadResponse,
     JobResponse,
 )
-from stt_vault.persistence import db
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.services.asset_uploads import (
     AssetUploadDependencies,
     AssetUploadPersistenceError,
@@ -20,12 +20,15 @@ from stt_vault.services.asset_uploads import (
     store_asset_upload,
 )
 
+from .details import asset_response, job_response
+
 __all__ = ["register_asset_collection_routes"]
 
 
 def register_asset_collection_routes(
     app: FastAPI,
     settings: Settings,
+    database: SqliteDatabase,
     asset_upload_dependencies: AssetUploadDependencies,
 ) -> None:
     router = APIRouter()
@@ -87,11 +90,11 @@ def register_asset_collection_routes(
 
     @router.get("/api/assets")
     def list_assets(_: Annotated[None, Depends(require_admin)]) -> list[AssetResponse]:
-        return db.list_assets(settings.stt_db_path)
+        return [asset_response(asset) for asset in database.list_assets()]
 
     @router.get("/api/jobs")
     def list_jobs(_: Annotated[None, Depends(require_admin)]) -> list[JobResponse]:
-        return db.list_jobs(settings.stt_db_path)
+        return [job_response(job) for job in database.list_jobs()]
 
     app.include_router(router)
 

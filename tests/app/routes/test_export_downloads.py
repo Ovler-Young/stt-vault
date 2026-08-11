@@ -5,7 +5,8 @@ from _support.upload_routes import auth_headers
 from fastapi.testclient import TestClient
 
 from stt_vault.core.config import get_settings
-from stt_vault.persistence import db
+from stt_vault.core.models.records import AssetSummaryUpdate, ExportPaths, NewAsset
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
 EXPORT_FILES = {
     "json": "transcript.json",
@@ -25,27 +26,17 @@ def create_export_asset(
     title: str | None = None,
 ) -> None:
     settings = get_settings()
-    exports = {}
+    exports: dict[str, str] = {}
     for format_name, export_filename in EXPORT_FILES.items():
         export_path = settings.exports_dir / asset_id / export_filename
         export_path.parent.mkdir(parents=True, exist_ok=True)
         export_path.write_text("transcript", encoding="utf-8")
         exports[format_name] = str(export_path)
-    db.create_asset(
-        settings.stt_db_path,
-        asset_id,
-        filename,
-        "video",
-        Path(f"/{filename}"),
-    )
+    database = SqliteDatabase(settings.stt_db_path)
+    database.create_asset(NewAsset(asset_id, filename, "video", Path(f"/{filename}")))
     if title is not None:
-        db.update_asset_summary(
-            settings.stt_db_path,
-            asset_id,
-            status="success",
-            title=title,
-        )
-    db.update_asset_exports(settings.stt_db_path, asset_id, exports)
+        database.update_asset_summary(AssetSummaryUpdate(asset_id, "success", title=title))
+    database.update_asset_exports(asset_id, ExportPaths(**exports))
 
 
 def test_export_download_preserves_dotted_title_and_all_export_suffixes(

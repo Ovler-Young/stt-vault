@@ -1,12 +1,22 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
+
+_SENKO_EMBEDDING_MODEL_SHA256 = "92f29b94e6948786a26778c9e302525d185bb08c8b9f5252ed98776902840199"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
 
     stt_data_dir: Path = Field(default=Path("/data"), alias="STT_DATA_DIR")
     stt_db_path: Path = Field(default=Path("/data/app.sqlite3"), alias="STT_DB_PATH")
@@ -33,10 +43,33 @@ class Settings(BaseSettings):
         alias="OPENAI_RETRY_BACKOFF_SECONDS",
     )
 
+    stt_transcription_provider: Literal["openai", "mod-whisper-cpu"] = Field(
+        alias="STT_TRANSCRIPTION_PROVIDER"
+    )
+    stt_diarization_provider: Literal["senko"] = Field(alias="STT_DIARIZATION_PROVIDER")
+    mod_whisper_cpu_image_digest: str = Field(default="", alias="STT_MOD_WHISPER_CPU_DIGEST")
+
     diarization_concurrency: int = Field(default=1, alias="DIARIZATION_CONCURRENCY")
     job_lease_seconds: int = Field(default=120, alias="JOB_LEASE_SECONDS")
     diarizer_idle_timeout_seconds: int = Field(default=900, alias="DIARIZER_IDLE_TIMEOUT_SECONDS")
     senko_device: str = Field(default="auto", alias="SENKO_DEVICE")
+    senko_embedding_space_id: str = Field(
+        default="senko-campplus-192-cosine",
+        alias="SENKO_EMBEDDING_SPACE_ID",
+    )
+    senko_embedding_model_id: str = Field(
+        default="speech-campplus-sv-zh-en-16k-common-advanced",
+        alias="SENKO_EMBEDDING_MODEL_ID",
+    )
+    senko_embedding_revision: str = Field(
+        default="ba0e12ed923ff49e8c2d9d9a3e42d7923cb95724",
+        alias="SENKO_EMBEDDING_REVISION",
+    )
+    senko_embedding_sha256: str = Field(
+        default=_SENKO_EMBEDDING_MODEL_SHA256,
+        alias="SENKO_EMBEDDING_SHA256",
+    )
+    senko_embedding_dimension: int = Field(default=192, ge=1, alias="SENKO_EMBEDDING_DIMENSION")
 
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")
@@ -62,6 +95,19 @@ class Settings(BaseSettings):
         default="json,whisper_json,ai_text,srt,vtt,hyperaudio_html,rttm",
         alias="EXPORT_FORMATS",
     )
+
+    @model_validator(mode="after")
+    def validate_selected_mod_digest(self) -> "Settings":
+        if self.stt_transcription_provider != "mod-whisper-cpu":
+            return self
+        digest = self.mod_whisper_cpu_image_digest
+        if (
+            len(digest) != 71
+            or not digest.startswith("sha256:")
+            or any(character not in "0123456789abcdef" for character in digest[7:])
+        ):
+            raise ValueError("STT_MOD_WHISPER_CPU_DIGEST must be a sha256 image digest")
+        return self
 
     @property
     def media_dir(self) -> Path:
@@ -95,6 +141,17 @@ class Settings(BaseSettings):
             if item:
                 values.append(max(1, int(item)))
         return values or [self.openai_retry_seconds]
+
+    @property
+    def senko_embedding_space(self) -> EmbeddingSpaceV1:
+        return EmbeddingSpaceV1(
+            space_id=self.senko_embedding_space_id,
+            model_id=self.senko_embedding_model_id,
+            revision=self.senko_embedding_revision,
+            sha256=self.senko_embedding_sha256,
+            dimension=self.senko_embedding_dimension,
+            metric="cosine",
+        )
 
 
 @lru_cache

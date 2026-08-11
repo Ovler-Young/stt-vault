@@ -105,16 +105,16 @@ def ffprobe_audio_streams(
     for audio_index, stream in enumerate(raw_streams):
         tags = stream.get("tags", {})
         streams.append(
-            {
-                "audio_index": audio_index,
-                "stream_index": stream.get("index"),
-                "codec_name": stream.get("codec_name"),
-                "channels": stream.get("channels"),
-                "channel_layout": stream.get("channel_layout"),
-                "bit_rate": stream.get("bit_rate"),
-                "language": tags.get("language"),
-                "title": tags.get("title"),
-            }
+            AudioStream(
+                audio_index,
+                stream.get("index"),
+                stream.get("codec_name"),
+                stream.get("channels"),
+                stream.get("channel_layout"),
+                stream.get("bit_rate"),
+                tags.get("language"),
+                tags.get("title"),
+            )
         )
     return streams
 

@@ -108,15 +108,18 @@ def test_create_app_accepts_injected_composition_dependencies(tmp_path: Path) ->
     worker = SimpleNamespace(
         start=lambda: calls.append("start"),
         stop=lambda: calls.append("stop"),
+        recover_startup_jobs=lambda: calls.append("recover"),
+    )
+    database = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"), close=lambda: calls.append("close")
     )
     dependencies = ApplicationDependencies(
         configure_logging=lambda: calls.append("logging"),
         get_settings=lambda: settings,
         prepare_directories=lambda _settings: calls.append("directories"),
-        initialize_database=lambda _path: calls.append("initialize"),
-        recover_expired_jobs=lambda _path: calls.append("recover"),
-        worker_factory=lambda _settings: worker,
-        register_routes=lambda _app, _settings, created_worker: (
+        database_factory=lambda _settings: database,
+        worker_factory=lambda _settings, database: worker,
+        register_routes=lambda _app, _settings, created_worker, database: (
             calls.append("routes"),
             assert_worker(created_worker, worker),
         ),
@@ -131,11 +134,12 @@ def test_create_app_accepts_injected_composition_dependencies(tmp_path: Path) ->
         "logging",
         "directories",
         "initialize",
-        "recover",
         "routes",
         "frontend",
+        "recover",
         "start",
         "stop",
+        "close",
     ]
 
 

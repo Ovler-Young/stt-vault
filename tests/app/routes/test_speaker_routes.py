@@ -6,7 +6,9 @@ from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
 from stt_vault.core.config import get_settings
-from stt_vault.persistence import db
+from stt_vault.core.models.api import SpeakerResponse
+from stt_vault.core.models.records import SpeakerUpsert
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
 
 @pytest.fixture
@@ -32,20 +34,25 @@ def test_speaker_routes_return_declared_response_shapes(
 ) -> None:
     client, headers = route_client
     settings = get_settings()
-    db.upsert_speaker(settings.stt_db_path, "speaker-a", "Alice", [0.1, 0.2], 2)
-    db.upsert_speaker(settings.stt_db_path, "speaker-b", "Bob", [0.3, 0.4], 1)
+    database = SqliteDatabase(settings.stt_db_path)
+    database.upsert_speaker(
+        SpeakerUpsert("speaker-a", "Alice", [0.1, 0.2], 2, settings.senko_embedding_space)
+    )
+    database.upsert_speaker(
+        SpeakerUpsert("speaker-b", "Bob", [0.3, 0.4], 1, settings.senko_embedding_space)
+    )
 
     listed = client.get("/api/speakers", headers=headers)
     expected_listed = [
-        db.get_speaker(settings.stt_db_path, "speaker-a"),
-        db.get_speaker(settings.stt_db_path, "speaker-b"),
+        database.get_speaker("speaker-a"),
+        database.get_speaker("speaker-b"),
     ]
     renamed = client.put(
         "/api/speakers/speaker-a",
         headers=headers,
         json={"display_name": "Alicia"},
     )
-    renamed_speaker = db.get_speaker(settings.stt_db_path, "speaker-a")
+    renamed_speaker = database.get_speaker("speaker-a")
     merged = client.post(
         "/api/speakers/speaker-a/merge",
         headers=headers,
@@ -56,10 +63,12 @@ def test_speaker_routes_return_declared_response_shapes(
 
     assert listed.status_code == 200
     assert all(speaker is not None for speaker in expected_listed)
-    assert listed.json() == expected_listed
+    assert listed.json() == [
+        SpeakerResponse.model_validate(speaker).model_dump() for speaker in expected_listed
+    ]
     assert renamed.status_code == 200
     assert renamed_speaker is not None
-    assert renamed.json() == renamed_speaker
+    assert renamed.json() == SpeakerResponse.model_validate(renamed_speaker).model_dump()
     assert merged.status_code == 200
     assert merged.json()["id"] == "speaker-a"
     assert recomputed.json() == {"assets": 0}
@@ -99,16 +108,19 @@ def test_speaker_rename_rejects_a_missing_post_mutation_row(
 ) -> None:
     client, headers = route_client
     settings = get_settings()
-    db.upsert_speaker(settings.stt_db_path, "speaker-a", "Alice", [0.1, 0.2], 1)
-    original_get_speaker = db.get_speaker
+    database = SqliteDatabase(settings.stt_db_path)
+    database.upsert_speaker(
+        SpeakerUpsert("speaker-a", "Alice", [0.1, 0.2], 1, settings.senko_embedding_space)
+    )
+    original_get_speaker = SqliteDatabase.get_speaker
     calls = 0
 
-    def get_speaker_then_lose_row(db_path: Path, speaker_id: str):
+    def get_speaker_then_lose_row(database: SqliteDatabase, speaker_id: str):
         nonlocal calls
         calls += 1
-        return original_get_speaker(db_path, speaker_id) if calls == 1 else None
+        return original_get_speaker(database, speaker_id) if calls == 1 else None
 
-    monkeypatch.setattr(db, "get_speaker", get_speaker_then_lose_row)
+    monkeypatch.setattr(SqliteDatabase, "get_speaker", get_speaker_then_lose_row)
 
     response = client.put(
         "/api/speakers/speaker-a",

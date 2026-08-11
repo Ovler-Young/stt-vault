@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
 from stt_vault.core.config import get_settings
-from stt_vault.persistence import db
+from stt_vault.core.models.records import NewAsset
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
 
 @pytest.fixture
@@ -46,12 +47,8 @@ def test_folder_routes_build_a_tree_and_move_assets(
     child = child_response.json()
 
     settings = get_settings()
-    db.create_asset(
-        settings.stt_db_path,
-        "asset-1",
-        "roadmap.wav",
-        "audio",
-        settings.media_dir / "asset-1" / "roadmap.wav",
+    SqliteDatabase(settings.stt_db_path).create_asset(
+        NewAsset("asset-1", "roadmap.wav", "audio", settings.media_dir / "asset-1" / "roadmap.wav")
     )
     move_response = client.post(
         "/api/assets/asset-1/move",
@@ -149,13 +146,14 @@ def test_folder_delete_rejects_non_empty_folder(
     client, headers = folder_client
     folder = client.post("/api/folders", headers=headers, json={"name": "Meetings"}).json()
     settings = get_settings()
-    db.create_asset(
-        settings.stt_db_path,
-        "asset-1",
-        "meeting.mp4",
-        "video",
-        settings.media_dir / "asset-1" / "meeting.mp4",
-        parent_folder_id=folder["id"],
+    SqliteDatabase(settings.stt_db_path).create_asset(
+        NewAsset(
+            "asset-1",
+            "meeting.mp4",
+            "video",
+            settings.media_dir / "asset-1" / "meeting.mp4",
+            folder["id"],
+        )
     )
 
     response = client.delete(f"/api/folders/{folder['id']}", headers=headers)

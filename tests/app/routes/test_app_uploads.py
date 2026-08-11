@@ -12,7 +12,7 @@ from stt_vault.core.models.api import (
     UploadCompletionResponse,
     UploadProgressResponse,
 )
-from stt_vault.persistence import db
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.services.asset_uploads import AssetUploadPersistenceError, AssetUploadTooLargeError
 
 
@@ -88,11 +88,11 @@ def test_single_upload_uses_shared_persistence_sequence(client: TestClient) -> N
 
     assert response.status_code == 200
     asset_id = response.json()["id"]
-    asset = db.get_asset(get_settings().stt_db_path, asset_id)
+    asset = SqliteDatabase(get_settings().stt_db_path).get_asset(asset_id)
     assert asset is not None
-    assert asset["filename"] == "clip.uncommon"
-    assert asset["media_type"] == "audio"
-    assert Path(asset["original_path"]).read_bytes() == b"audio"
+    assert asset.filename == "clip.uncommon"
+    assert asset.media_type == "audio"
+    assert Path(asset.original_path).read_bytes() == b"audio"
     list_response = client.get("/api/assets", headers=auth_headers(client))
     detail_response = client.get(f"/api/assets/{asset_id}", headers=auth_headers(client))
     assert list_response.status_code == 200

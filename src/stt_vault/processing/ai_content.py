@@ -27,14 +27,14 @@ def build_content_analysis_prompt(
 ) -> str:
     lines = []
     for segment in segments:
-        speaker = str(segment.get("speaker") or "UNKNOWN")
-        display_name = str(segment.get("speaker_name") or "").strip()
+        speaker = segment.speaker or "UNKNOWN"
+        display_name = (segment.speaker_name or "").strip()
         label = speaker
         if display_name and display_name != speaker:
             label = f"{speaker} ({display_name})"
-        start = _format_timestamp(segment.get("start"))
-        end = _format_timestamp(segment.get("end"))
-        text = str(segment.get("text") or "").strip()
+        start = _format_timestamp(segment.start)
+        end = _format_timestamp(segment.end)
+        text = segment.text.strip()
         lines.append(f"[{label} {start}-{end}] {text}")
 
     return "\n".join(

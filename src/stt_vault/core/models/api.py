@@ -2,13 +2,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from .mod_contracts import EmbeddingSpaceV1
+
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 
 
 class ApiRecord(BaseModel):
     """Validated boundary between decoded SQLite rows and HTTP responses."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class ConfigResponse(ApiRecord):
@@ -150,11 +152,22 @@ class DiarizationResult(DatabaseRecord):
     merged_segments: list[DiarizationSegment]
     speaker_centroids: dict[str, list[float]]
     timing_stats: dict[str, JsonValue]
+    embedding_space: EmbeddingSpaceV1 | None = None
 
 
 class ErrorResponse(ApiRecord):
     category: str | None = None
     message: str
+
+
+class TimedTranscriptUnitResponse(DatabaseRecord):
+    unit_index: int
+    text: str
+    start_ms: int
+    end_ms: int
+    confidence: float | None = None
+    language: str | None = None
+    token_kind: Literal["word", "token", "punctuation", "other"]
 
 
 class TranscriptResponse(DatabaseRecord):
@@ -172,6 +185,7 @@ class TranscriptResponse(DatabaseRecord):
     status: Literal["success", "failed"] | None = None
     error: ErrorResponse | None = None
     updated_at: int | None = None
+    timed_units: list[TimedTranscriptUnitResponse] | None = None
 
 
 class TranscriptChunkRecord(TranscriptResponse):

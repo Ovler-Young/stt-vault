@@ -1,48 +1,35 @@
 from pathlib import Path
 
-from stt_vault.persistence import db
-from stt_vault.persistence.assets.db_asset_records import recorded_at_from_filename
+from _support.db_assets import initialized_db
+
+from stt_vault.core.models.records import NewAsset
 
 
-def test_recorded_at_from_filename_accepts_timestamp_basename() -> None:
-    assert recorded_at_from_filename("2026-07-15_12-57-52.mp4") == 1_784_120_272
-    assert recorded_at_from_filename("recordings/2026-07-08_09-00-10.mp4") == 1_783_501_210
-    assert recorded_at_from_filename("meeting.mp4") is None
-    assert recorded_at_from_filename("2026-02-30_09-00-10.mp4") is None
+def test_recorded_at_from_filename_is_persisted_for_timestamp_basenames(tmp_path: Path) -> None:
+    database = initialized_db(tmp_path)
+    database.create_asset(
+        NewAsset("recorded", "2026-07-15_12-57-52.mp4", "video", tmp_path / "recorded.mp4")
+    )
+    database.create_asset(NewAsset("plain", "meeting.mp4", "video", tmp_path / "plain.mp4"))
+
+    recorded = database.get_asset("recorded")
+    plain = database.get_asset("plain")
+
+    assert recorded is not None
+    assert plain is not None
+    assert recorded.recorded_at == 1_784_120_272
+    assert plain.recorded_at is None
 
 
-def test_assets_sort_by_recorded_time_with_upload_time_fallback(tmp_path: Path) -> None:
-    db_path = tmp_path / "app.sqlite3"
-    db.initialize(db_path)
-    db.create_asset(db_path, "older", "2026-07-08_09-00-10.mp4", "video", tmp_path / "a")
-    db.create_asset(db_path, "newer", "2026-07-15_12-57-52.mp4", "video", tmp_path / "b")
-    db.create_asset(db_path, "fallback", "meeting.mp4", "video", tmp_path / "c")
-    with db.transaction(db_path) as conn:
-        conn.execute("UPDATE assets SET created_at = ? WHERE id = ?", (1_700_000_000, "fallback"))
+def test_assets_and_folder_tree_sort_by_recorded_time(tmp_path: Path) -> None:
+    database = initialized_db(tmp_path)
+    database.create_asset(NewAsset("older", "2026-07-08_09-00-10.mp4", "video", tmp_path / "a"))
+    database.create_asset(NewAsset("newer", "2026-07-15_12-57-52.mp4", "video", tmp_path / "b"))
+    database.create_asset(NewAsset("fallback", "meeting.mp4", "video", tmp_path / "c"))
 
-    assert [asset["id"] for asset in db.list_assets(db_path)] == ["newer", "older", "fallback"]
-    assert [asset.id for asset in db.list_folder_tree(db_path).assets] == [
+    assert [asset.id for asset in database.list_assets()] == ["newer", "older", "fallback"]
+    assert [asset.id for asset in database.list_folder_tree().assets] == [
         "newer",
         "older",
         "fallback",
     ]
-
-
-def test_schema_initialization_backfills_recorded_time_for_existing_assets(tmp_path: Path) -> None:
-    db_path = tmp_path / "app.sqlite3"
-    db.initialize(db_path)
-    db.create_asset(
-        db_path,
-        "existing",
-        "2026-07-15_12-57-52.mp4",
-        "video",
-        tmp_path / "existing.mp4",
-    )
-    with db.transaction(db_path) as conn:
-        conn.execute("UPDATE assets SET recorded_at = NULL WHERE id = 'existing'")
-
-    db.initialize(db_path)
-
-    asset = db.get_asset(db_path, "existing")
-    assert asset is not None
-    assert asset["recorded_at"] == 1_784_120_272

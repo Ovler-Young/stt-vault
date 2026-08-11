@@ -6,6 +6,7 @@ from pathlib import Path
 
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import log_exception_diagnostic
+from stt_vault.core.models.records import NewAsset
 
 __all__ = [
     "AssetUploadDependencies",
@@ -16,7 +17,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 ChunkReader = Callable[[int], Awaitable[bytes]]
 StoreUpload = Callable[[Path, str, Path], tuple[str, Path, str]]
-CreateAsset = Callable[[Path, str, str, str, Path], None]
+CreateAsset = Callable[[NewAsset], object]
 RemoveAssetDirectory = Callable[[Path], None]
 
 
@@ -56,9 +57,7 @@ async def store_asset_upload(
             settings.media_dir, filename, tmp_path
         )
         try:
-            dependencies.create_asset(
-                settings.stt_db_path, asset_id, filename, media_type, stored_path
-            )
+            dependencies.create_asset(NewAsset(asset_id, filename, media_type, stored_path))
         except Exception:
             dependencies.remove_asset_directory(settings.media_dir / asset_id)
             raise

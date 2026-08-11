@@ -40,7 +40,8 @@ def test_store_asset_upload_uses_injected_persistence_dependencies(tmp_path: Pat
     assert asset_id == "asset-1"
     assert persisted["filename"] == "clip.wav"
     assert persisted["bytes"] == b"audio"
-    assert persisted["db_args"][2] == "clip.wav"
+    record = persisted["db_args"][0]
+    assert record.filename == "clip.wav"
 
 
 def test_store_asset_upload_raises_domain_error_for_oversized_reader(
@@ -78,7 +79,7 @@ def test_store_asset_upload_persists_the_content_classification(
     )
     dependencies = asset_uploads.AssetUploadDependencies(
         store_upload=media_storage.store_upload,
-        create_asset=lambda *_args: persisted.setdefault("media_type", _args[3]),
+        create_asset=lambda record: persisted.setdefault("media_type", record.media_type),
         remove_asset_directory=lambda _path: pytest.fail("Rollback must not be called"),
     )
     monkeypatch.setattr(media_storage, "ffprobe_media_type", lambda _path: "audio")

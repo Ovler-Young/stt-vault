@@ -8,7 +8,7 @@ from stt_vault.core.auth import require_admin, require_resource_access
 from stt_vault.core.config import Settings
 from stt_vault.core.models.api import VisualEventDetectionResponse, VisualEventResponse
 from stt_vault.core.models.records import PersistedVisualEvent
-from stt_vault.persistence import db
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.asset_visual_events import detect_asset_visual_events
 from stt_vault.processing.visual import extract_thumbnail, visual_event_thumbnail_path
 
@@ -17,7 +17,9 @@ from .lookup import get_asset_or_404
 __all__ = ["register_asset_visual_event_routes"]
 
 
-def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None:
+def register_asset_visual_event_routes(
+    app: FastAPI, settings: Settings, database: SqliteDatabase
+) -> None:
     router = APIRouter()
 
     @router.get(
@@ -27,8 +29,8 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
     def get_visual_events(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[PersistedVisualEvent]:
-        get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
-        return db.list_visual_events(settings.stt_db_path, asset_id)
+        get_asset_or_404(database, asset_id)
+        return database.list_visual_events(asset_id)
 
     @router.post(
         "/api/assets/{asset_id}/visual-events",
@@ -36,8 +38,8 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
         response_model=VisualEventDetectionResponse,
     )
     def detect_visual_events(asset_id: str) -> VisualEventDetectionResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
-        events = detect_asset_visual_events(settings, asset)
+        asset = get_asset_or_404(database, asset_id)
+        events = detect_asset_visual_events(settings, database, asset)
         return VisualEventDetectionResponse(events=len(events))
 
     @router.get("/api/assets/{asset_id}/visual-events/{event_index}/thumbnail")
@@ -46,15 +48,15 @@ def register_asset_visual_event_routes(app: FastAPI, settings: Settings) -> None
         event_index: int,
         _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
-        events = db.list_visual_events(settings.stt_db_path, asset_id)
+        asset = get_asset_or_404(database, asset_id)
+        events = database.list_visual_events(asset_id)
         if event_index < 0 or event_index >= len(events):
             raise HTTPException(status_code=404, detail="Visual event not found")
 
         path = visual_event_thumbnail_path(settings.exports_dir, asset_id, event_index)
         if not path.exists():
-            timestamp = float(events[event_index]["timestamp"])
-            extract_thumbnail(Path(asset["original_path"]), path, timestamp)
+            timestamp = events[event_index].timestamp
+            extract_thumbnail(Path(asset.original_path), path, timestamp)
         return FileResponse(path)
 
     app.include_router(router)

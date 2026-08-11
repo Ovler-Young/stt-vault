@@ -11,8 +11,18 @@ import pytest
 from pydantic import ValidationError
 
 from stt_vault.core.models.api import DiarizationResult
+from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
 from stt_vault.processing.diarization import DiarizerManager, _create_senko_diarizer
 from stt_vault.processing.diarization.contracts import ProviderDiarizationPayload
+
+SENKO_EMBEDDING_SPACE = EmbeddingSpaceV1(
+    space_id="senko-campplus-192-cosine",
+    model_id="speech-campplus-sv-zh-en-16k-common-advanced",
+    revision="ba0e12ed923ff49e8c2d9d9a3e42d7923cb95724",
+    sha256="a" * 64,
+    dimension=192,
+    metric="cosine",
+)
 
 
 def test_diarization_model_rejects_malformed_provider_data() -> None:
@@ -38,7 +48,11 @@ def test_diarizer_manager_rejects_malformed_provider_result() -> None:
                 "timing_stats": {},
             }
 
-    manager = DiarizerManager(device="cpu", idle_timeout_seconds=1)
+    manager = DiarizerManager(
+        device="cpu",
+        idle_timeout_seconds=1,
+        embedding_space=SENKO_EMBEDDING_SPACE,
+    )
     manager._diarizer = MalformedProvider()
 
     with pytest.raises(ValidationError):
@@ -56,10 +70,70 @@ def test_diarizer_manager_rejects_non_array_provider_centroid() -> None:
                 "timing_stats": {},
             }
 
-    manager = DiarizerManager(device="cpu", idle_timeout_seconds=1)
+    manager = DiarizerManager(
+        device="cpu",
+        idle_timeout_seconds=1,
+        embedding_space=SENKO_EMBEDDING_SPACE,
+    )
     manager._diarizer = MalformedProvider()
 
     with pytest.raises(ValueError, match="invalid speaker centroid"):
+        manager.diarize("audio.wav")
+
+
+def test_diarizer_manager_rejects_centroids_without_embedding_space() -> None:
+    class ProviderWithoutProvenance:
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload:
+            assert generate_colors
+            return {
+                "raw_segments": [],
+                "merged_segments": [],
+                "speaker_centroids": {"SPEAKER_00": np.array([0.1, 0.2])},
+                "timing_stats": {},
+            }
+
+    manager = DiarizerManager(
+        device="cpu",
+        idle_timeout_seconds=1,
+        embedding_space=SENKO_EMBEDDING_SPACE,
+    )
+    manager._diarizer = ProviderWithoutProvenance()
+
+    with pytest.raises(ValueError, match="embedding space"):
+        manager.diarize("audio.wav")
+
+
+@pytest.mark.parametrize(
+    ("centroid", "reason"),
+    [
+        (np.ones(191, dtype=np.float32), "dimension"),
+        (np.full(192, np.nan, dtype=np.float32), "finite"),
+        (np.zeros(192, dtype=np.float32), "norm must be nonzero"),
+    ],
+)
+def test_diarizer_manager_rejects_centroids_incompatible_with_embedding_space(
+    centroid: np.ndarray,
+    reason: str,
+) -> None:
+    class InvalidCentroidProvider:
+        def diarize(self, _wav_path: str, *, generate_colors: bool) -> ProviderDiarizationPayload:
+            assert generate_colors
+            return {
+                "raw_segments": [],
+                "merged_segments": [],
+                "speaker_centroids": {"SPEAKER_00": centroid},
+                "timing_stats": {},
+                "embedding_space": SENKO_EMBEDDING_SPACE,
+            }
+
+    manager = DiarizerManager(
+        device="cpu",
+        idle_timeout_seconds=1,
+        embedding_space=SENKO_EMBEDDING_SPACE,
+    )
+    manager._diarizer = InvalidCentroidProvider()
+
+    with pytest.raises(ValueError, match=reason):
         manager.diarize("audio.wav")
 
 
@@ -77,7 +151,8 @@ def test_diarizer_manager_uses_injected_factory() -> None:
     manager = DiarizerManager(
         device="cpu",
         idle_timeout_seconds=1,
-        diarizer_factory=lambda device: calls.append(device) or provider,
+        embedding_space=SENKO_EMBEDDING_SPACE,
+        diarizer_factory=lambda device, _embedding_space: calls.append(device) or provider,
     )
 
     assert manager.diarize("audio.wav") is None
@@ -126,7 +201,7 @@ def test_senko_factory_disables_nnpack_before_cpu_model_construction(
     senko.Diarizer = FakeDiarizer
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "senko", senko)
-    _create_senko_diarizer(device)
+    _create_senko_diarizer(device, SENKO_EMBEDDING_SPACE)
 
     assert calls == expected_calls
 
@@ -150,7 +225,7 @@ def test_public_senko_runtime_preserves_diarization_payload_through_manager(
                     {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
                 ],
                 "speaker_centroids": {
-                    "SPEAKER_00": np.array([0.25, 0.75], dtype=np.float32),
+                    "SPEAKER_00": np.full(192, 0.25, dtype=np.float32),
                 },
                 "timing_stats": {"provider_time": 1.25},
             }
@@ -162,6 +237,7 @@ def test_public_senko_runtime_preserves_diarization_payload_through_manager(
     manager = DiarizerManager(
         device="cuda",
         idle_timeout_seconds=1,
+        embedding_space=SENKO_EMBEDDING_SPACE,
         diarizer_factory=_create_senko_diarizer,
     )
 
@@ -177,7 +253,8 @@ def test_public_senko_runtime_preserves_diarization_payload_through_manager(
     ] == [
         (0.0, 2.0, "SPEAKER_00"),
     ]
-    assert result.speaker_centroids == {"SPEAKER_00": [0.25, 0.75]}
+    assert result.speaker_centroids == {"SPEAKER_00": [0.25] * 192}
+    assert result.embedding_space == SENKO_EMBEDDING_SPACE
     assert result.timing_stats["provider_time"] == 1.25
     assert isinstance(result.timing_stats["manager_diarize_wall_time"], float)
     assert "manager_rss_mb_before" in result.timing_stats
@@ -232,7 +309,17 @@ def test_cpu_nnpack_disable_preserves_native_inference_output_and_suppresses_war
 
             import stt_vault.processing.diarization as diarization
 
-            diarization._create_senko_diarizer("cpu")
+            diarization._create_senko_diarizer(
+                "cpu",
+                diarization.EmbeddingSpaceV1(
+                    space_id="test-space",
+                    model_id="test-model",
+                    revision="r1",
+                    sha256="a" * 64,
+                    dimension=192,
+                    metric="cosine",
+                ),
+            )
             print(json.dumps({"disable_calls": disable_calls, "output": Diarizer.output}))
         """
     )

@@ -1,18 +1,17 @@
 import logging
 from collections.abc import Callable
-from pathlib import Path
-from typing import Protocol
 
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import job_log_context, log_exception_diagnostic
-from stt_vault.core.models.api import JsonValue
 from stt_vault.core.models.records import (
+    CompleteAsset,
+    DiarizationMetadata,
     ErrorRecord,
     ExportPaths,
-    SpeakerSegment,
+    JobEventCreate,
     TranscriptSegment,
 )
-from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.summary_service import SummaryGenerationResult, generate_asset_summary
 
 from .worker_failure import classify_worker_failure
@@ -22,36 +21,12 @@ logger = logging.getLogger(__name__)
 SummaryGenerator = Callable[[Settings, str], SummaryGenerationResult]
 
 
-class CompletionRepository(Protocol):
-    def mark_success(
-        self,
-        asset_id: str,
-        *,
-        wav_path: Path,
-        duration: float,
-        diarization_stats: dict[str, JsonValue],
-        raw_segments: list[SpeakerSegment],
-        merged_segments: list[SpeakerSegment],
-        speaker_centroids: dict[str, list[float]],
-        transcript_segments: list[TranscriptSegment],
-        exports: ExportPaths,
-    ) -> None: ...
-
-    def mark_partial(self, asset_id: str, error: ErrorRecord) -> None: ...
-
-    def add_event(
-        self, asset_id: str, level: str, stage: str, message: str, payload: ErrorRecord
-    ) -> None: ...
-
-
 class CompletionPersistence:
     """Persist terminal job state independently from optional post-processing."""
 
-    def __init__(
-        self, settings: Settings, *, repository: CompletionRepository | None = None
-    ) -> None:
+    def __init__(self, settings: Settings, database: SqliteDatabase) -> None:
         self.settings = settings
-        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
+        self.database = database
 
     def persist_success(
         self,
@@ -60,16 +35,22 @@ class CompletionPersistence:
         transcript_segments: list[TranscriptSegment],
         exports: ExportPaths,
     ) -> None:
-        self.repository.mark_success(
-            asset_id,
-            wav_path=prepared.wav_path,
-            duration=prepared.duration,
-            diarization_stats=prepared.diarization_stats,
-            raw_segments=prepared.raw_segments,
-            merged_segments=prepared.merged_segments,
-            speaker_centroids=prepared.speaker_centroids,
-            transcript_segments=transcript_segments,
-            exports=exports,
+        self.database.complete_asset(
+            CompleteAsset(
+                asset_id,
+                DiarizationMetadata(
+                    asset_id,
+                    prepared.wav_path,
+                    prepared.duration,
+                    prepared.diarization_stats,
+                    prepared.raw_segments,
+                    prepared.merged_segments,
+                    prepared.speaker_centroids,
+                    prepared.embedding_space,
+                ),
+                tuple(transcript_segments),
+                exports,
+            )
         )
 
     def persist_partial(
@@ -81,7 +62,7 @@ class CompletionPersistence:
         error: Exception,
     ) -> None:
         self.persist_success(asset_id, prepared, transcript_segments, exports)
-        self.repository.mark_partial(asset_id, classify_worker_failure(error))
+        self.database.mark_partial(asset_id, classify_worker_failure(error))
 
 
 class SummaryFollowup:
@@ -92,29 +73,31 @@ class SummaryFollowup:
         settings: Settings,
         *,
         summary_generator: SummaryGenerator = generate_asset_summary,
-        repository: CompletionRepository | None = None,
+        database: SqliteDatabase,
     ) -> None:
         self.settings = settings
         self.summary_generator = summary_generator
-        self.repository = repository or SqliteWorkerRepository(settings.stt_db_path)
+        self.database = database
 
     def generate(self, asset_id: str) -> None:
         try:
-            self.summary_generator(self.settings, asset_id)
+            self.summary_generator(self.settings, asset_id, database=self.database)
         except Exception as error:
             log_exception_diagnostic(
                 logger,
                 "automatic summary generation failed",
                 error,
                 event_name="worker.summary_generation_failed",
-                context=job_log_context(self.settings.stt_db_path, asset_id),
+                context=job_log_context(self.database, asset_id),
             )
-            self.repository.add_event(
-                asset_id,
-                "warning",
-                "summarizing content",
-                "Automatic summary generation failed",
-                {"category": "summary", "message": "Summary generation failed"},
+            self.database.add_event(
+                JobEventCreate(
+                    asset_id,
+                    "warning",
+                    "summarizing content",
+                    "Automatic summary generation failed",
+                    ErrorRecord("summary", "Summary generation failed"),
+                )
             )
 
 
@@ -122,14 +105,15 @@ class CompletionStage:
     def __init__(
         self,
         settings: Settings,
+        database: SqliteDatabase,
         *,
         persistence: CompletionPersistence | None = None,
         summary_followup: SummaryFollowup | None = None,
         summary_generator: SummaryGenerator = generate_asset_summary,
     ) -> None:
-        self.persistence = persistence or CompletionPersistence(settings)
+        self.persistence = persistence or CompletionPersistence(settings, database)
         self.summary_followup = summary_followup or SummaryFollowup(
-            settings, summary_generator=summary_generator
+            settings, database=database, summary_generator=summary_generator
         )
 
     def complete(

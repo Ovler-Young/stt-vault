@@ -1,11 +1,10 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
 
-from stt_vault.persistence import db
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.routes import register_api_routes
 from stt_vault.workers.worker import Worker
 
@@ -31,10 +30,13 @@ class ApplicationDependencies:
     configure_logging: Callable[[], None] = configure_logging
     get_settings: Callable[[], Settings] = get_settings
     prepare_directories: Callable[[Settings], None] | None = None
-    initialize_database: Callable[[Path], None] = db.initialize
-    recover_expired_jobs: Callable[[Path], None] = db.recover_expired_jobs
-    worker_factory: Callable[[Settings], Worker] = Worker
-    register_routes: Callable[[FastAPI, Settings, Worker], None] = register_api_routes
+    database_factory: Callable[[Settings], SqliteDatabase] = lambda settings: SqliteDatabase(
+        settings.stt_db_path
+    )
+    worker_factory: Callable[[Settings, SqliteDatabase], Worker] = Worker
+    register_routes: Callable[[FastAPI, Settings, Worker, SqliteDatabase], None] = (
+        register_api_routes
+    )
     mount_frontend: Callable[[FastAPI], None] = mount_static_frontend
 
     def __post_init__(self) -> None:
@@ -58,21 +60,23 @@ def create_app(dependencies: ApplicationDependencies | None = None) -> FastAPI:
     dependencies.configure_logging()
     settings = dependencies.get_settings()
     dependencies.prepare_directories(settings)
-    dependencies.initialize_database(settings.stt_db_path)
-    dependencies.recover_expired_jobs(settings.stt_db_path)
+    database = dependencies.database_factory(settings)
+    database.initialize()
 
     app = FastAPI(title="STT Vault")
-    worker = dependencies.worker_factory(settings)
+    worker = dependencies.worker_factory(settings, database=database)
 
     @app.on_event("startup")
     def on_startup() -> None:
+        worker.recover_startup_jobs()
         worker.start()
 
     @app.on_event("shutdown")
     def on_shutdown() -> None:
         worker.stop()
+        database.close()
 
-    dependencies.register_routes(app, settings, worker)
+    dependencies.register_routes(app, settings, worker, database)
     dependencies.mount_frontend(app)
     return app
 

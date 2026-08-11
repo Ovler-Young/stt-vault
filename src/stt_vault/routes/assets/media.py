@@ -9,6 +9,7 @@ from stt_vault.core.auth import require_admin, require_resource_access
 from stt_vault.core.config import Settings
 from stt_vault.core.diagnostics.logging import log_exception_diagnostic
 from stt_vault.core.models.records import AssetRecord, AudioStream
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.media_playback import playback_media_stream_command
 from stt_vault.processing.media_probe import ffprobe_audio_streams
 from stt_vault.services.media_storage import safe_filename
@@ -20,16 +21,16 @@ __all__ = ["register_asset_media_routes"]
 logger = logging.getLogger(__name__)
 
 
-def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
+def register_asset_media_routes(app: FastAPI, settings: Settings, database: SqliteDatabase) -> None:
     router = APIRouter()
 
     @router.get("/api/assets/{asset_id}/audio-tracks")
     def get_audio_tracks(
         asset_id: str, _: Annotated[None, Depends(require_admin)]
     ) -> list[AudioStream]:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
+        asset = get_asset_or_404(database, asset_id)
         try:
-            return ffprobe_audio_streams(Path(asset["original_path"]))
+            return ffprobe_audio_streams(Path(asset.original_path))
         except Exception as exc:
             log_exception_diagnostic(
                 logger,
@@ -46,16 +47,16 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         _: Annotated[None, Depends(require_resource_access)],
         audio_track: str | None = None,
     ) -> FileResponse | StreamingResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
+        asset = get_asset_or_404(database, asset_id)
         if not audio_track or audio_track == "default":
-            return FileResponse(asset["original_path"], filename=asset["filename"])
+            return FileResponse(asset.original_path, filename=asset.filename)
         try:
-            command = playback_media_stream_command(Path(asset["original_path"]), audio_track)
+            command = playback_media_stream_command(Path(asset.original_path), audio_track)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return StreamingResponse(
             stream_process_stdout(command, asset_id=asset_id),
-            media_type="audio/mp4" if asset["media_type"] == "audio" else "video/mp4",
+            media_type="audio/mp4" if asset.media_type == "audio" else "video/mp4",
             headers={"Accept-Ranges": "none"},
         )
 
@@ -65,18 +66,19 @@ def register_asset_media_routes(app: FastAPI, settings: Settings) -> None:
         format_name: str,
         _: Annotated[None, Depends(require_resource_access)],
     ) -> FileResponse:
-        asset = get_asset_or_404(settings.stt_db_path, asset_id, include_event_history=False)
-        if not asset.get("exports") or format_name not in asset["exports"]:
+        asset = get_asset_or_404(database, asset_id)
+        export_value = getattr(asset.exports, format_name, None)
+        if export_value is None:
             raise HTTPException(status_code=404, detail="Export not found")
-        export_path = Path(asset["exports"][format_name])
+        export_path = Path(export_value)
         return FileResponse(export_path, filename=export_download_filename(asset, export_path))
 
     app.include_router(router)
 
 
 def export_download_filename(asset: AssetRecord, export_path: Path) -> str:
-    title = asset.get("title")
-    stem = safe_filename(title) if title else Path(safe_filename(asset["filename"])).stem
+    title = asset.title
+    stem = safe_filename(title) if title else Path(safe_filename(asset.filename)).stem
     if not stem.strip("."):
         stem = "upload"
     return f"{stem}{''.join(export_path.suffixes)}"

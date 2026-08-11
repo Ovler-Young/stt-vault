@@ -1,27 +1,23 @@
-from collections.abc import Mapping
-from pathlib import Path
-
 from fastapi import HTTPException
 
 from stt_vault.core.models.api import SpeakerResponse
-from stt_vault.persistence import db
+from stt_vault.core.models.records import SpeakerRecord
+from stt_vault.persistence.sqlite_database import SqliteDatabase
 
 
-def get_speaker_or_404(db_path: Path, speaker_id: str) -> SpeakerResponse:
-    speaker = db.get_speaker(db_path, speaker_id)
+def get_speaker_or_404(database: SqliteDatabase, speaker_id: str) -> SpeakerResponse:
+    speaker = database.get_speaker(speaker_id)
     if speaker is None:
         raise HTTPException(status_code=404, detail="Speaker not found")
     return speaker_response(speaker)
 
 
-def speaker_response(speaker: Mapping[str, object]) -> SpeakerResponse:
-    return SpeakerResponse.model_validate(
-        {
-            "id": speaker.get("id"),
-            "display_name": speaker.get("display_name"),
-            "centroid": speaker.get("centroid"),
-            "sample_count": speaker.get("sample_count"),
-            "created_at": speaker.get("created_at"),
-            "updated_at": speaker.get("updated_at"),
-        }
+def speaker_response(speaker: SpeakerRecord) -> SpeakerResponse:
+    return SpeakerResponse(
+        id=speaker.id,
+        display_name=speaker.display_name,
+        centroid=list(speaker.centroid),
+        sample_count=speaker.sample_count,
+        created_at=speaker.created_at,
+        updated_at=speaker.updated_at,
     )

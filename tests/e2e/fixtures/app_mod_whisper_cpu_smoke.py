@@ -1,4 +1,4 @@
-"""Exercise the selected CPU Mod through the application's authenticated job path."""
+"""Exercise the selected CPU Mod through the application's internal job path."""
 
 import json
 import mimetypes
@@ -13,13 +13,14 @@ IN_PROGRESS_STATES = {"queued", "processing"}
 SUCCESS_STATE = "success"
 EXPECTED_PROVIDER_ID = os.environ["EXPECTED_PROVIDER_ID"]
 EXPECTED_IMAGE_DIGEST = os.environ["EXPECTED_IMAGE_DIGEST"]
+APP_BASE_URL = os.environ["APP_BASE_URL"]
 
 
 def request(
     path: str, *, body: bytes | None = None, headers: dict[str, str] | None = None
 ) -> object:
     request_value = urllib.request.Request(
-        f"http://127.0.0.1:8080{path}",
+        f"{APP_BASE_URL}{path}",
         data=body,
         headers=headers or {},
         method="POST" if body is not None else "GET",
@@ -109,7 +110,7 @@ assert all(
     for provider_id, image_digest, work_state, invocation_state in ledger_rows
 ), ledger_rows
 
-Path("/tmp/app-smoke-evidence.json").write_text(
+Path(os.environ["SMOKE_EVIDENCE_PATH"]).write_text(
     json.dumps(
         {
             "asset_id": asset_id,

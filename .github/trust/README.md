@@ -18,3 +18,7 @@ prior key expires. Then move the prior entry to `retired_signers` with its
 revocation or expiration timestamp. Private signing keys, passwords, and
 signer secrets must never be committed here. Tag-signing trust is independent
 from the Cosign public key used to verify staged image signatures.
+
+`workflow-action-pins.v1.json` records the official tag and immutable commit for every external
+action used by `.github/workflows/docker.yml`. `tests/test_workflow_action_pins.py` verifies that
+the workflow matches this table and rejects mutable action references.

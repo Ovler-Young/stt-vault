@@ -5,6 +5,10 @@ import { dirname, join, resolve } from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 const projectPrefix = "stt-vault-timed-transcript-";
+const externalBaseUrl =
+  process.env.E2E_TIMED_TRANSCRIPT_BASE_URL ?? "http://127.0.0.1:18080";
+const composeWaitTimeoutSeconds = 90;
+const publicReadinessTimeoutMilliseconds = 30_000;
 const composeFiles = [
   "-f",
   "docker-compose.yml",
@@ -25,7 +29,14 @@ export default async function globalSetup() {
   const fixturePath = join(run.fixtureDirectory, "timed-transcript.wav");
 
   try {
-    compose(run, ["up", "--build", "--wait"]);
+    compose(run, [
+      "up",
+      "--build",
+      "--wait",
+      "--wait-timeout",
+      String(composeWaitTimeoutSeconds),
+    ]);
+    await waitForPublicAppReadiness(run);
     compose(run, [
       "cp",
       "mod-whisper-cpu:/app/timed-transcript.wav",
@@ -92,6 +103,7 @@ function assertManagedTemporaryDirectory(directory: string) {
 
 function compose(run: E2ERun, arguments_: string[]) {
   assertManagedProject(run.projectName);
+  const captureOutput = arguments_[0] === "logs" || arguments_[0] === "ps";
   const output = execFileSync(
     "docker",
     ["compose", "-p", run.projectName, ...composeFiles, ...arguments_],
@@ -102,18 +114,57 @@ function compose(run: E2ERun, arguments_: string[]) {
         APP_PORT: "18080",
         STT_HOST_DATA_DIR: run.dataDirectory,
       },
-      stdio: arguments_[0] === "logs" ? "pipe" : "inherit",
-      encoding: arguments_[0] === "logs" ? "utf8" : undefined,
+      stdio: captureOutput ? "pipe" : "inherit",
+      encoding: captureOutput ? "utf8" : undefined,
     },
   );
   return typeof output === "string" ? output : (output?.toString() ?? "");
 }
 
+async function waitForPublicAppReadiness(run: E2ERun) {
+  const deadline = Date.now() + publicReadinessTimeoutMilliseconds;
+  let lastFailure = "no readiness request completed";
+  while (Date.now() < deadline) {
+    try {
+      const health = await fetch(`${externalBaseUrl}/api/health`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (!health.ok) {
+        lastFailure = `health returned ${health.status}`;
+      } else {
+        const auth = await fetch(`${externalBaseUrl}/api/auth/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: "e2e-admin-password" }),
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (auth.ok) return;
+        lastFailure = `auth returned ${auth.status}`;
+      }
+    } catch (error) {
+      lastFailure = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(
+    `Timed transcript app was not reachable at ${externalBaseUrl}: ${lastFailure}\n${compose(
+      run,
+      ["ps", "--format", "json"],
+    )}`,
+  );
+}
+
 async function cleanup(run: E2ERun) {
   let cleanupError: unknown;
   try {
-    const logs = compose(run, ["logs", "--no-color"]);
-    await writeFile(run.logPath, logs, "utf8");
+    const status = captureComposeDiagnostic(run, ["ps", "--format", "json"]);
+    const logs = captureComposeDiagnostic(run, ["logs", "--no-color"]);
+    await writeFile(
+      run.logPath,
+      `Compose status:\n${status}\nCompose logs:\n${logs}`,
+      "utf8",
+    );
     assertNoErrorDiagnostics(logs);
   } catch (error) {
     cleanupError = error;
@@ -126,6 +177,16 @@ async function cleanup(run: E2ERun) {
     }
   }
   if (cleanupError) throw cleanupError;
+}
+
+function captureComposeDiagnostic(run: E2ERun, arguments_: string[]) {
+  try {
+    return compose(run, arguments_);
+  } catch (error) {
+    return error instanceof Error
+      ? (error.stack ?? error.message)
+      : String(error);
+  }
 }
 
 function assertNoErrorDiagnostics(logs: string) {

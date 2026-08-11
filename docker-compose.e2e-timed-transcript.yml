@@ -4,6 +4,8 @@ services:
       context: .
       target: cpu
     image: stt-vault-e2e-timed-transcript
+    ports:
+      - "${APP_PORT:-18080}:8080"
     configs:
       - source: stt_vault_e2e_environment
         target: /app/.env
@@ -14,6 +16,7 @@ services:
         condition: service_healthy
     networks:
       - timed-transcript-internal
+      - timed-transcript-public
 
   mod-whisper-cpu:
     build:
@@ -76,3 +79,4 @@ secrets:
 networks:
   timed-transcript-internal:
     internal: true
+  timed-transcript-public: {}

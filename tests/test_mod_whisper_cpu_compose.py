@@ -236,7 +236,7 @@ def test_whisper_cpu_ci_smoke_is_filtered_blocking_and_cpu_only() -> None:
     assert ".[0].Image == $selected_image_id" in workflow
     assert '.[0].Config.Env | index("WHISPER_MODEL_ID=" + $selected_model)' in workflow
     assert "docker compose" in workflow
-    assert "Render fallback service set" in workflow
+    assert "Render Compose configurations and normalized service lists" in workflow
     assert "ps --services --status running" in workflow
     assert "mod_whisper_cpu_smoke.py" in workflow
     assert "docker inspect" in workflow
@@ -732,10 +732,44 @@ def test_whisper_cpu_ci_scans_local_candidate_and_cleans_up_started_projects() -
     assert '"sbom_subject_digest":"%s"' in smoke_job
     assert "selected-sbom-input.json" in smoke_job
 
-    selected_render = smoke_job.index("Render selected service set")
-    fallback_render = smoke_job.index("Render fallback service set")
+    render = smoke_job.index("Render Compose configurations and normalized service lists")
+    selected_render = smoke_job.index("Verify selected rendered service set")
+    fallback_render = smoke_job.index("Verify fallback rendered service set")
     start = smoke_job.index("Start the selected Compose smoke")
-    assert selected_render < fallback_render < start
+    assert render < selected_render < fallback_render < start
+    render_step = smoke_job[render:selected_render]
+    for artifact in (
+        "selected-compose.yaml",
+        "selected-services.raw.txt",
+        "selected-services.txt",
+        "selected-compose.stderr",
+        "selected-services.stderr",
+        "fallback-compose.yaml",
+        "fallback-services.raw.txt",
+        "fallback-services.txt",
+        "fallback-compose.stderr",
+        "fallback-services.stderr",
+    ):
+        assert f"mod-whisper-cpu-artifacts/{artifact}" in render_step
+    assert "if: always()" in render_step
+    assert "--profile mod-whisper-cpu config" in render_step
+    assert "docker-compose.mod-whisper-cpu.yml" in render_step
+    assert "docker-compose.mod-whisper-cpu-ci.yml" in render_step
+    assert "LC_ALL=C sed" in render_step
+    assert "LC_ALL=C sort" in render_step
+    assert "selected_config_status" in render_step
+    assert "selected_services_status" in render_step
+    assert "fallback_config_status" in render_step
+    assert "fallback_services_status" in render_step
+
+    selected_assertion = smoke_job[selected_render:fallback_render]
+    fallback_assertion = smoke_job[fallback_render:start]
+    assert "diff -u <(printf '%s\\n' mod-whisper-cpu stt-vault)" in selected_assertion
+    assert "diff -u <(printf '%s\\n' stt-vault)" in fallback_assertion
+    assert "printf '%s\\\\n%s'" not in selected_assertion
+    assert 'test "$services"' not in selected_assertion
+    assert 'test "$services"' not in fallback_assertion
+
     assert 'MOD_WHISPER_CPU_COMPOSE_STARTED: "false"' in smoke_job
     start_step = smoke_job[start : smoke_job.index("Verify selected services are running")]
     assert 'echo "MOD_WHISPER_CPU_COMPOSE_STARTED=true" >> "$GITHUB_ENV"' in start_step

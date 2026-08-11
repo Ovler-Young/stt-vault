@@ -248,15 +248,33 @@ jobs:
           printf '{"image":"%s","buildx_digest":"%s","candidate_image_id":"%s","model":"%s","source_commit":"%s","image_revision":"%s","tag_object":"%s"}\n' \
             "$STT_MOD_WHISPER_CPU_IMAGE" "$digest" "$image_id" "$STT_MOD_WHISPER_CPU_MODEL" "$checkout_commit" "$image_revision" "$tag_object" > selected-image.json
 
-      - name: Render selected service set
+      - name: Render Compose configurations and normalized service lists
+        if: always()
         run: |
-          services="$(docker compose -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu config --services | sort)"
-          test "$services" = "$(printf '%s\\n%s' mod-whisper-cpu stt-vault)"
+          set -euo pipefail
+          mkdir -p mod-whisper-cpu-artifacts
+          selected_config_status=0
+          selected_services_status=0
+          fallback_config_status=0
+          fallback_services_status=0
+          docker compose -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu config > mod-whisper-cpu-artifacts/selected-compose.yaml 2> mod-whisper-cpu-artifacts/selected-compose.stderr || selected_config_status=$?
+          docker compose -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu config --services > mod-whisper-cpu-artifacts/selected-services.raw.txt 2> mod-whisper-cpu-artifacts/selected-services.stderr || selected_services_status=$?
+          docker compose -f docker-compose.yml config > mod-whisper-cpu-artifacts/fallback-compose.yaml 2> mod-whisper-cpu-artifacts/fallback-compose.stderr || fallback_config_status=$?
+          docker compose -f docker-compose.yml config --services > mod-whisper-cpu-artifacts/fallback-services.raw.txt 2> mod-whisper-cpu-artifacts/fallback-services.stderr || fallback_services_status=$?
+          LC_ALL=C sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' mod-whisper-cpu-artifacts/selected-services.raw.txt | LC_ALL=C sort > mod-whisper-cpu-artifacts/selected-services.txt
+          LC_ALL=C sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' mod-whisper-cpu-artifacts/fallback-services.raw.txt | LC_ALL=C sort > mod-whisper-cpu-artifacts/fallback-services.txt
+          if (( selected_config_status || selected_services_status || fallback_config_status || fallback_services_status )); then
+            echo "Compose render failed; inspect mod-whisper-cpu-artifacts" >&2
+            exit 1
+          fi
 
-      - name: Render fallback service set
+      - name: Verify selected rendered service set
         run: |
-          services="$(docker compose -f docker-compose.yml config --services | sort)"
-          test "$services" = "stt-vault"
+          diff -u <(printf '%s\n' mod-whisper-cpu stt-vault) mod-whisper-cpu-artifacts/selected-services.txt
+
+      - name: Verify fallback rendered service set
+        run: |
+          diff -u <(printf '%s\n' stt-vault) mod-whisper-cpu-artifacts/fallback-services.txt
 
       - name: Verify the local SBOM candidate identity
         run: |
@@ -319,8 +337,9 @@ jobs:
 
       - name: Verify selected services are running
         run: |
-          services="$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps --services --status running | sort)"
-          test "$services" = "$(printf '%s\\n%s' mod-whisper-cpu stt-vault)"
+          docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps --services --status running > mod-whisper-cpu-artifacts/running-services.raw.txt
+          LC_ALL=C sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' mod-whisper-cpu-artifacts/running-services.raw.txt | LC_ALL=C sort > mod-whisper-cpu-artifacts/running-services.txt
+          diff -u <(printf '%s\n' mod-whisper-cpu stt-vault) mod-whisper-cpu-artifacts/running-services.txt
 
       - name: Verify whisper-server runtime libraries
         run: |

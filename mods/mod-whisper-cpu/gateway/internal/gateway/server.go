@@ -233,17 +233,37 @@ func (s *Server) transcribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := contract.SemanticHash(req, audio)
-	existing, replayed, cancelled, done := s.state.Begin(req.IdempotencyKey)
-	if replayed {
-		if existing.Hash != hash {
-			s.writeError(w, 422, "invalid_request", "idempotency key request mismatch", false, correlation)
+	existing, begin, done := s.state.Begin(req.IdempotencyKey, hash)
+	switch begin {
+	case state.Replay:
+		s.writeBytes(w, http.StatusOK, existing.Response)
+		return
+	case state.Mismatch:
+		s.writeError(w, http.StatusUnprocessableEntity, "invalid_request", "idempotency key request mismatch", false, correlation)
+		return
+	case state.Cancelled:
+		s.writeError(w, http.StatusServiceUnavailable, "provider_failure", "request was cancelled", false, correlation)
+		return
+	case state.Pending:
+		select {
+		case <-done:
+		case <-r.Context().Done():
+			s.writeError(w, http.StatusServiceUnavailable, "unavailable", "gateway is shutting down", true, correlation)
+			return
+		case <-s.runCtx.Done():
+			s.writeError(w, http.StatusServiceUnavailable, "unavailable", "gateway is shutting down", true, correlation)
 			return
 		}
-		s.writeBytes(w, 200, existing.Response)
-		return
-	}
-	if cancelled {
-		s.writeError(w, 503, "provider_failure", "request was cancelled", false, correlation)
+		existing, resolved := s.state.Resolve(req.IdempotencyKey, hash)
+		if resolved == state.Replay {
+			s.writeBytes(w, http.StatusOK, existing.Response)
+			return
+		}
+		if resolved == state.Mismatch {
+			s.writeError(w, http.StatusUnprocessableEntity, "invalid_request", "idempotency key request mismatch", false, correlation)
+			return
+		}
+		s.writeError(w, http.StatusServiceUnavailable, "provider_failure", "transcription engine failed", false, correlation)
 		return
 	}
 	if !s.acquireInference(r.Context()) {

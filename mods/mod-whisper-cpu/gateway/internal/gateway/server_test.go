@@ -27,6 +27,7 @@ type fakeEngine struct {
 	result    map[string]any
 	block     bool
 	started   chan struct{}
+	release   chan struct{}
 }
 
 func (f *fakeEngine) Load() error {
@@ -60,8 +61,16 @@ func (f *fakeEngine) Transcribe(ctx context.Context, _ []byte) (map[string]any, 
 		case started <- struct{}{}:
 		default:
 		}
-		<-ctx.Done()
-		return nil, ctx.Err()
+		if f.release != nil {
+			select {
+			case <-f.release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		} else {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
 	}
 	if result != nil {
 		return result, nil
@@ -273,10 +282,14 @@ func requestBody(t *testing.T, key string) (*bytes.Buffer, string) {
 }
 
 func requestBodyWithAudio(t *testing.T, key string, audio []byte) (*bytes.Buffer, string) {
+	return requestBodyWithAudioAndAsset(t, key, audio, "asset:1")
+}
+
+func requestBodyWithAudioAndAsset(t *testing.T, key string, audio []byte, assetID string) (*bytes.Buffer, string) {
 	t.Helper()
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	request := map[string]any{"contract_version": "v1", "correlation_id": "11111111-1111-4111-8111-111111111111", "idempotency_key": key, "asset_id": "asset:1", "chunk": map[string]any{"index": 0, "start": 0.0, "end": 0.05, "speaker_id": "speaker:1"}, "language": "en", "prompt": nil}
+	request := map[string]any{"contract_version": "v1", "correlation_id": "11111111-1111-4111-8111-111111111111", "idempotency_key": key, "asset_id": assetID, "chunk": map[string]any{"index": 0, "start": 0.0, "end": 0.05, "speaker_id": "speaker:1"}, "language": "en", "prompt": nil}
 	p, err := writer.CreatePart(map[string][]string{"Content-Disposition": {`form-data; name="request"`}, "Content-Type": {"application/json"}})
 	if err != nil {
 		t.Fatal(err)
@@ -342,6 +355,113 @@ func TestAuthReplayAndInputValidation(t *testing.T) {
 	handler.ServeHTTP(result, request)
 	if result.Code != 200 || engine.calls != 1 {
 		t.Fatalf("replay status=%d calls=%d", result.Code, engine.calls)
+	}
+}
+
+func TestConcurrentIdempotencyRequestsBindPendingHash(t *testing.T) {
+	server, engine, _ := testServer(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	engine.block = true
+	engine.started = make(chan struct{}, 1)
+	engine.release = make(chan struct{})
+	key := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	firstBody, firstType := requestBody(t, key)
+	first := httptest.NewRecorder()
+	firstRequest := httptest.NewRequest(http.MethodPost, "/v1/transcriptions", firstBody)
+	firstRequest.Header.Set("Authorization", "Bearer secret")
+	firstRequest.Header.Set("Content-Type", firstType)
+	firstDone := make(chan struct{})
+	go func() { server.Handler().ServeHTTP(first, firstRequest); close(firstDone) }()
+	select {
+	case <-engine.started:
+	case <-time.After(time.Second):
+		t.Fatal("first inference did not start")
+	}
+
+	differentAudio := wav()
+	differentAudio[len(differentAudio)-1] = 1
+	secondBody, secondType := requestBodyWithAudioAndAsset(t, key, differentAudio, "asset:2")
+	second := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodPost, "/v1/transcriptions", secondBody)
+	secondRequest.Header.Set("Authorization", "Bearer secret")
+	secondRequest.Header.Set("Content-Type", secondType)
+	secondDone := make(chan struct{})
+	go func() { server.Handler().ServeHTTP(second, secondRequest); close(secondDone) }()
+	select {
+	case <-secondDone:
+		if second.Code != http.StatusUnprocessableEntity || !bytes.Contains(second.Body.Bytes(), []byte(`"category":"invalid_request"`)) {
+			t.Fatalf("mismatch status=%d payload=%s", second.Code, second.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending hash mismatch did not return")
+	}
+	files, err := filepath.Glob(filepath.Join(os.TempDir(), "stt-whisper-*.wav"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("rejected upload was not removed: %v err=%v", files, err)
+	}
+	engine.mu.Lock()
+	calls := engine.calls
+	engine.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("mismatched request started inference: %d calls", calls)
+	}
+	close(engine.release)
+	select {
+	case <-firstDone:
+		if first.Code != http.StatusOK {
+			t.Fatalf("first status=%d payload=%s", first.Code, first.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first request did not complete")
+	}
+}
+
+func TestConcurrentMatchingIdempotencyRequestJoinsPendingWork(t *testing.T) {
+	server, engine, _ := testServer(t)
+	engine.block = true
+	engine.started = make(chan struct{}, 1)
+	engine.release = make(chan struct{})
+	key := "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+	firstBody, firstType := requestBody(t, key)
+	first := httptest.NewRecorder()
+	firstRequest := httptest.NewRequest(http.MethodPost, "/v1/transcriptions", firstBody)
+	firstRequest.Header.Set("Authorization", "Bearer secret")
+	firstRequest.Header.Set("Content-Type", firstType)
+	firstDone := make(chan struct{})
+	go func() { server.Handler().ServeHTTP(first, firstRequest); close(firstDone) }()
+	select {
+	case <-engine.started:
+	case <-time.After(time.Second):
+		t.Fatal("first inference did not start")
+	}
+
+	secondBody, secondType := requestBody(t, key)
+	second := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodPost, "/v1/transcriptions", secondBody)
+	secondRequest.Header.Set("Authorization", "Bearer secret")
+	secondRequest.Header.Set("Content-Type", secondType)
+	secondDone := make(chan struct{})
+	go func() { server.Handler().ServeHTTP(second, secondRequest); close(secondDone) }()
+	time.Sleep(20 * time.Millisecond)
+	close(engine.release)
+	for _, result := range []struct {
+		done chan struct{}
+		out  *httptest.ResponseRecorder
+	}{{firstDone, first}, {secondDone, second}} {
+		select {
+		case <-result.done:
+			if result.out.Code != http.StatusOK {
+				t.Fatalf("status=%d payload=%s", result.out.Code, result.out.Body.String())
+			}
+		case <-time.After(time.Second):
+			t.Fatal("matching request did not complete")
+		}
+	}
+	engine.mu.Lock()
+	calls := engine.calls
+	engine.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("matching request started duplicate inference: %d calls", calls)
 	}
 }
 

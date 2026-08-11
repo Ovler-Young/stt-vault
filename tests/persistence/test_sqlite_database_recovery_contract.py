@@ -11,6 +11,15 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 SOURCE_ROOT = REPOSITORY_ROOT / "src" / "stt_vault"
 PERSISTENCE_ROOT = SOURCE_ROOT / "persistence"
 SQLITE_DATABASE_PATH = PERSISTENCE_ROOT / "sqlite_database.py"
+SQLITE_SOURCE_SUFFIXES = {".py", ".go", ".ts", ".js", ".svelte", ".sh", ".yml", ".yaml"}
+SQLITE_SOURCE_ROOTS = (
+    REPOSITORY_ROOT / "src",
+    REPOSITORY_ROOT / "tests",
+    REPOSITORY_ROOT / "mods",
+    REPOSITORY_ROOT / "web",
+    REPOSITORY_ROOT / ".github",
+)
+EXCLUDED_SOURCE_PARTS = {".svelte-kit", ".venv", "vendor", "node_modules", "dist", "build"}
 
 
 def _local_provider_ledger(
@@ -44,6 +53,17 @@ def _python_modules(root: Path) -> list[Path]:
     return sorted(root.rglob("*.py"))
 
 
+def _repository_source_files() -> list[Path]:
+    return sorted(
+        path
+        for root in SQLITE_SOURCE_ROOTS
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.suffix in SQLITE_SOURCE_SUFFIXES
+        and not EXCLUDED_SOURCE_PARTS.intersection(path.parts)
+    )
+
+
 def test_sqlite_database_is_the_only_sql_implementation_and_split_entry_points_are_absent() -> None:
     """Keep the completed consolidation from retaining a parallel SQL boundary."""
     expected_modules = {"__init__.py", "sqlite_database.py"}
@@ -53,14 +73,27 @@ def test_sqlite_database_is_the_only_sql_implementation_and_split_entry_points_a
     assert actual_modules == expected_modules
 
     forbidden_sql_owners: list[str] = []
-    sql_string = re.compile(
-        r"\b(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|BEGIN|COMMIT|ROLLBACK)\b",
+    sql_literal = re.compile(
+        r"^\s*(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|"
+        r"CREATE\s+(?:TABLE|INDEX|TRIGGER)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX|TRIGGER)|"
+        r"PRAGMA\b)",
         re.IGNORECASE,
     )
-    for path in _python_modules(SOURCE_ROOT):
+    direct_sqlite_access = re.compile(
+        r"\b(?:sqlite3\.connect|sqlite3\.Connection|sql\.Open\([^\n]*sqlite|"
+        r"(?:Query|QueryRow|Exec|Execute)\s*\([^\n]*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA))",
+        re.IGNORECASE,
+    )
+    for path in _repository_source_files():
         if path == SQLITE_DATABASE_PATH:
             continue
-        tree = ast.parse(path.read_text())
+        source = path.read_text(encoding="utf-8")
+        for line_number, line in enumerate(source.splitlines(), start=1):
+            if direct_sqlite_access.search(line):
+                forbidden_sql_owners.append(f"{path}:{line_number}: direct SQLite access")
+        if path.suffix != ".py":
+            continue
+        tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import) and any(
                 alias.name == "sqlite3" for alias in node.names
@@ -72,7 +105,7 @@ def test_sqlite_database_is_the_only_sql_implementation_and_split_entry_points_a
                 if node.func.attr in {"execute", "executemany", "executescript", "cursor"}:
                     forbidden_sql_owners.append(f"{path}:{node.lineno}: {node.func.attr} call")
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if sql_string.search(node.value):
+                if sql_literal.match(node.value):
                     forbidden_sql_owners.append(f"{path}:{node.lineno}: SQL literal")
 
     assert not forbidden_sql_owners, "\n".join(forbidden_sql_owners)

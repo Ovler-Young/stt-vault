@@ -1,6 +1,5 @@
 import json
 import logging
-import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 from typing import NoReturn
@@ -42,8 +41,7 @@ def test_folder_persistence_rejects_malformed_rows(
     settings = get_settings()
     database = SqliteDatabase(settings.stt_db_path)
     folder = database.create_folder(FolderCreate("Malformed"))
-    with database._transaction() as conn:
-        conn.execute("UPDATE folders SET created_at = ? WHERE id = ?", ("invalid", folder.id))
+    database.set_folder_created_at_for_test(folder.id, "invalid")
 
     assert database.get_folder("missing") is None
     with pytest.raises(FolderDataIntegrityError):
@@ -54,8 +52,7 @@ def test_folder_tree_rejects_unknown_folder_parent(tmp_path: Path) -> None:
     database = SqliteDatabase(tmp_path / "app.sqlite3")
     database.initialize()
     folder = database.create_folder(FolderCreate("Orphan"))
-    with sqlite3.connect(database._db_path) as conn:
-        conn.execute("UPDATE folders SET parent_id = 'missing' WHERE id = ?", (folder.id,))
+    database.set_folder_parent_for_test(folder.id, "missing")
 
     with pytest.raises(FolderDataIntegrityError, match="unknown parent"):
         database.list_folder_tree()
@@ -65,8 +62,7 @@ def test_folder_tree_rejects_unknown_asset_parent(tmp_path: Path) -> None:
     database = SqliteDatabase(tmp_path / "app.sqlite3")
     database.initialize()
     database.create_asset(NewAsset("asset-1", "meeting.wav", "audio", tmp_path / "meeting.wav"))
-    with sqlite3.connect(database._db_path) as conn:
-        conn.execute("UPDATE assets SET parent_folder_id = 'missing' WHERE id = 'asset-1'")
+    database.set_asset_parent_folder_for_test("asset-1", "missing")
 
     with pytest.raises(FolderDataIntegrityError, match="unknown folder"):
         database.list_folder_tree()
@@ -76,8 +72,7 @@ def test_folder_tree_rejects_malformed_asset_rows(tmp_path: Path) -> None:
     database = SqliteDatabase(tmp_path / "app.sqlite3")
     database.initialize()
     database.create_asset(NewAsset("asset-1", "meeting.wav", "audio", tmp_path / "meeting.wav"))
-    with database._transaction() as conn:
-        conn.execute("UPDATE assets SET created_at = 'invalid' WHERE id = 'asset-1'")
+    database.set_asset_created_at_for_test("asset-1", "invalid")
 
     with pytest.raises(FolderDataIntegrityError, match="Folder asset record is invalid"):
         database.list_folder_tree()
@@ -88,8 +83,7 @@ def test_folder_tree_rejects_cycles_and_unreachable_folders(tmp_path: Path) -> N
     database.initialize()
     root = database.create_folder(FolderCreate("Root"))
     child = database.create_folder(FolderCreate("Child", root.id))
-    with database._transaction() as conn:
-        conn.execute("UPDATE folders SET parent_id = ? WHERE id = ?", (child.id, root.id))
+    database.set_folder_parent_for_test(root.id, child.id)
 
     with pytest.raises(FolderDataIntegrityError, match="cycle or unreachable"):
         database.list_folder_tree()
@@ -112,8 +106,7 @@ def test_folder_routes_report_malformed_persisted_rows_as_server_errors(
     client, headers = folder_client
     database = SqliteDatabase(get_settings().stt_db_path)
     folder = database.create_folder(FolderCreate("Malformed"))
-    with database._transaction() as conn:
-        conn.execute("UPDATE folders SET created_at = ? WHERE id = ?", ("invalid", folder.id))
+    database.set_folder_created_at_for_test(folder.id, "invalid")
 
     response = client.request(
         method,
@@ -154,8 +147,7 @@ def test_folder_tree_route_rejects_malformed_asset_rows(
     database.create_asset(
         NewAsset("asset-1", "meeting.wav", "audio", settings.media_dir / "asset-1" / "meeting.wav")
     )
-    with database._transaction() as conn:
-        conn.execute("UPDATE assets SET created_at = 'invalid' WHERE id = 'asset-1'")
+    database.set_asset_created_at_for_test("asset-1", "invalid")
 
     response = client.get("/api/folders", headers=headers)
 
@@ -172,8 +164,7 @@ def test_folder_tree_rejects_invalid_asset_json(
     database.create_asset(
         NewAsset("asset-1", "meeting.wav", "audio", settings.media_dir / "asset-1" / "meeting.wav")
     )
-    with database._transaction() as conn:
-        conn.execute("UPDATE assets SET error = 'not-json' WHERE id = 'asset-1'")
+    database.set_asset_error_for_test("asset-1", "not-json")
 
     with pytest.raises(FolderDataIntegrityError):
         database.list_folder_tree()
@@ -194,17 +185,15 @@ def test_folder_tree_route_rejects_orphan_folder_and_asset_parents(
     database.create_asset(
         NewAsset("asset-1", "meeting.wav", "audio", settings.media_dir / "asset-1" / "meeting.wav")
     )
-    with sqlite3.connect(database._db_path) as conn:
-        conn.execute("UPDATE folders SET parent_id = 'missing' WHERE id = ?", (folder.id,))
+    database.set_folder_parent_for_test(folder.id, "missing")
 
     folder_response = client.get("/api/folders", headers=headers)
 
     assert folder_response.status_code == 500
     assert folder_response.json() == {"detail": "Folder data is invalid"}
 
-    with sqlite3.connect(database._db_path) as conn:
-        conn.execute("UPDATE folders SET parent_id = NULL WHERE id = ?", (folder.id,))
-        conn.execute("UPDATE assets SET parent_folder_id = 'missing' WHERE id = 'asset-1'")
+    database.set_folder_parent_for_test(folder.id, None)
+    database.set_asset_parent_folder_for_test("asset-1", "missing")
 
     asset_response = client.get("/api/folders", headers=headers)
 
@@ -220,8 +209,7 @@ def test_folder_tree_route_rejects_cycles(
     database = SqliteDatabase(settings.stt_db_path)
     root = database.create_folder(FolderCreate("Root"))
     child = database.create_folder(FolderCreate("Child", root.id))
-    with database._transaction() as conn:
-        conn.execute("UPDATE folders SET parent_id = ? WHERE id = ?", (child.id, root.id))
+    database.set_folder_parent_for_test(root.id, child.id)
 
     response = client.get("/api/folders", headers=headers)
 

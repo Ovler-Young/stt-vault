@@ -11,7 +11,7 @@ services:
       - default
       - stt-mods
     secrets:
-      stt_mod_token:
+      - source: stt_mod_token
         uid: "0"
         gid: "0"
         mode: 0400
@@ -24,7 +24,7 @@ services:
       WHISPER_MODEL_ID: ${STT_MOD_WHISPER_CPU_MODEL:-ggml-base.en.bin}
       WHISPER_IMAGE_DIGEST: ${STT_MOD_WHISPER_CPU_DIGEST:?}
     secrets:
-      stt_mod_token:
+      - source: stt_mod_token
         uid: "10001"
         gid: "10001"
         mode: 0400

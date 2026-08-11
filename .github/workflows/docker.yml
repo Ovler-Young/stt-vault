@@ -175,6 +175,7 @@ jobs:
       packages: write
     env:
       MOD_WHISPER_CPU_PROJECT: stt-vault-mod-whisper-cpu-${{ github.run_id }}-${{ github.run_attempt }}
+      MOD_WHISPER_CPU_COMPOSE_STARTED: "false"
       STT_MOD_TOKEN_FILE: ${{ github.workspace }}/tests/e2e/fixtures/stt_mod_token.txt
     steps:
       - name: Checkout
@@ -247,17 +248,44 @@ jobs:
           printf '{"image":"%s","buildx_digest":"%s","candidate_image_id":"%s","model":"%s","source_commit":"%s","image_revision":"%s","tag_object":"%s"}\n' \
             "$STT_MOD_WHISPER_CPU_IMAGE" "$digest" "$image_id" "$STT_MOD_WHISPER_CPU_MODEL" "$checkout_commit" "$image_revision" "$tag_object" > selected-image.json
 
+      - name: Render selected service set
+        run: |
+          services="$(docker compose -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu config --services | sort)"
+          test "$services" = "$(printf '%s\\n%s' mod-whisper-cpu stt-vault)"
+
+      - name: Render fallback service set
+        run: |
+          services="$(docker compose -f docker-compose.yml config --services | sort)"
+          test "$services" = "stt-vault"
+
+      - name: Verify the local SBOM candidate identity
+        run: |
+          candidate_digest="$(jq -er '.buildx_digest' selected-image.json)"
+          candidate_image_id="$(jq -er '.candidate_image_id' selected-image.json)"
+          candidate_image="$(jq -er '.image' selected-image.json)"
+          test "$candidate_image" = "$STT_MOD_WHISPER_CPU_IMAGE"
+          test "$candidate_digest" = "$STT_MOD_WHISPER_CPU_DIGEST"
+          case "$candidate_digest" in
+            sha256:????????????????????????????????????????????????????????????????)
+              test "$candidate_digest" != "sha256:0000000000000000000000000000000000000000000000000000000000000000" ;;
+            *) echo "selected candidate digest is absent or malformed" >&2; exit 1 ;;
+          esac
+          local_image_id="$(docker image inspect "$STT_MOD_WHISPER_CPU_IMAGE" --format '{{.Id}}')"
+          test "$local_image_id" = "$candidate_image_id"
+          printf '{"image":"%s","candidate_image_id":"%s","candidate_digest":"%s"}\n' \
+            "$candidate_image" "$candidate_image_id" "$candidate_digest" > selected-sbom-input.json
+
       - name: Generate selected candidate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.STT_MOD_WHISPER_CPU_IMAGE }}@${{ env.STT_MOD_WHISPER_CPU_DIGEST }}
+          image: docker:${{ env.STT_MOD_WHISPER_CPU_IMAGE }}
           format: spdx-json
           output-file: mod-whisper-cpu.spdx.json
 
       - name: Scan Mod image for unfixed high and critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.STT_MOD_WHISPER_CPU_IMAGE }}@${{ env.STT_MOD_WHISPER_CPU_DIGEST }}
+          image-ref: ${{ env.STT_MOD_WHISPER_CPU_IMAGE }}
           format: sarif
           output: mod-whisper-cpu.trivy.sarif
           limit-severities-for-sarif: true
@@ -275,21 +303,19 @@ jobs:
           source_commit="$(jq -er '.source_commit' selected-image.json)"
           image_revision="$(jq -er '.image_revision' selected-image.json)"
           tag_object="$(jq -er '.tag_object' selected-image.json)"
-          printf '{"image":"%s","image_digest":"%s","model_id":"%s","sbom_digest":"%s","scan_digest":"%s","license_digest":"%s","source_digest":"%s","source_commit":"%s","image_revision":"%s","tag_object":"%s"}\n' \
-            "$STT_MOD_WHISPER_CPU_IMAGE" "$STT_MOD_WHISPER_CPU_DIGEST" "$STT_MOD_WHISPER_CPU_MODEL" "$sbom_digest" "$scan_digest" "$license_digest" "$source_digest" "$source_commit" "$image_revision" "$tag_object" > selected-supply-chain.json
-
-      - name: Render selected service set
-        run: |
-          services="$(docker compose -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu config --services | sort)"
-          test "$services" = "$(printf '%s\\n%s' mod-whisper-cpu stt-vault)"
-
-      - name: Render fallback service set
-        run: |
-          services="$(docker compose -f docker-compose.yml config --services | sort)"
-          test "$services" = "stt-vault"
+          sbom_image="$(jq -er '.image' selected-sbom-input.json)"
+          sbom_image_id="$(jq -er '.candidate_image_id' selected-sbom-input.json)"
+          sbom_candidate_digest="$(jq -er '.candidate_digest' selected-sbom-input.json)"
+          test "$sbom_image" = "$STT_MOD_WHISPER_CPU_IMAGE"
+          test "$sbom_image_id" = "$(jq -er '.candidate_image_id' selected-image.json)"
+          test "$sbom_candidate_digest" = "$STT_MOD_WHISPER_CPU_DIGEST"
+          printf '{"image":"%s","image_digest":"%s","model_id":"%s","sbom_digest":"%s","sbom_subject_image":"%s","sbom_subject_image_id":"%s","sbom_subject_digest":"%s","scan_digest":"%s","license_digest":"%s","source_digest":"%s","source_commit":"%s","image_revision":"%s","tag_object":"%s"}\n' \
+            "$STT_MOD_WHISPER_CPU_IMAGE" "$STT_MOD_WHISPER_CPU_DIGEST" "$STT_MOD_WHISPER_CPU_MODEL" "$sbom_digest" "$sbom_image" "$sbom_image_id" "$sbom_candidate_digest" "$scan_digest" "$license_digest" "$source_digest" "$source_commit" "$image_revision" "$tag_object" > selected-supply-chain.json
 
       - name: Start the selected Compose smoke
-        run: docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu up --wait --wait-timeout 180
+        run: |
+          echo "MOD_WHISPER_CPU_COMPOSE_STARTED=true" >> "$GITHUB_ENV"
+          docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu up --wait --wait-timeout 180
 
       - name: Verify selected services are running
         run: |
@@ -366,6 +392,7 @@ jobs:
           test -f mod-whisper-cpu-inspect.json && mv mod-whisper-cpu-inspect.json mod-whisper-cpu-artifacts/ || true
           test -f selected-network-inspect.json && mv selected-network-inspect.json mod-whisper-cpu-artifacts/ || true
           test -f selected-image.json && mv selected-image.json mod-whisper-cpu-artifacts/ || true
+          test -f selected-sbom-input.json && mv selected-sbom-input.json mod-whisper-cpu-artifacts/ || true
           test -f selected-supply-chain.json && mv selected-supply-chain.json mod-whisper-cpu-artifacts/ || true
           test -f mod-whisper-cpu-ldd.txt && mv mod-whisper-cpu-ldd.txt mod-whisper-cpu-artifacts/ || true
           test -s app-smoke-evidence.json && mv app-smoke-evidence.json mod-whisper-cpu-artifacts/ || true
@@ -393,12 +420,11 @@ jobs:
             stt-vault-mod-whisper-cpu-*) ;;
             *) echo "refusing to remove a non-Mod Compose project" >&2; exit 1 ;;
           esac
-          digest="${STT_MOD_WHISPER_CPU_DIGEST:-}"
-          case "$digest" in
-            sha256:????????????????????????????????????????????????????????????????)
-              test "$digest" != "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-              docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu down --volumes --remove-orphans ;;
-            *) echo "STT_MOD_WHISPER_CPU_DIGEST is absent or malformed; skipping Compose teardown" ;;
+          started="${MOD_WHISPER_CPU_COMPOSE_STARTED:-false}"
+          case "$started" in
+            true) docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu down --volumes --remove-orphans ;;
+            false) echo "skipping Compose teardown because the selected project was not started" ;;
+            *) echo "MOD_WHISPER_CPU_COMPOSE_STARTED is invalid" >&2; exit 1 ;;
           esac
 
   mod-whisper-cpu-release-evidence:
@@ -546,12 +572,19 @@ jobs:
           test -n "$COSIGN_PUBLIC_KEY"
           release_image="ghcr.io/ovler-young/stt-vault-mod-mod-whisper-cpu:mod-whisper-cpu-0.1.0-cpu"
           jq -e --arg image "$release_image" --arg peeled_commit "$PEELED_COMMIT" '.image == $image and .model == "ggml-base.en.bin" and .source_commit == $peeled_commit and .image_revision == $peeled_commit and (.tag_object | test("^[0-9a-f]{40}$")) and (.buildx_digest | test("^sha256:[0-9a-f]{64}$")) and .buildx_digest != "sha256:0000000000000000000000000000000000000000000000000000000000000000"' mod-whisper-cpu-artifacts/selected-image.json
-          jq -e '.candidate_image_id | test("^sha256:[0-9a-f]{64}$") and . != "sha256:0000000000000000000000000000000000000000000000000000000000000000"' mod-whisper-cpu-artifacts/selected-image.json
+          candidate_image_id="$(jq -er '.candidate_image_id' mod-whisper-cpu-artifacts/selected-image.json)"
+          case "$candidate_image_id" in
+            sha256:????????????????????????????????????????????????????????????????)
+              test "$candidate_image_id" != "sha256:0000000000000000000000000000000000000000000000000000000000000000" ;;
+            *) echo "candidate image ID is absent or malformed" >&2; exit 1 ;;
+          esac
           digest="$(jq -er '.buildx_digest' mod-whisper-cpu-artifacts/selected-image.json)"
-          jq -e --arg image "$release_image" --arg digest "$digest" --arg peeled_commit "$PEELED_COMMIT" '.image == $image and .image_digest == $digest and .model_id == "ggml-base.en.bin" and .source_commit == $peeled_commit and .image_revision == $peeled_commit and (.tag_object | test("^[0-9a-f]{40}$")) and (.sbom_digest | test("^sha256:[0-9a-f]{64}$")) and (.scan_digest | test("^sha256:[0-9a-f]{64}$")) and (.license_digest | test("^sha256:[0-9a-f]{64}$")) and (.source_digest | test("^sha256:[0-9a-f]{64}$"))' mod-whisper-cpu-artifacts/selected-supply-chain.json
+          jq -e --arg image "$release_image" --arg digest "$digest" --arg image_id "$candidate_image_id" --arg peeled_commit "$PEELED_COMMIT" '.image == $image and .image_digest == $digest and .model_id == "ggml-base.en.bin" and .sbom_subject_image == $image and .sbom_subject_image_id == $image_id and .sbom_subject_digest == $digest and .source_commit == $peeled_commit and .image_revision == $peeled_commit and (.tag_object | test("^[0-9a-f]{40}$")) and (.sbom_digest | test("^sha256:[0-9a-f]{64}$")) and (.scan_digest | test("^sha256:[0-9a-f]{64}$")) and (.license_digest | test("^sha256:[0-9a-f]{64}$")) and (.source_digest | test("^sha256:[0-9a-f]{64}$"))' mod-whisper-cpu-artifacts/selected-supply-chain.json
+          jq -e --arg image "$release_image" --arg digest "$digest" --arg image_id "$candidate_image_id" '.image == $image and .candidate_image_id == $image_id and .candidate_digest == $digest' mod-whisper-cpu-artifacts/selected-sbom-input.json
           jq -e --arg digest "$digest" '.asset_status == "success" and .job_status == "success" and .provider_id == "mod-whisper-cpu" and .image_digest == $digest and .ledger_rows > 0' mod-whisper-cpu-artifacts/app-smoke-evidence.json
           test -s mod-whisper-cpu-artifacts/mod-whisper-cpu.spdx.json
           test -s mod-whisper-cpu-artifacts/mod-whisper-cpu.trivy.sarif
+          test -s mod-whisper-cpu-artifacts/selected-sbom-input.json
           test -s mod-whisper-cpu-artifacts/license-manifest.md
           test -s mod-whisper-cpu-artifacts/mod-whisper-cpu-candidate.tar
           jq -e '.status == "blocked-pending-ci-evidence" and .image_digest == null and .sbom_digest == null and .fixture_result == null' mods/releases/mod-whisper-cpu/0.1.0.json

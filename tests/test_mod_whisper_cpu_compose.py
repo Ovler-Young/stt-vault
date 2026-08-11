@@ -82,8 +82,10 @@ def test_whisper_cpu_compose_uses_one_internal_selected_sidecar() -> None:
         "STT_DIARIZATION_PROVIDER": "senko",
         "STT_MOD_WHISPER_CPU_DIGEST": "${STT_MOD_WHISPER_CPU_DIGEST:?}",
     }
-    assert "stt_mod_token" in app["secrets"]
-    assert "stt_mod_token" in mod["secrets"]
+    assert app["secrets"] == [{"source": "stt_mod_token", "uid": "0", "gid": "0", "mode": 0o400}]
+    assert mod["secrets"] == [
+        {"source": "stt_mod_token", "uid": "10001", "gid": "10001", "mode": 0o400}
+    ]
     assert set(base["services"]) == {"stt-vault"}
     assert "networks" not in base
 
@@ -100,10 +102,12 @@ def test_whisper_cpu_compose_has_required_cpu_resources_secret_healthcheck_and_i
     assert "gpus" not in mod
     assert "deploy" not in mod
     assert whisper["volumes"] == {"mod_whisper_cpu_cache": {}}
-    assert whisper["services"]["stt-vault"]["secrets"] == {
-        "stt_mod_token": {"uid": "0", "gid": "0", "mode": 0o400}
-    }
-    assert mod["secrets"] == {"stt_mod_token": {"uid": "10001", "gid": "10001", "mode": 0o400}}
+    assert whisper["services"]["stt-vault"]["secrets"] == [
+        {"source": "stt_mod_token", "uid": "0", "gid": "0", "mode": 0o400}
+    ]
+    assert mod["secrets"] == [
+        {"source": "stt_mod_token", "uid": "10001", "gid": "10001", "mode": 0o400}
+    ]
 
     healthcheck = mod["healthcheck"]
     command = " ".join(str(part) for part in healthcheck["test"])
@@ -697,16 +701,56 @@ def test_whisper_cpu_ci_collects_native_library_diagnostics_and_guards_failed_bu
     assert "- name: Collect Compose smoke diagnostics\n        if: always()" in smoke_job
     assert "test -f mod-whisper-cpu-ldd.txt && mv mod-whisper-cpu-ldd.txt" in artifact_collection
     teardown = smoke_job.split("Tear down selected Compose smoke", 1)[1]
-    assert 'digest="${STT_MOD_WHISPER_CPU_DIGEST:-}"' in teardown
-    assert (
-        "STT_MOD_WHISPER_CPU_DIGEST is absent or malformed; skipping Compose teardown" in teardown
-    )
-    assert "sha256:????????????????????????????????????????????????????????????????)" in teardown
-    assert (
-        'test "$digest" != "sha256:'
-        '0000000000000000000000000000000000000000000000000000000000000000"' in teardown
-    )
+    assert 'started="${MOD_WHISPER_CPU_COMPOSE_STARTED:-false}"' in teardown
+    assert "skipping Compose teardown because the selected project was not started" in teardown
+    assert "true) docker compose" in teardown
     assert "docker compose" in teardown
+
+
+def test_whisper_cpu_ci_scans_local_candidate_and_cleans_up_started_projects() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    smoke_job = workflow.split("  mod-whisper-cpu-smoke:", 1)[1].split(
+        "  mod-whisper-cpu-release-evidence:", 1
+    )[0]
+
+    sbom = smoke_job.split("Generate selected candidate SPDX SBOM", 1)[1].split(
+        "Scan Mod image for unfixed high and critical vulnerabilities", 1
+    )[0]
+    assert "image: docker:${{ env.STT_MOD_WHISPER_CPU_IMAGE }}" in sbom
+    assert "image-ref: ${{ env.STT_MOD_WHISPER_CPU_IMAGE }}" in smoke_job
+    assert "image-ref: ${{ env.STT_MOD_WHISPER_CPU_IMAGE }}@" not in smoke_job
+    assert "Verify the local SBOM candidate identity" in smoke_job
+    assert smoke_job.index("Verify the local SBOM candidate identity") < smoke_job.index(
+        "Generate selected candidate SPDX SBOM"
+    )
+    assert "candidate_digest=\"$(jq -er '.buildx_digest' selected-image.json)\"" in smoke_job
+    assert "candidate_image_id=\"$(jq -er '.candidate_image_id' selected-image.json)\"" in smoke_job
+    assert "docker image inspect \"$STT_MOD_WHISPER_CPU_IMAGE\" --format '{{.Id}}'" in smoke_job
+    assert 'test "$local_image_id" = "$candidate_image_id"' in smoke_job
+    assert 'test "$candidate_digest" = "$STT_MOD_WHISPER_CPU_DIGEST"' in smoke_job
+    assert '"sbom_subject_image_id":"%s"' in smoke_job
+    assert '"sbom_subject_digest":"%s"' in smoke_job
+    assert "selected-sbom-input.json" in smoke_job
+
+    selected_render = smoke_job.index("Render selected service set")
+    fallback_render = smoke_job.index("Render fallback service set")
+    start = smoke_job.index("Start the selected Compose smoke")
+    assert selected_render < fallback_render < start
+    assert 'MOD_WHISPER_CPU_COMPOSE_STARTED: "false"' in smoke_job
+    start_step = smoke_job[start : smoke_job.index("Verify selected services are running")]
+    assert 'echo "MOD_WHISPER_CPU_COMPOSE_STARTED=true" >> "$GITHUB_ENV"' in start_step
+
+    teardown = smoke_job.split("Tear down selected Compose smoke", 1)[1]
+    assert 'started="${MOD_WHISPER_CPU_COMPOSE_STARTED:-false}"' in teardown
+    assert "true) docker compose" in teardown
+    assert "skipping Compose teardown because the selected project was not started" in teardown
+
+    release_job = workflow.split("  mod-whisper-cpu-release-evidence:", 1)[1].split("  build:", 1)[
+        0
+    ]
+    assert ".sbom_subject_image_id == $image_id" in release_job
+    assert ".sbom_subject_digest == $digest" in release_job
+    assert "mod-whisper-cpu-artifacts/selected-sbom-input.json" in release_job
 
 
 def test_whisper_cpu_contract_artifact_is_generated_from_the_core_contract() -> None:

@@ -296,6 +296,15 @@ jobs:
           services="$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps --services --status running | sort)"
           test "$services" = "$(printf '%s\\n%s' mod-whisper-cpu stt-vault)"
 
+      - name: Verify whisper-server runtime libraries
+        run: |
+          set -euo pipefail
+          : > mod-whisper-cpu-ldd.txt
+          docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu exec -T mod-whisper-cpu test -x /usr/local/bin/whisper-server >> mod-whisper-cpu-ldd.txt 2>&1
+          docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu exec -T mod-whisper-cpu ldd /usr/local/bin/whisper-server >> mod-whisper-cpu-ldd.txt 2>&1
+          test -s mod-whisper-cpu-ldd.txt
+          ! grep -Eiq 'libgomp|not found' mod-whisper-cpu-ldd.txt
+
       - name: Verify selected Mod isolation and CPU configuration
         run: |
           mod_id="$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps -q mod-whisper-cpu)"
@@ -358,6 +367,7 @@ jobs:
           test -f selected-network-inspect.json && mv selected-network-inspect.json mod-whisper-cpu-artifacts/ || true
           test -f selected-image.json && mv selected-image.json mod-whisper-cpu-artifacts/ || true
           test -f selected-supply-chain.json && mv selected-supply-chain.json mod-whisper-cpu-artifacts/ || true
+          test -f mod-whisper-cpu-ldd.txt && mv mod-whisper-cpu-ldd.txt mod-whisper-cpu-artifacts/ || true
           test -s app-smoke-evidence.json && mv app-smoke-evidence.json mod-whisper-cpu-artifacts/ || true
           test -s mod-whisper-cpu.spdx.json && mv mod-whisper-cpu.spdx.json mod-whisper-cpu-artifacts/
           test -s mod-whisper-cpu.trivy.sarif && mv mod-whisper-cpu.trivy.sarif mod-whisper-cpu-artifacts/
@@ -383,7 +393,13 @@ jobs:
             stt-vault-mod-whisper-cpu-*) ;;
             *) echo "refusing to remove a non-Mod Compose project" >&2; exit 1 ;;
           esac
-          docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu down --volumes --remove-orphans
+          digest="${STT_MOD_WHISPER_CPU_DIGEST:-}"
+          case "$digest" in
+            sha256:????????????????????????????????????????????????????????????????)
+              test "$digest" != "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu down --volumes --remove-orphans ;;
+            *) echo "STT_MOD_WHISPER_CPU_DIGEST is absent or malformed; skipping Compose teardown" ;;
+          esac
 
   mod-whisper-cpu-release-evidence:
     needs: mod-whisper-cpu-smoke

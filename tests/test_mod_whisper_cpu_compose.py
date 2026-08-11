@@ -593,7 +593,13 @@ def test_whisper_cpu_release_inputs_are_immutable() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-    assert "FROM python:3.13.7-slim-bookworm@sha256:" in dockerfile
+    assert (
+        "FROM debian:bookworm-20250520-slim@sha256:"
+        "364d3f277f79b11fafee2f44e8198054486583d3392e2472eb656d5c780156f5 "
+        "AS whisper-builder"
+    ) in dockerfile
+    assert dockerfile.count("FROM python:3.13.7-slim-bookworm@sha256:") == 2
+    assert "AS model-builder" in dockerfile
     assert "ARG WHISPER_CPP_COMMIT=306c88f4d1286aec1bf96e544632897886af5501" in dockerfile
     assert 'git -C /src/whisper.cpp checkout --detach "$WHISPER_CPP_COMMIT"' in dockerfile
     assert ":latest" not in dockerfile
@@ -606,8 +612,76 @@ def test_whisper_cpu_build_disables_base_apt_sources_before_using_its_snapshot()
 
     assert "rm -f /etc/apt/sources.list" in setup
     assert "rm -rf /etc/apt/sources.list.d" in setup
-    assert "snapshot.debian.org/archive/debian/20250801T000000Z" in setup
+    assert "snapshot.debian.org/archive/debian/20250601T000000Z" in setup
     assert "snapshot.debian.org" not in apt_update
+    for package in (
+        "ca-certificates=20230311",
+        "cmake=3.25.1-1",
+        "g++=4:12.2.0-3",
+        "git=1:2.39.5-0+deb12u2",
+        "make=4.3-4.1",
+    ):
+        assert package in apt_update
+
+
+def test_whisper_cpu_builder_is_static_internal_and_copied_into_the_python_runtime() -> None:
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    for required in (
+        "-DBUILD_SHARED_LIBS=OFF",
+        "-DGGML_OPENMP=OFF",
+        "-DWHISPER_CURL=OFF",
+        "-static-libstdc++ -static-libgcc",
+        "COPY --from=whisper-builder /src/whisper.cpp/build/bin/whisper-server "
+        "/usr/local/bin/whisper-server",
+        "COPY --from=model-builder --chown=whisper:whisper /models /models",
+    ):
+        assert required in dockerfile
+    assert "FROM python:3.13.7-slim-bookworm" not in dockerfile.split("AS whisper-builder", 1)[0]
+
+
+def test_whisper_cpu_ci_collects_native_library_diagnostics_and_guards_failed_build_teardown() -> (
+    None
+):
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    smoke_job = workflow.split("  mod-whisper-cpu-smoke:", 1)[1].split(
+        "  mod-whisper-cpu-release-evidence:", 1
+    )[0]
+
+    assert "Verify whisper-server runtime libraries" in smoke_job
+    runtime_libraries = smoke_job.split("Verify whisper-server runtime libraries", 1)[1].split(
+        "Verify selected Mod isolation and CPU configuration", 1
+    )[0]
+    assert "set -euo pipefail" in runtime_libraries
+    assert (
+        "exec -T mod-whisper-cpu test -x /usr/local/bin/whisper-server "
+        ">> mod-whisper-cpu-ldd.txt 2>&1" in runtime_libraries
+    )
+    assert (
+        "exec -T mod-whisper-cpu ldd /usr/local/bin/whisper-server "
+        ">> mod-whisper-cpu-ldd.txt 2>&1" in runtime_libraries
+    )
+    assert "mod-whisper-cpu-ldd.txt" in smoke_job
+    assert "! grep -Eiq 'libgomp|not found' mod-whisper-cpu-ldd.txt" in runtime_libraries
+    assert "| tee" not in runtime_libraries
+    assert "|| true" not in runtime_libraries
+    assert "test -s mod-whisper-cpu-ldd.txt" in runtime_libraries
+    artifact_collection = smoke_job.split("Collect Compose smoke diagnostics", 1)[1].split(
+        "Upload Mod smoke artifacts", 1
+    )[0]
+    assert "- name: Collect Compose smoke diagnostics\n        if: always()" in smoke_job
+    assert "test -f mod-whisper-cpu-ldd.txt && mv mod-whisper-cpu-ldd.txt" in artifact_collection
+    teardown = smoke_job.split("Tear down selected Compose smoke", 1)[1]
+    assert 'digest="${STT_MOD_WHISPER_CPU_DIGEST:-}"' in teardown
+    assert (
+        "STT_MOD_WHISPER_CPU_DIGEST is absent or malformed; skipping Compose teardown" in teardown
+    )
+    assert "sha256:????????????????????????????????????????????????????????????????)" in teardown
+    assert (
+        'test "$digest" != "sha256:'
+        '0000000000000000000000000000000000000000000000000000000000000000"' in teardown
+    )
+    assert "docker compose" in teardown
 
 
 def test_whisper_cpu_contract_artifact_is_generated_from_the_core_contract() -> None:

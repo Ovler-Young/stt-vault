@@ -594,11 +594,16 @@ def test_whisper_cpu_release_inputs_are_immutable() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
     assert (
+        "FROM python:3.13.7-slim-bookworm@sha256:"
+        "781449467ffb6f04218f09b1ecdcdc7d22b289ee5da9ec498b024e24ad7a6db7 "
+        "AS runtime-base"
+    ) in dockerfile
+    assert (
         "FROM debian:bookworm-20250520-slim@sha256:"
         "364d3f277f79b11fafee2f44e8198054486583d3392e2472eb656d5c780156f5 "
         "AS whisper-builder"
     ) in dockerfile
-    assert dockerfile.count("FROM python:3.13.7-slim-bookworm@sha256:") == 2
+    assert dockerfile.count("FROM python:3.13.7-slim-bookworm@sha256:") == 1
     assert "AS model-builder" in dockerfile
     assert "ARG WHISPER_CPP_COMMIT=306c88f4d1286aec1bf96e544632897886af5501" in dockerfile
     assert 'git -C /src/whisper.cpp checkout --detach "$WHISPER_CPP_COMMIT"' in dockerfile
@@ -610,6 +615,13 @@ def test_whisper_cpu_build_disables_base_apt_sources_before_using_its_snapshot()
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     setup, apt_update = dockerfile.split("apt-get -o Acquire::Check-Valid-Until=false update", 1)
 
+    assert dockerfile.index("AS runtime-base") < dockerfile.index("AS whisper-builder")
+    assert "RUN test -s /etc/ssl/certs/ca-certificates.crt" in setup
+    assert (
+        "COPY --from=runtime-base /etc/ssl/certs/ca-certificates.crt "
+        "/etc/ssl/certs/ca-certificates.crt"
+    ) in setup
+    assert "https://snapshot.debian.org/" in setup
     assert "rm -f /etc/apt/sources.list" in setup
     assert "rm -rf /etc/apt/sources.list.d" in setup
     assert "snapshot.debian.org/archive/debian/20250601T000000Z" in setup
@@ -622,6 +634,18 @@ def test_whisper_cpu_build_disables_base_apt_sources_before_using_its_snapshot()
         "make=4.3-4.1",
     ):
         assert package in apt_update
+    for insecure_option in (
+        "trusted=yes",
+        "AllowInsecureRepositories",
+        "AllowDowngradeToInsecureRepositories",
+        "Verify-Peer=false",
+        "Verify-Host=false",
+        "--allow-insecure-repositories",
+        "allow-unauthenticated",
+        "--allow-unauthenticated",
+        "APT::Get::AllowUnauthenticated",
+    ):
+        assert insecure_option not in dockerfile
 
 
 def test_whisper_cpu_builder_is_static_internal_and_copied_into_the_python_runtime() -> None:
@@ -637,7 +661,8 @@ def test_whisper_cpu_builder_is_static_internal_and_copied_into_the_python_runti
         "COPY --from=model-builder --chown=whisper:whisper /models /models",
     ):
         assert required in dockerfile
-    assert "FROM python:3.13.7-slim-bookworm" not in dockerfile.split("AS whisper-builder", 1)[0]
+    assert "FROM runtime-base AS model-builder" in dockerfile
+    assert dockerfile.count("FROM runtime-base") == 2
 
 
 def test_whisper_cpu_ci_collects_native_library_diagnostics_and_guards_failed_build_teardown() -> (

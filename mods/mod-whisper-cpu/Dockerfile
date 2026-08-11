@@ -1,4 +1,10 @@
+FROM python:3.13.7-slim-bookworm@sha256:781449467ffb6f04218f09b1ecdcdc7d22b289ee5da9ec498b024e24ad7a6db7 AS runtime-base
+
+RUN test -s /etc/ssl/certs/ca-certificates.crt
+
 FROM debian:bookworm-20250520-slim@sha256:364d3f277f79b11fafee2f44e8198054486583d3392e2472eb656d5c780156f5 AS whisper-builder
+
+COPY --from=runtime-base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 ARG WHISPER_CPP_COMMIT=306c88f4d1286aec1bf96e544632897886af5501
 ARG WHISPER_MODEL_ID=ggml-base.en.bin
@@ -17,14 +23,14 @@ RUN git init /src/whisper.cpp \
 RUN cmake -S /src/whisper.cpp -B /src/whisper.cpp/build -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DWHISPER_CURL=OFF -DWHISPER_BUILD_SERVER=ON -DGGML_CUDA=OFF -DGGML_METAL=OFF -DCMAKE_EXE_LINKER_FLAGS='-static-libstdc++ -static-libgcc' \
     && cmake --build /src/whisper.cpp/build --target whisper-server -j2
 
-FROM python:3.13.7-slim-bookworm@sha256:781449467ffb6f04218f09b1ecdcdc7d22b289ee5da9ec498b024e24ad7a6db7 AS model-builder
+FROM runtime-base AS model-builder
 
 ARG WHISPER_MODEL_ID=ggml-base.en.bin
 
 COPY model-manifest.json build_model.py /tmp/
 RUN WHISPER_MODEL_ID="$WHISPER_MODEL_ID" python /tmp/build_model.py /tmp/model-manifest.json /models
 
-FROM python:3.13.7-slim-bookworm@sha256:781449467ffb6f04218f09b1ecdcdc7d22b289ee5da9ec498b024e24ad7a6db7
+FROM runtime-base
 
 ARG WHISPER_MODEL_ID=ggml-base.en.bin
 

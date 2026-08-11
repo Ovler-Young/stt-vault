@@ -255,11 +255,12 @@ jobs:
           output-file: mod-whisper-cpu.spdx.json
 
       - name: Scan Mod image for unfixed high and critical vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.STT_MOD_WHISPER_CPU_IMAGE }}@${{ env.STT_MOD_WHISPER_CPU_DIGEST }}
           format: sarif
           output: mod-whisper-cpu.trivy.sarif
+          limit-severities-for-sarif: true
           exit-code: "1"
           ignore-unfixed: false
           severity: HIGH,CRITICAL

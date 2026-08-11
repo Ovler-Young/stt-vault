@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,24 @@ DOCKERFILE = ROOT / "mods/mod-whisper-cpu/Dockerfile"
 CORE_CONTRACT = ROOT / "src/stt_vault/core/models/mod_contracts.py"
 MOD_CONTRACT_WRAPPER = ROOT / "mods/mod-whisper-cpu/src/mod_whisper_cpu/contracts.py"
 MOD_CONTRACT_ARTIFACT = ROOT / "mods/mod-whisper-cpu/src/mod_whisper_cpu/contract_v1_artifact.py"
+TRIVY_ACTION_TAG = "v0.36.0"
+TRIVY_ACTION_SHA = "ed142fd0673e97e23eac54620cfb913e5ce36c25"
+
+
+def _trivy_action_pin(workflow: str) -> tuple[str, str]:
+    match = re.search(
+        r"^\s*uses:\s+aquasecurity/trivy-action@(?P<sha>[^\s#]+)\s+#\s+(?P<tag>\S+)\s*$",
+        workflow,
+        flags=re.MULTILINE,
+    )
+    assert match is not None, "Trivy must use a full SHA pin with a version comment"
+
+    sha = match["sha"]
+    tag = match["tag"]
+    assert re.fullmatch(r"[a-f0-9]{40}", sha), "Trivy action pin must be a full SHA"
+    assert tag == TRIVY_ACTION_TAG
+    assert sha == TRIVY_ACTION_SHA
+    return tag, sha
 
 
 def _compose(path: Path) -> dict[str, object]:
@@ -220,11 +239,14 @@ def test_whisper_cpu_ci_smoke_is_filtered_blocking_and_cpu_only() -> None:
     assert "all(.[0].Mounts[]" in workflow
     assert "restart mod-whisper-cpu" in workflow
     assert "anchore/sbom-action@" in workflow
-    assert "aquasecurity/trivy-action@" in workflow
+    assert _trivy_action_pin(workflow) == (TRIVY_ACTION_TAG, TRIVY_ACTION_SHA)
     assert "format: sarif" in workflow
     assert "output: mod-whisper-cpu.trivy.sarif" in workflow
     assert "retention-days: 30" in workflow
     assert "ignore-unfixed: false" in workflow
+    assert "limit-severities-for-sarif: true" in workflow
+    assert "severity: HIGH,CRITICAL" in workflow
+    assert 'exit-code: "1"' in workflow
     assert "mod-whisper-cpu-release-evidence:" in workflow
     assert "needs: mod-whisper-cpu-smoke" in workflow
     assert "Publish the selected release image" not in workflow
@@ -254,6 +276,17 @@ def test_whisper_cpu_ci_smoke_is_filtered_blocking_and_cpu_only() -> None:
     assert '"source_artifact":"mod-whisper-cpu-smoke-artifacts"' in workflow
     assert "selected-supply-chain.json" in workflow
     assert ".image_digest == $digest" in workflow
+
+
+def test_whisper_cpu_ci_rejects_mutable_or_incomplete_trivy_action_pins() -> None:
+    for pin in (
+        "ed142fd0673e97e23eac54620cfb913e5ce36c25",
+        "v0.36.0 # v0.36.0",
+        "ed142fd0673e97e23eac54620cfb913e5ce36c # v0.36.0",
+    ):
+        workflow = f"uses: aquasecurity/trivy-action@{pin}\n"
+        with pytest.raises(AssertionError):
+            _trivy_action_pin(workflow)
 
 
 def test_whisper_cpu_ci_uses_one_parameterized_compose_smoke_for_pr_and_tag() -> None:

@@ -192,6 +192,12 @@ class TranscriptChunkRecord(TranscriptResponse):
     asset_id: str
 
 
+class CompletedTranscriptionProviderResponse(DatabaseRecord):
+    provider_id: str
+    image_digest: str
+    completed_invocation_count: int
+
+
 class VisualEventResponse(DatabaseRecord):
     event_index: int
     timestamp: float
@@ -229,6 +235,7 @@ class AssetResponse(DatabaseRecord):
     merged_segments: list[DiarizationSegment] | None = None
     speaker_centroids: dict[str, list[float]] | None = None
     transcript_segments: list[TranscriptResponse] | None = None
+    completed_transcription_providers: list[CompletedTranscriptionProviderResponse] = []
     exports: dict[str, str] | None = None
     summary_status: str | None = None
     summary_text: str | None = None

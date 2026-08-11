@@ -85,6 +85,18 @@ assert detail["transcript_segments"], detail
 for segment in detail["transcript_segments"]:
     assert segment.get("timed_units") in (None, [])
 
+expected_provider_id = os.environ["EXPECTED_PROVIDER_ID"]
+expected_image_digest = os.environ["EXPECTED_IMAGE_DIGEST"]
+completed_providers = detail.get("completed_transcription_providers")
+assert isinstance(completed_providers, list) and len(completed_providers) == 1, detail
+completed_provider = completed_providers[0]
+assert isinstance(completed_provider, dict), detail
+assert completed_provider.get("provider_id") == expected_provider_id, detail
+assert completed_provider.get("image_digest") == expected_image_digest, detail
+completed_count = completed_provider.get("completed_invocation_count")
+assert isinstance(completed_count, int) and not isinstance(completed_count, bool), detail
+assert completed_count > 0, detail
+
 Path(os.environ["SMOKE_EVIDENCE_PATH"]).write_text(
     json.dumps(
         {
@@ -92,6 +104,7 @@ Path(os.environ["SMOKE_EVIDENCE_PATH"]).write_text(
             "asset_status": detail["status"],
             "job_status": detail["job"]["status"],
             "transcript_segment_count": len(detail["transcript_segments"]),
+            "completed_transcription_providers": completed_providers,
         }
     ),
     encoding="utf-8",

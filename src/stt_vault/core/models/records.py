@@ -521,6 +521,15 @@ class ProviderMetadata:
 
 
 @dataclass(frozen=True)
+class CompletedTranscriptionProvider:
+    """Provider identity recorded by completed current transcription invocations."""
+
+    provider_id: str
+    image_digest: str
+    completed_invocation_count: int
+
+
+@dataclass(frozen=True)
 class ProviderInvocationRecord:
     work_item_id: str
     invocation_attempt: int

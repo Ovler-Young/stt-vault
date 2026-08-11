@@ -46,6 +46,7 @@ from stt_vault.core.models.records import (
     CleanupTask,
     CompleteAsset,
     CompleteDiarizationProviderInvocation,
+    CompletedTranscriptionProvider,
     CompleteProviderRecovery,
     CompleteTranscriptionProviderInvocation,
     DiarizationMetadata,
@@ -478,6 +479,35 @@ class SqliteDatabase:
                 visual_events=visual_events,
             )
         return asset
+
+    def list_completed_transcription_providers(
+        self, asset_id: str
+    ) -> list[CompletedTranscriptionProvider]:
+        """Return current completed transcription provider identities for an asset."""
+        with self._read_connection() as conn:
+            rows = conn.execute(
+                """SELECT work_item.provider_id, work_item.image_digest,
+                COUNT(*) AS completed_invocation_count
+                FROM provider_work_items AS work_item
+                JOIN provider_invocations AS invocation
+                  ON invocation.work_item_id = work_item.work_item_id
+                 AND invocation.invocation_attempt = work_item.current_invocation_attempt
+                WHERE work_item.asset_id = ?
+                  AND work_item.role = 'transcription'
+                  AND work_item.state = 'completed'
+                  AND invocation.state = 'completed'
+                GROUP BY work_item.provider_id, work_item.image_digest
+                ORDER BY work_item.provider_id, work_item.image_digest""",
+                (asset_id,),
+            ).fetchall()
+        return [
+            CompletedTranscriptionProvider(
+                provider_id=str(row["provider_id"]),
+                image_digest=str(row["image_digest"]),
+                completed_invocation_count=int(row["completed_invocation_count"]),
+            )
+            for row in rows
+        ]
 
     def asset_exists(self, asset_id: str) -> bool:
         with self._read_connection() as conn:

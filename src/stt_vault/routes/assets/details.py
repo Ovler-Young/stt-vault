@@ -10,6 +10,7 @@ from stt_vault.core.diagnostics.process import format_diagnostic_text
 from stt_vault.core.models.api import (
     AssetResponse,
     AssetSummaryResponse,
+    CompletedTranscriptionProviderResponse,
     DiarizationSegment,
     ErrorResponse,
     EventResponse,
@@ -17,7 +18,13 @@ from stt_vault.core.models.api import (
     TranscriptResponse,
     VisualEventResponse,
 )
-from stt_vault.core.models.records import AssetRecord, ErrorRecord, JobEventRecord, JobRecord
+from stt_vault.core.models.records import (
+    AssetRecord,
+    CompletedTranscriptionProvider,
+    ErrorRecord,
+    JobEventRecord,
+    JobRecord,
+)
 from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,
@@ -49,7 +56,10 @@ def register_asset_detail_routes(
         asset = database.get_asset(asset_id, include_event_history=include_event_history)
         if asset is None:
             raise HTTPException(status_code=404, detail="Asset not found")
-        return asset_response(asset)
+        return asset_response(
+            asset,
+            database.list_completed_transcription_providers(asset_id),
+        )
 
     app.include_router(router)
 
@@ -102,7 +112,10 @@ def register_asset_event_routes(app: FastAPI, settings: Settings, database: Sqli
     app.include_router(router)
 
 
-def asset_response(asset: AssetRecord) -> AssetResponse:
+def asset_response(
+    asset: AssetRecord,
+    completed_transcription_providers: list[CompletedTranscriptionProvider] | None = None,
+) -> AssetResponse:
     return AssetResponse(
         id=asset.id,
         filename=asset.filename,
@@ -128,6 +141,14 @@ def asset_response(asset: AssetRecord) -> AssetResponse:
         speaker_centroids={name: list(values) for name, values in asset.speaker_centroids.entries},
         transcript_segments=[
             _transcript_response(segment) for segment in asset.transcript_segments
+        ],
+        completed_transcription_providers=[
+            CompletedTranscriptionProviderResponse(
+                provider_id=provider.provider_id,
+                image_digest=provider.image_digest,
+                completed_invocation_count=provider.completed_invocation_count,
+            )
+            for provider in completed_transcription_providers or []
         ],
         exports={
             name: value for name, value in asset.exports.__dict__.items() if value is not None

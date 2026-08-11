@@ -1,6 +1,8 @@
+import ast
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -175,3 +177,105 @@ def test_ci_runs_go_gates_and_outside_image_smoke_with_static_inspection() -> No
     assert 'Path("/tmp/jfk.wav")' in app_smoke.read_text(encoding="utf-8")
     assert "syft" in workflow.lower()
     assert "trivy" in workflow.lower()
+
+
+def test_release_evidence_consumes_the_app_smoke_provider_provenance_contract() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    app_smoke = (ROOT / "tests/e2e/fixtures/app_mod_whisper_cpu_smoke.py").read_text(
+        encoding="utf-8"
+    )
+
+    smoke_tree = ast.parse(app_smoke)
+    evidence_keys = {
+        key.value
+        for node in ast.walk(smoke_tree)
+        if isinstance(node, ast.Dict)
+        for key in node.keys
+        if isinstance(key, ast.Constant)
+        and isinstance(key.value, str)
+        and key.value
+        in {
+            "asset_id",
+            "asset_status",
+            "job_status",
+            "transcript_segment_count",
+            "completed_transcription_providers",
+        }
+    }
+    assert evidence_keys == {
+        "asset_id",
+        "asset_status",
+        "job_status",
+        "transcript_segment_count",
+        "completed_transcription_providers",
+    }
+    assert 'expected_provider_id = os.environ["EXPECTED_PROVIDER_ID"]' in app_smoke
+    assert 'expected_image_digest = os.environ["EXPECTED_IMAGE_DIGEST"]' in app_smoke
+    assert 'completed_provider.get("provider_id") == expected_provider_id' in app_smoke
+    assert 'completed_provider.get("image_digest") == expected_image_digest' in app_smoke
+    assert "assert completed_count > 0" in app_smoke
+
+    predicate_match = re.search(
+        r"jq -e --arg provider .*? '([^']+)' mod-whisper-cpu-artifacts/app-smoke-evidence.json",
+        workflow,
+    )
+    assert predicate_match is not None
+    predicate = predicate_match.group(1)
+    evidence = {
+        "asset_id": "asset-1",
+        "asset_status": "success",
+        "job_status": "success",
+        "transcript_segment_count": 1,
+        "completed_transcription_providers": [
+            {
+                "provider_id": "mod-whisper-cpu",
+                "image_digest": "sha256:" + "a" * 64,
+                "completed_invocation_count": 1,
+            }
+        ],
+    }
+    result = subprocess.run(
+        [
+            "jq",
+            "-e",
+            "--arg",
+            "provider",
+            "mod-whisper-cpu",
+            "--arg",
+            "digest",
+            "sha256:" + "a" * 64,
+            predicate,
+        ],
+        input=json.dumps(evidence),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    for invalid_provider in (
+        {"provider_id": "openai"},
+        {"image_digest": "sha256:" + "b" * 64},
+        {"completed_invocation_count": 0},
+    ):
+        invalid_evidence = json.loads(json.dumps(evidence))
+        invalid_evidence["completed_transcription_providers"][0].update(invalid_provider)
+        invalid_result = subprocess.run(
+            [
+                "jq",
+                "-e",
+                "--arg",
+                "provider",
+                "mod-whisper-cpu",
+                "--arg",
+                "digest",
+                "sha256:" + "a" * 64,
+                predicate,
+            ],
+            input=json.dumps(invalid_evidence),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert invalid_result.returncode != 0
+    for stale_field in ('.provider_id == "mod-whisper-cpu"', ".ledger_rows > 0"):
+        assert stale_field not in workflow

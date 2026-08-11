@@ -1,0 +1,15 @@
+{
+  "service": "mod-whisper-cpu",
+  "version": "0.1.0",
+  "status": "blocked-pending-ci-evidence",
+  "application_version_range": ">=0.1.0,<0.2.0",
+  "contract_version": "v1",
+  "image_digest": null,
+  "sbom_digest": null,
+  "fixture_result": null,
+  "signature": {"status": "required-ci", "required_gate": "mod-whisper-cpu-release-evidence"},
+  "provenance_attestation": {"status": "required-ci", "required_gate": "mod-whisper-cpu-release-evidence"},
+  "required_ci_gates": ["mod-whisper-cpu-smoke", "mod-whisper-cpu-release-evidence"],
+  "model_manifest": "mods/mod-whisper-cpu/model-manifest.json",
+  "gate_record": "mods/gates/mod-whisper-cpu/0.1.0.json"
+}

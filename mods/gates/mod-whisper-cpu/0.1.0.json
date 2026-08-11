@@ -1,0 +1,14 @@
+{
+  "service": "mod-whisper-cpu",
+  "version": "0.1.0",
+  "contract_version": "v1",
+  "status": "blocked-pending-ci-evidence",
+  "provider": {"id": "whisper.cpp", "source_url": "https://github.com/ggml-org/whisper.cpp", "commit": "306c88f4d1286aec1bf96e544632897886af5501", "license_url": "https://github.com/ggml-org/whisper.cpp/blob/306c88f4d1286aec1bf96e544632897886af5501/LICENSE"},
+  "model": {"id": "ggml-base.en.bin", "revision": "5359861c739e955e79d9a303bcbc70fb988958b1", "sha256": "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002", "license_url": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/LICENSE", "access_declaration": "public", "quantization": "upstream ggml F16", "selection_justification": "Fits the Phase 1 4 GiB CPU limit while retaining the selected English model."},
+  "runtime": {"device": "cpu", "cuda": null, "minimum_host_driver": null},
+  "fixture": {"id": "transcription-v1-001", "model_id": "ggml-base.en.bin", "sha256": "2976da01e205a110c9fa41d47659e238a5c6d3c3f3137582f2949853faa201dd", "expected_result": "no_speech", "sample_rate_hz": 16000, "channels": 1, "segment_tolerance_ms": 50, "evidence": "pending-ci: mod-whisper-cpu-smoke"},
+  "required_ci_gates": ["mod-whisper-cpu-smoke", "mod-whisper-cpu-release-evidence"],
+  "release_blockers": ["CI must publish the smoke artifact with a completed fixture result.", "Credential-backed image signature and provenance attestation must be completed by the release workflow."],
+  "approver": null,
+  "approval_date": null
+}

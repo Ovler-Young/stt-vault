@@ -260,6 +260,15 @@ class SidecarTranscriptionClient:
                 "sidecar identity did not match selected provider",
                 retryable=False,
             )
+        if not any(
+            offering.model_id == capabilities.mod.model.id and offering.device_id == "cpu"
+            for offering in capabilities.result.offerings
+        ):
+            raise SidecarProviderError(
+                "contract_incompatible",
+                "sidecar capability did not declare its selected CPU model",
+                retryable=False,
+            )
         if (
             capabilities.result.readiness != "ready"
             or capabilities.result.max_audio_bytes < 25 * 1024 * 1024

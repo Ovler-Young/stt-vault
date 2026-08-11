@@ -1,0 +1,7 @@
+networks:
+  stt-mods:
+    internal: true
+
+secrets:
+  stt_mod_token:
+    file: ${STT_MOD_TOKEN_FILE:?STT_MOD_TOKEN_FILE is required}

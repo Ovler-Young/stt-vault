@@ -38,10 +38,13 @@ class ApplicationDependencies:
         register_api_routes
     )
     mount_frontend: Callable[[FastAPI], None] = mount_static_frontend
+    validate_selected_mod: Callable[[Settings], None] | None = None
 
     def __post_init__(self) -> None:
         if self.prepare_directories is None:
             object.__setattr__(self, "prepare_directories", prepare_application_directories)
+        if self.validate_selected_mod is None:
+            object.__setattr__(self, "validate_selected_mod", validate_selected_mod)
 
 
 def prepare_application_directories(settings: Settings) -> None:
@@ -53,6 +56,16 @@ def prepare_application_directories(settings: Settings) -> None:
         settings.uploads_dir,
     ):
         path.mkdir(parents=True, exist_ok=True)
+
+
+def validate_selected_mod(settings: Settings) -> None:
+    if settings.stt_transcription_provider != "mod-whisper-cpu":
+        return
+    from stt_vault.processing.transcription import SidecarTranscriptionClient
+
+    SidecarTranscriptionClient().validate_startup(
+        expected_id="mod-whisper-cpu", expected_digest=settings.mod_whisper_cpu_image_digest
+    )
 
 
 def create_app(dependencies: ApplicationDependencies | None = None) -> FastAPI:
@@ -68,6 +81,7 @@ def create_app(dependencies: ApplicationDependencies | None = None) -> FastAPI:
 
     @app.on_event("startup")
     def on_startup() -> None:
+        dependencies.validate_selected_mod(settings)
         worker.recover_startup_jobs()
         worker.start()
 

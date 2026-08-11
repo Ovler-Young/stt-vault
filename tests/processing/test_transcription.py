@@ -453,6 +453,22 @@ def test_sidecar_startup_validation_requires_matching_ready_capabilities() -> No
     ).validate_startup(expected_id="mod-whisper-cpu", expected_digest="sha256:" + "b" * 64)
 
 
+def test_sidecar_startup_validation_requires_the_selected_cpu_offering() -> None:
+    class Transport:
+        def get(self, url, **_kwargs):
+            if url.endswith("/v1/capabilities"):
+                payload = _sidecar_capabilities_response().body
+                body = json.loads(payload)
+                body["result"]["offerings"] = [{"model_id": "ggml-base.en.bin", "device_id": "gpu"}]
+                return SidecarHttpResponse(status=200, body=json.dumps(body).encode())
+            raise AssertionError("readiness must not be queried for an incompatible offering")
+
+    with pytest.raises(SidecarProviderError, match="selected CPU model"):
+        SidecarTranscriptionClient(
+            "http://mod-whisper-cpu:8081", "token", Transport()
+        ).validate_startup(expected_id="mod-whisper-cpu", expected_digest="sha256:" + "a" * 64)
+
+
 def test_prepared_sidecar_retry_replaces_the_invocation_identity(tmp_path) -> None:
     calls: list[object] = []
     audio = tmp_path / "chunk.wav"

@@ -1,0 +1,17 @@
+services:
+  stt-vault:
+    build:
+      context: .
+      target: cpu
+    image: stt-vault-mod-whisper-cpu-smoke-app
+    environment:
+      ADMIN_PASSWORD: smoke-admin-password
+      JWT_SECRET: smoke-jwt-secret-at-least-32-bytes
+      JWT_ACCESS_TOKEN_MINUTES: "60"
+      STT_AUTO_SUMMARY_ENABLED: "false"
+      OPENAI_MAX_RETRIES: "1"
+      OPENAI_RETRY_SECONDS: "1"
+      OPENAI_RETRY_BACKOFF_SECONDS: "1"
+
+  mod-whisper-cpu:
+    image: ${STT_MOD_WHISPER_CPU_IMAGE:?}@${STT_MOD_WHISPER_CPU_DIGEST:?}

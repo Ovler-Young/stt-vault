@@ -106,6 +106,7 @@ class Settings(BaseSettings):
             len(digest) != 71
             or not digest.startswith("sha256:")
             or any(character not in "0123456789abcdef" for character in digest[7:])
+            or digest == "sha256:" + "0" * 64
         ):
             raise ValueError("STT_MOD_WHISPER_CPU_DIGEST must be a sha256 image digest")
         return self

@@ -1,0 +1,52 @@
+services:
+  stt-vault:
+    depends_on:
+      mod-whisper-cpu:
+        condition: service_healthy
+    environment:
+      STT_TRANSCRIPTION_PROVIDER: mod-whisper-cpu
+      STT_DIARIZATION_PROVIDER: senko
+      STT_MOD_WHISPER_CPU_DIGEST: ${STT_MOD_WHISPER_CPU_DIGEST:?}
+    networks:
+      - default
+      - stt-mods
+    secrets:
+      stt_mod_token:
+        uid: "0"
+        gid: "0"
+        mode: 0400
+
+  mod-whisper-cpu:
+    image: ${STT_MOD_WHISPER_CPU_IMAGE:?}@${STT_MOD_WHISPER_CPU_DIGEST:?}
+    profiles:
+      - mod-whisper-cpu
+    environment:
+      WHISPER_MODEL_ID: ${STT_MOD_WHISPER_CPU_MODEL:-ggml-base.en.bin}
+      WHISPER_IMAGE_DIGEST: ${STT_MOD_WHISPER_CPU_DIGEST:?}
+    secrets:
+      stt_mod_token:
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    networks:
+      - stt-mods
+    volumes:
+      - mod_whisper_cpu_cache:/models
+    cpus: "2.0"
+    mem_limit: 4g
+    pids_limit: 256
+    tmpfs:
+      - /tmp:size=512m,noexec,nosuid
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          header="Authorization: Bearer $(cat /run/secrets/stt_mod_token)" && export header && python -c
+          "import json, os, urllib.request; request = urllib.request.Request('http://127.0.0.1:8081/readyz', headers=dict([os.environ['header'].split(': ', 1)])); response = urllib.request.urlopen(request, timeout=5); assert response.status == 200 and json.load(response)['status'] == 'ready'"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  mod_whisper_cpu_cache: {}

@@ -6,7 +6,7 @@ TOKEN = Path("/run/secrets/stt_mod_token").read_text(encoding="utf-8").strip()
 MOD = {
     "id": "mod-whisper-cpu",
     "version": "0.0.0-e2e",
-    "image_digest": "sha256:" + "0" * 64,
+    "image_digest": "sha256:" + "a" * 64,
     "runtime": "fixture",
     "model": {
         "id": "fixture-timed-units",

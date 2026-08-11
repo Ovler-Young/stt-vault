@@ -1,0 +1,29 @@
+{
+  "schema": "stt-vault.release-tag-signers",
+  "schema_version": 1,
+  "service": "mod-whisper-cpu",
+  "release_tag": {
+    "annotated_only": true,
+    "prefix": "v",
+    "versions": [
+      "0.1.0"
+    ]
+  },
+  "key_directory": "release-tag-keys",
+  "active_signers": [],
+  "retired_signers": [],
+  "rotation": {
+    "activation_requires": [
+      "public_key",
+      "fingerprint",
+      "status",
+      "not_before",
+      "not_after"
+    ],
+    "retirement_requires": [
+      "fingerprint",
+      "revoked_at_or_expired_at"
+    ],
+    "private_keys_permitted": false
+  }
+}

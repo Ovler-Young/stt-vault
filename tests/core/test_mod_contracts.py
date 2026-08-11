@@ -238,7 +238,10 @@ def test_settings_builds_the_configured_senko_embedding_space() -> None:
     )
 
 
-@pytest.mark.parametrize("digest", ["", "sha256:not-a-digest", "sha512:" + "a" * 64])
+@pytest.mark.parametrize(
+    "digest",
+    ["", "sha256:not-a-digest", "sha512:" + "a" * 64, "sha256:" + "0" * 64],
+)
 def test_selected_mod_requires_a_verified_image_digest(digest: str) -> None:
     with pytest.raises(ValidationError, match="STT_MOD_WHISPER_CPU_DIGEST"):
         Settings(

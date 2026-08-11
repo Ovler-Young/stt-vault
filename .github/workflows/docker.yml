@@ -192,7 +192,7 @@ jobs:
     env:
       MOD_WHISPER_CPU_PROJECT: stt-vault-mod-whisper-cpu-${{ github.run_id }}-${{ github.run_attempt }}
       MOD_WHISPER_CPU_COMPOSE_STARTED: "false"
-      STT_MOD_TOKEN_FILE: ${{ github.workspace }}/tests/e2e/fixtures/stt_mod_token.txt
+      STT_MOD_TOKEN_SOURCE_PATH: ${{ runner.temp }}/stt_mod_token
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -209,6 +209,12 @@ jobs:
 
       - name: Validate manifest, release gate, and Compose selection
         run: uv run --extra dev pytest -q tests/test_mod_whisper_cpu_compose.py
+
+      - name: Materialize a production-mode Mod token source
+        run: |
+          sudo install -o root -g root -m 0400 tests/e2e/fixtures/stt_mod_token.txt "$STT_MOD_TOKEN_SOURCE_PATH"
+          test "$(sudo stat -c '%u:%g %a' "$STT_MOD_TOKEN_SOURCE_PATH")" = "0:0 400"
+          printf 'STT_MOD_TOKEN=%s\n' "$(sudo cat "$STT_MOD_TOKEN_SOURCE_PATH")" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -408,7 +414,10 @@ jobs:
           docker inspect "$mod_id" > mod-whisper-cpu-inspect.json
           selected_image_id="$(jq -er '.candidate_image_id' selected-image.json)"
           selected_model="$(jq -er '.model' selected-image.json)"
-          jq -e --arg selected_image_id "$selected_image_id" --arg selected_model "$selected_model" '.[0].Image == $selected_image_id and .[0].Config.User == "10001:10001" and (.[0].Config.Env | index("WHISPER_MODEL_ID=" + $selected_model)) and .[0].HostConfig.ReadonlyRootfs == true and .[0].HostConfig.Tmpfs["/tmp"] == "rw,noexec,nosuid,nodev,size=512m,uid=10001,gid=10001,mode=1777" and .[0].HostConfig.NanoCpus == 2000000000 and .[0].HostConfig.Memory == 4294967296 and .[0].HostConfig.PidsLimit == 256 and (.[0].HostConfig.DeviceRequests == null or .[0].HostConfig.DeviceRequests == []) and all(.[0].Mounts[]; .Destination == "/run/secrets/stt_mod_token")' mod-whisper-cpu-inspect.json
+          jq -e --arg selected_image_id "$selected_image_id" --arg selected_model "$selected_model" '.[0].Image == $selected_image_id and .[0].Config.User == "10001:10001" and (.[0].Config.Env | index("WHISPER_MODEL_ID=" + $selected_model)) and .[0].HostConfig.ReadonlyRootfs == true and .[0].HostConfig.Tmpfs["/tmp"] == "rw,noexec,nosuid,nodev,size=512m,uid=10001,gid=10001,mode=1777" and .[0].HostConfig.NanoCpus == 2000000000 and .[0].HostConfig.Memory == 4294967296 and .[0].HostConfig.PidsLimit == 256 and (.[0].HostConfig.DeviceRequests == null or .[0].HostConfig.DeviceRequests == []) and ([.[0].Mounts[] | select(.Destination == "/run/secrets/stt_mod_token")] | length == 1)' mod-whisper-cpu-inspect.json
+          secret_source="$(jq -r '.[0].Mounts[] | select(.Destination == "/run/secrets/stt_mod_token") | .Source' mod-whisper-cpu-inspect.json)"
+          test -n "$secret_source"
+          test "$(sudo stat -c '%u:%g %a' "$secret_source")" = "10001:10001 400"
 
       - name: Verify selected network topology
         run: |
@@ -420,7 +429,7 @@ jobs:
 
       - name: Verify authenticated ready, model identity, and transcription shape
         run: |
-          docker run --rm --network "${MOD_WHISPER_CPU_PROJECT}_stt-mods" -v "$PWD:/work:ro" -v "$STT_MOD_TOKEN_FILE:/run/secrets/stt_mod_token:ro" -e MOD_TOKEN_PATH=/run/secrets/stt_mod_token -e MOD_BASE_URL=http://mod-whisper-cpu:8081 -e EXPECTED_MODEL="$STT_MOD_WHISPER_CPU_MODEL" python:3.13-alpine3.21@sha256:71397d15c4c450526972669d41cad5bf89fd463c0027cc93af15891215f6c56b python /work/tests/e2e/fixtures/mod_whisper_cpu_smoke.py
+          docker run --rm --network "${MOD_WHISPER_CPU_PROJECT}_stt-mods" -v "$PWD:/work:ro" -e MOD_TOKEN="$STT_MOD_TOKEN" -e MOD_BASE_URL=http://mod-whisper-cpu:8081 -e EXPECTED_MODEL="$STT_MOD_WHISPER_CPU_MODEL" python:3.13-alpine3.21@sha256:71397d15c4c450526972669d41cad5bf89fd463c0027cc93af15891215f6c56b python /work/tests/e2e/fixtures/mod_whisper_cpu_smoke.py
 
       - name: Verify the application upload, job, SQLite, and sidecar result path
         run: |
@@ -433,14 +442,14 @@ jobs:
       - name: Verify the selected Mod remains resident after requests
         run: |
           first_id="$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps -q mod-whisper-cpu)"
-          docker run --rm --network "${MOD_WHISPER_CPU_PROJECT}_stt-mods" -v "$PWD:/work:ro" -v "$STT_MOD_TOKEN_FILE:/run/secrets/stt_mod_token:ro" -e MOD_TOKEN_PATH=/run/secrets/stt_mod_token -e MOD_BASE_URL=http://mod-whisper-cpu:8081 -e EXPECTED_MODEL="$STT_MOD_WHISPER_CPU_MODEL" python:3.13-alpine3.21@sha256:71397d15c4c450526972669d41cad5bf89fd463c0027cc93af15891215f6c56b python /work/tests/e2e/fixtures/mod_whisper_cpu_smoke.py
+          docker run --rm --network "${MOD_WHISPER_CPU_PROJECT}_stt-mods" -v "$PWD:/work:ro" -e MOD_TOKEN="$STT_MOD_TOKEN" -e MOD_BASE_URL=http://mod-whisper-cpu:8081 -e EXPECTED_MODEL="$STT_MOD_WHISPER_CPU_MODEL" python:3.13-alpine3.21@sha256:71397d15c4c450526972669d41cad5bf89fd463c0027cc93af15891215f6c56b python /work/tests/e2e/fixtures/mod_whisper_cpu_smoke.py
           test "$first_id" = "$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps -q mod-whisper-cpu)"
 
       - name: Verify Mod restart recovers the deterministic fixture
         run: |
           docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu restart mod-whisper-cpu
           docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu up -d --wait --wait-timeout 180
-          docker run --rm --network "${MOD_WHISPER_CPU_PROJECT}_stt-mods" -v "$PWD:/work:ro" -v "$STT_MOD_TOKEN_FILE:/run/secrets/stt_mod_token:ro" -e MOD_TOKEN_PATH=/run/secrets/stt_mod_token -e MOD_BASE_URL=http://mod-whisper-cpu:8081 -e EXPECTED_MODEL="$STT_MOD_WHISPER_CPU_MODEL" python:3.13-alpine3.21@sha256:71397d15c4c450526972669d41cad5bf89fd463c0027cc93af15891215f6c56b python /work/tests/e2e/fixtures/mod_whisper_cpu_smoke.py
+          docker run --rm --network "${MOD_WHISPER_CPU_PROJECT}_stt-mods" -v "$PWD:/work:ro" -e MOD_TOKEN="$STT_MOD_TOKEN" -e MOD_BASE_URL=http://mod-whisper-cpu:8081 -e EXPECTED_MODEL="$STT_MOD_WHISPER_CPU_MODEL" python:3.13-alpine3.21@sha256:71397d15c4c450526972669d41cad5bf89fd463c0027cc93af15891215f6c56b python /work/tests/e2e/fixtures/mod_whisper_cpu_smoke.py
 
       - name: Save the verified tag candidate for gated staging
         if: startsWith(github.ref, 'refs/tags/v')

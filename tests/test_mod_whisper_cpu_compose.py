@@ -10,6 +10,7 @@ from stt_vault.core.models.mod_contracts import TranscriptionRequestV1
 ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "mods/mod-whisper-cpu/Dockerfile"
 COMPOSE = ROOT / "docker-compose.mod-whisper-cpu.yml"
+MODS_COMPOSE = ROOT / "docker-compose.mods.yml"
 WORKFLOW = ROOT / ".github/workflows/docker.yml"
 MANIFEST = ROOT / "mods/mod-whisper-cpu/model-manifest.json"
 GO_MOD = ROOT / "mods/mod-whisper-cpu/gateway/go.mod"
@@ -73,6 +74,7 @@ def test_gateway_hash_fixtures_match_the_pydantic_request_oracle() -> None:
 
 def test_compose_preserves_the_selected_two_service_isolation_without_model_volume() -> None:
     compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    shared = yaml.safe_load(MODS_COMPOSE.read_text(encoding="utf-8"))
     assert set(compose["services"]) == {"stt-vault", "mod-whisper-cpu"}
     mod = compose["services"]["mod-whisper-cpu"]
     assert mod["networks"] == ["stt-mods"]
@@ -88,6 +90,7 @@ def test_compose_preserves_the_selected_two_service_isolation_without_model_volu
     assert mod["secrets"] == [
         {"source": "stt_mod_token", "uid": "10001", "gid": "10001", "mode": 0o400}
     ]
+    assert shared["secrets"] == {"stt_mod_token": {"environment": "STT_MOD_TOKEN"}}
 
 
 def test_alpine_apk_lock_is_complete_and_docker_uses_only_locked_artifacts() -> None:
@@ -156,6 +159,12 @@ def test_ci_runs_go_gates_and_outside_image_smoke_with_static_inspection() -> No
     assert "readelf -d image-export/gateway image-export/whisper-server" in workflow
     assert "find image-export" in workflow
     assert "ReadonlyRootfs == true" in workflow
+    assert "STT_MOD_TOKEN_SOURCE_PATH" in workflow
+    assert "sudo install -o root -g root -m 0400" in workflow
+    assert "sudo stat -c '%u:%g %a' \"$STT_MOD_TOKEN_SOURCE_PATH\"" in workflow
+    assert "10001:10001 400" in workflow
+    assert 'MOD_TOKEN="$STT_MOD_TOKEN"' in workflow
+    assert '"$STT_MOD_TOKEN_FILE:/run/secrets/stt_mod_token:ro"' not in workflow
     assert (
         'HostConfig.Tmpfs["/tmp"] == '
         '"rw,noexec,nosuid,nodev,size=512m,uid=10001,gid=10001,mode=1777"' in workflow

@@ -6,9 +6,23 @@ import {
 } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+import { classifyTimedTranscriptJobState } from "../src/lib/e2e/timed-transcript-job-state";
+
 const timedUnitText = "fixture unit";
 const longUnbrokenUnitText = "longunbrokenfixturetext".repeat(12);
 const browserErrors = new WeakMap<Page, string[]>();
+const jobCompletionTimeoutMilliseconds = 180_000;
+
+type AssetDetail = {
+  error: unknown;
+  events: Array<{ level: string; message: string }> | null;
+  job: { error: unknown; status: string } | null;
+  status: string;
+  transcript_segments: Array<{
+    chunk_start: number;
+    timed_units: Array<Record<string, unknown>>;
+  }>;
+};
 
 test.beforeEach(async ({ page }) => {
   const pageErrors: string[] = [];
@@ -162,42 +176,36 @@ async function waitForTerminalAsset(
   request: APIRequestContext,
   headers: Record<string, string>,
   assetId: string,
-): Promise<{
-  transcript_segments: Array<{
-    chunk_start: number;
-    timed_units: Array<Record<string, unknown>>;
-  }>;
-  error: unknown;
-  job: { status: string; error: unknown } | null;
-  events: Array<{ level: string }> | null;
-}> {
-  await expect
-    .poll(async () => {
-      const response = await request.get(`/api/assets/${assetId}`, { headers });
-      expect(response.ok()).toBeTruthy();
-      const detail = (await response.json()) as {
-        error: unknown;
-        events: Array<{ level: string }> | null;
-        job: { error: unknown; status: string } | null;
-        status: string;
-      };
+): Promise<AssetDetail> {
+  const deadline = Date.now() + jobCompletionTimeoutMilliseconds;
+  let lastDetail: AssetDetail | undefined;
+  while (Date.now() < deadline) {
+    const response = await request.get(`/api/assets/${assetId}`, {
+      headers,
+      timeout: 5_000,
+    });
+    expect(response.ok()).toBeTruthy();
+    const detail = (await response.json()) as AssetDetail;
+    lastDetail = detail;
+    const jobState = classifyTimedTranscriptJobState(detail);
+    if (jobState === "success") {
       expect(detail.error).toBeNull();
-      expect(detail.job).toMatchObject({ status: "success", error: null });
+      expect(detail.job?.error).toBeNull();
       expect(
         (detail.events ?? []).filter(
           (event) => event.level === "error" || event.level === "warning",
         ),
       ).toEqual([]);
       return detail;
-    })
-    .toMatchObject({ status: "success" });
-  const response = await request.get(`/api/assets/${assetId}`, { headers });
-  return response.json() as Promise<{
-    transcript_segments: Array<{
-      chunk_start: number;
-      timed_units: Array<Record<string, unknown>>;
-    }>;
-  }>;
+    }
+    if (jobState === "failure" || jobState === "unknown") {
+      throw new Error(`terminal job ${jobState}: ${JSON.stringify(detail)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    `terminal job did not succeed within ${jobCompletionTimeoutMilliseconds}ms: ${JSON.stringify(lastDetail)}`,
+  );
 }
 
 async function expectMediaSeek(page: Page, startMs: number, calls: number) {

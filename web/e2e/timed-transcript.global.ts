@@ -1,7 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 const projectPrefix = "stt-vault-timed-transcript-";
@@ -17,7 +24,6 @@ const composeFiles = [
 ];
 
 type E2ERun = {
-  dataDirectory: string;
   fixtureDirectory: string;
   logPath: string;
   projectName: string;
@@ -53,13 +59,10 @@ export default async function globalSetup() {
 
 async function createRun(): Promise<E2ERun> {
   const fixtureDirectory = await mkdtemp(join(tmpdir(), projectPrefix));
-  const dataDirectory = join(fixtureDirectory, "data");
   const projectName =
     process.env.E2E_TIMED_TRANSCRIPT_PROJECT ??
     `${projectPrefix}${process.pid}-${Date.now()}`;
   assertManagedProject(projectName);
-  await mkdir(dataDirectory);
-
   const logPath = join(
     repositoryRoot,
     "web",
@@ -67,7 +70,7 @@ async function createRun(): Promise<E2ERun> {
     "timed-transcript-compose.log",
   );
   await mkdir(dirname(logPath), { recursive: true });
-  return { dataDirectory, fixtureDirectory, logPath, projectName };
+  return { fixtureDirectory, logPath, projectName };
 }
 
 function assertDockerComposeAvailable() {
@@ -93,8 +96,13 @@ function assertManagedProject(projectName: string) {
 }
 
 function assertManagedTemporaryDirectory(directory: string) {
-  const expectedPrefix = join(tmpdir(), projectPrefix);
-  if (!resolve(directory).startsWith(expectedPrefix)) {
+  const relativeDirectory = relative(tmpdir(), resolve(directory));
+  if (
+    relativeDirectory === "" ||
+    relativeDirectory.startsWith("..") ||
+    isAbsolute(relativeDirectory) ||
+    !basename(relativeDirectory).startsWith(projectPrefix)
+  ) {
     throw new Error(
       `Refusing to remove non-E2E temporary directory: ${directory}`,
     );
@@ -112,7 +120,6 @@ function compose(run: E2ERun, arguments_: string[]) {
       env: {
         ...process.env,
         APP_PORT: "18080",
-        STT_HOST_DATA_DIR: run.dataDirectory,
       },
       stdio: captureOutput ? "pipe" : "inherit",
       encoding: captureOutput ? "utf8" : undefined,

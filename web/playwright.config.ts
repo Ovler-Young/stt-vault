@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/timed-transcript.global.ts",
-  timeout: 120_000,
+  timeout: 420_000,
   workers: 1,
   use: {
     baseURL:

@@ -6,6 +6,8 @@ services:
     image: stt-vault-e2e-timed-transcript
     ports:
       - "${APP_PORT:-18080}:8080"
+    volumes:
+      - timed-transcript-data:/data
     configs:
       - source: stt_vault_e2e_environment
         target: /app/.env
@@ -75,6 +77,9 @@ configs:
 secrets:
   stt_mod_token:
     file: ./tests/e2e/fixtures/stt_mod_token.txt
+
+volumes:
+  timed-transcript-data: {}
 
 networks:
   timed-transcript-internal:

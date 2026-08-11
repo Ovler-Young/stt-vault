@@ -27,14 +27,30 @@ def test_timed_transcript_global_setup_isolates_and_captures_each_run() -> None:
     setup = (REPOSITORY_ROOT / "web/e2e/timed-transcript.global.ts").read_text()
 
     assert '"compose", "-p", run.projectName' in setup
-    assert "STT_HOST_DATA_DIR" in setup
+    assert "STT_HOST_DATA_DIR" not in setup
     assert "assertManagedProject" in setup
     assert "assertManagedTemporaryDirectory" in setup
+    assert "relative(tmpdir(), resolve(directory))" in setup
     assert "mkdtemp(join(tmpdir(), projectPrefix))" in setup
     assert "timed-transcript-compose.log" in setup
     assert setup.index('captureComposeDiagnostic(run, ["logs", "--no-color"])') < setup.index(
         'compose(run, ["down", "--volumes", "--remove-orphans"])'
     )
+
+
+def test_timed_transcript_uses_a_project_owned_data_volume() -> None:
+    compose = (REPOSITORY_ROOT / "docker-compose.e2e-timed-transcript.yml").read_text()
+
+    assert "timed-transcript-data:/data" in compose
+    assert "timed-transcript-data:" in compose
+
+
+def test_timed_transcript_waits_for_terminal_jobs_with_diagnostics() -> None:
+    spec = (REPOSITORY_ROOT / "web/e2e/timed-transcript.spec.ts").read_text()
+
+    assert "waitForTerminalAsset" in spec
+    assert "jobCompletionTimeoutMilliseconds = 180_000" in spec
+    assert "terminal job did not succeed" in spec
 
 
 def test_timed_transcript_global_setup_waits_for_public_health_and_auth() -> None:

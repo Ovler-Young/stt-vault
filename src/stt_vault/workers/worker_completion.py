@@ -80,6 +80,8 @@ class SummaryFollowup:
         self.database = database
 
     def generate(self, asset_id: str) -> None:
+        if not getattr(self.settings, "stt_auto_summary_enabled", True):
+            return
         try:
             self.summary_generator(self.settings, asset_id, database=self.database)
         except Exception as error:

@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from stt_vault.core.models.records import SpeakerSegment, TranscriptChunk, TranscriptSegment
+from stt_vault.core.models.records import (
+    SpeakerSegment,
+    TimedTranscriptUnit,
+    TranscriptChunk,
+    TranscriptSegment,
+)
 from stt_vault.processing.exports import to_ai_text
 from stt_vault.processing.media_transcoding import extract_audio_chunk
 from stt_vault.processing.transcription import (
@@ -12,12 +17,309 @@ from stt_vault.processing.transcription import (
     SidecarProviderError,
     SidecarRequestIdentity,
     SidecarTranscriptionClient,
+    SidecarTranscriptionResult,
     Transcriber,
     build_chunks,
     build_transcription_plan,
     canonical_sidecar_request_hash,
     transcript_chunks_match_plan,
 )
+
+
+def test_sidecar_client_maps_declared_timed_units_to_absolute_chunk_milliseconds(tmp_path) -> None:
+    class Transport:
+        def get(self, url, **_kwargs):
+            if url.endswith("/v1/capabilities"):
+                return _sidecar_capabilities_response(
+                    timed_units={
+                        "unit_kinds": ["word", "punctuation"],
+                        "time_base": "chunk_ms",
+                        "precision_ms": 20,
+                    }
+                )
+            return _sidecar_ready_response()
+
+        def post(self, *_args, **_kwargs):
+            return SidecarHttpResponse(
+                status=200,
+                body=json.dumps(
+                    _mod_response(
+                        {
+                            "kind": "speech",
+                            "segments": [{"start": 0, "end": 1, "text": "hello,"}],
+                            "timed_units": [
+                                {
+                                    "unit_index": 0,
+                                    "text": "hello",
+                                    "start_ms": 0,
+                                    "end_ms": 500,
+                                    "confidence": 0.9,
+                                    "language": "en",
+                                    "token_kind": "word",
+                                },
+                                {
+                                    "unit_index": 1,
+                                    "text": ",",
+                                    "start_ms": 500,
+                                    "end_ms": 500,
+                                    "confidence": None,
+                                    "language": "en",
+                                    "token_kind": "punctuation",
+                                },
+                            ],
+                        }
+                    )
+                ).encode(),
+            )
+
+    audio = tmp_path / "chunk.wav"
+    audio.write_bytes(b"RIFF audio")
+    client = SidecarTranscriptionClient("http://mod-whisper-cpu:8081", "token", Transport())
+    result = client.transcribe(
+        asset_id="asset:1",
+        chunk=TranscriptChunk(1.2345, 2.2345, "speaker:1", 3),
+        audio_path=audio,
+        idempotency_key="123e4567-e89b-42d3-a456-426614174001",
+        correlation_id="123e4567-e89b-42d3-a456-426614174002",
+        prompt=None,
+    )
+
+    actual_units = [
+        (unit.text, unit.start_ms, unit.end_ms, unit.token_kind) for unit in result.timed_units
+    ]
+    assert actual_units == [
+        ("hello", 1235, 1735, "word"),
+        (",", 1735, 1735, "punctuation"),
+    ]
+
+
+def test_transcriber_passes_sidecar_timed_units_to_the_completion_callback(tmp_path) -> None:
+    completed: list[tuple[TranscriptSegment, tuple[TimedTranscriptUnit, ...]]] = []
+    audio = tmp_path / "chunk.wav"
+    audio.write_bytes(b"RIFF audio")
+
+    class Sidecar:
+        def transcribe(self, **_kwargs):
+            return SidecarTranscriptionResult(
+                "hello",
+                {},
+                1,
+                (TimedTranscriptUnit(0, "hello", 1235, 1735, 0.9, "en", "word"),),
+            )
+
+    transcriber = Transcriber(
+        api_key="unused",
+        base_url="unused",
+        model="unused",
+        prompt="",
+        concurrency=1,
+        retry_seconds=1,
+        max_retries=1,
+        provider="mod-whisper-cpu",
+        sidecar_client=Sidecar(),
+    )
+    transcriber.transcribe_chunks(
+        tmp_path / "input.wav",
+        [TranscriptChunk(1.2345, 2.2345, "speaker:1", 3)],
+        tmp_path,
+        asset_id="asset:1",
+        sidecar_prepared_requests={
+            3: SidecarPreparedRequest(
+                audio,
+                "a" * 64,
+                SidecarRequestIdentity(
+                    "123e4567-e89b-42d3-a456-426614174001",
+                    "123e4567-e89b-42d3-a456-426614174002",
+                ),
+                on_completed=lambda segment, units: completed.append((segment, units)),
+            )
+        },
+    )
+
+    assert completed[0][0].text == "hello"
+    assert [(unit.start_ms, unit.end_ms) for unit in completed[0][1]] == [(1235, 1735)]
+
+
+@pytest.mark.parametrize(
+    "timed_units",
+    [
+        None,
+        [
+            {
+                "unit_index": 0,
+                "text": "x",
+                "start_ms": 5,
+                "end_ms": 20,
+                "confidence": 0.5,
+                "language": "en",
+                "token_kind": "word",
+            }
+        ],
+        [
+            {
+                "unit_index": 0,
+                "text": "x",
+                "start_ms": 0,
+                "end_ms": 20,
+                "confidence": float("nan"),
+                "language": "en",
+                "token_kind": "token",
+            }
+        ],
+        [
+            {
+                "unit_index": 0,
+                "text": "x",
+                "start_ms": 0,
+                "end_ms": 20,
+                "confidence": 1.1,
+                "language": "en",
+                "token_kind": "word",
+            }
+        ],
+    ],
+)
+def test_sidecar_client_rejects_timed_unit_capability_mismatches(tmp_path, timed_units) -> None:
+    class Transport:
+        def get(self, url, **_kwargs):
+            if url.endswith("/v1/capabilities"):
+                return _sidecar_capabilities_response(
+                    timed_units={
+                        "unit_kinds": ["word"],
+                        "time_base": "chunk_ms",
+                        "precision_ms": 20,
+                    }
+                )
+            return _sidecar_ready_response()
+
+        def post(self, *_args, **_kwargs):
+            result = {"kind": "speech", "segments": [{"start": 0, "end": 1, "text": "x"}]}
+            if timed_units is not None:
+                result["timed_units"] = timed_units
+            return SidecarHttpResponse(status=200, body=json.dumps(_mod_response(result)).encode())
+
+    audio = tmp_path / "chunk.wav"
+    audio.write_bytes(b"RIFF audio")
+    with pytest.raises(SidecarProviderError, match="contract_incompatible"):
+        SidecarTranscriptionClient("http://mod-whisper-cpu:8081", "token", Transport()).transcribe(
+            asset_id="asset:1",
+            chunk=TranscriptChunk(0.0, 1.0, "speaker:1", 0),
+            audio_path=audio,
+            idempotency_key="123e4567-e89b-42d3-a456-426614174001",
+            correlation_id="123e4567-e89b-42d3-a456-426614174002",
+            prompt=None,
+        )
+
+
+def _timed_unit(**overrides: object) -> dict[str, object]:
+    return {
+        "unit_index": 0,
+        "text": "x",
+        "start_ms": 0,
+        "end_ms": 20,
+        "confidence": None,
+        "language": "en",
+        "token_kind": "word",
+    } | overrides
+
+
+@pytest.mark.parametrize(
+    ("name", "timed_units"),
+    [
+        ("noninteger", [_timed_unit(start_ms=0.5)]),
+        ("nonfinite", [_timed_unit(start_ms=float("nan"))]),
+        ("range", [_timed_unit(end_ms=1020)]),
+        ("index", [_timed_unit(unit_index=1)]),
+        (
+            "order",
+            [
+                _timed_unit(unit_index=0, start_ms=100, end_ms=120),
+                _timed_unit(unit_index=1, start_ms=0, end_ms=20),
+            ],
+        ),
+        ("grid", [_timed_unit(start_ms=10, end_ms=20)]),
+        ("undeclared_kind", [_timed_unit(token_kind="token")]),
+    ],
+)
+def test_transcriber_rejects_invalid_timed_units_before_completion_callback(
+    tmp_path, name, timed_units
+) -> None:
+    completed: list[object] = []
+    audio = tmp_path / "chunk.wav"
+    audio.write_bytes(b"RIFF audio")
+
+    class Transport:
+        def get(self, url, **_kwargs):
+            if url.endswith("/v1/capabilities"):
+                return _sidecar_capabilities_response(
+                    timed_units={
+                        "unit_kinds": ["word"],
+                        "time_base": "chunk_ms",
+                        "precision_ms": 20,
+                    }
+                )
+            return _sidecar_ready_response()
+
+        def post(self, *_args, **_kwargs):
+            return SidecarHttpResponse(
+                status=200,
+                body=json.dumps(
+                    _mod_response(
+                        {
+                            "kind": "speech",
+                            "segments": [{"start": 0, "end": 1, "text": "x"}],
+                            "timed_units": timed_units,
+                        }
+                    )
+                ).encode(),
+            )
+
+    class Lifecycle:
+        def sent(self):
+            return True
+
+        def accepted(self, *_args):
+            raise AssertionError(f"{name} response must not be accepted")
+
+        def failed(self, error):
+            assert isinstance(error, SidecarProviderError)
+            assert error.category == "contract_incompatible"
+            return True
+
+    transcriber = Transcriber(
+        api_key="unused",
+        base_url="unused",
+        model="unused",
+        prompt="",
+        concurrency=1,
+        retry_seconds=1,
+        max_retries=1,
+        provider="mod-whisper-cpu",
+        sidecar_client=SidecarTranscriptionClient(
+            "http://mod-whisper-cpu:8081", "token", Transport()
+        ),
+    )
+    with pytest.raises(SidecarProviderError) as error:
+        transcriber.transcribe_chunks(
+            tmp_path / "input.wav",
+            [TranscriptChunk(0.0, 1.0, "speaker:1", 0)],
+            tmp_path,
+            asset_id="asset:1",
+            sidecar_prepared_requests={
+                0: SidecarPreparedRequest(
+                    audio,
+                    "a" * 64,
+                    SidecarRequestIdentity(
+                        "123e4567-e89b-42d3-a456-426614174001",
+                        "123e4567-e89b-42d3-a456-426614174002",
+                    ),
+                    lifecycle=Lifecycle(),
+                    on_completed=lambda *_args: completed.append("completed"),
+                )
+            },
+        )
+    assert error.value.category == "contract_incompatible"
+    assert completed == []
 
 
 def test_canonical_sidecar_request_hash_is_deterministic_before_client_io(tmp_path) -> None:
@@ -264,7 +566,9 @@ def _mod_error_response(category: str, retryable: bool) -> dict[str, object]:
     return response
 
 
-def _sidecar_capabilities_response(*, readiness: str = "ready") -> SidecarHttpResponse:
+def _sidecar_capabilities_response(
+    *, readiness: str = "ready", timed_units: dict[str, object] | None = None
+) -> SidecarHttpResponse:
     return SidecarHttpResponse(
         status=200,
         body=json.dumps(
@@ -274,6 +578,7 @@ def _sidecar_capabilities_response(*, readiness: str = "ready") -> SidecarHttpRe
                     "max_audio_bytes": 25 * 1024 * 1024,
                     "max_audio_seconds": 120,
                     "readiness": readiness,
+                    **({"transcription": {"timed_units": timed_units}} if timed_units else {}),
                 }
             )
         ).encode(),

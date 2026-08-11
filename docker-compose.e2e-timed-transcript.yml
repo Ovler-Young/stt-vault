@@ -1,0 +1,78 @@
+services:
+  stt-vault:
+    build:
+      context: .
+      target: cpu
+    image: stt-vault-e2e-timed-transcript
+    configs:
+      - source: stt_vault_e2e_environment
+        target: /app/.env
+    secrets:
+      - stt_mod_token
+    depends_on:
+      mod-whisper-cpu:
+        condition: service_healthy
+    networks:
+      - timed-transcript-internal
+
+  mod-whisper-cpu:
+    build:
+      context: .
+      dockerfile: tests/e2e/fixtures/Dockerfile.timed-transcript-mod
+    image: stt-vault-e2e-timed-transcript-mod
+    secrets:
+      - stt_mod_token
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/livez', timeout=5).read()",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 2s
+    networks:
+      - timed-transcript-internal
+
+configs:
+  stt_vault_e2e_environment:
+    content: |
+      STT_DATA_DIR=/data
+      STT_DB_PATH=/data/app.sqlite3
+      STT_AUTO_SUMMARY_ENABLED=false
+      OPENAI_API_KEY=
+      OPENAI_BASE_URL=https://api.openai.com/v1
+      OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe
+      OPENAI_TRANSCRIBE_PROMPT=
+      OPENAI_CONCURRENCY=1
+      OPENAI_RETRY_SECONDS=1
+      OPENAI_MAX_RETRIES=1
+      OPENAI_RETRY_BACKOFF_SECONDS=1
+      STT_TRANSCRIPTION_PROVIDER=mod-whisper-cpu
+      STT_MOD_WHISPER_CPU_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+      STT_DIARIZATION_PROVIDER=senko
+      DIARIZATION_CONCURRENCY=1
+      SENKO_DEVICE=cpu
+      JOB_LEASE_SECONDS=120
+      ADMIN_PASSWORD=e2e-admin-password
+      JWT_SECRET=e2e-timed-transcript-jwt-secret-at-least-32-bytes
+      JWT_ISSUER=stt-vault
+      JWT_AUDIENCE=stt-vault-api
+      JWT_ACCESS_TOKEN_MINUTES=60
+      MAX_UPLOAD_MB=64
+      TRANSCRIBE_CHUNK_SECONDS=60
+      VISUAL_SAMPLE_INTERVAL_SECONDS=2.0
+      VISUAL_CHANGE_THRESHOLD=18.0
+      VISUAL_MIN_GAP_SECONDS=6.0
+      EXPORT_FORMATS=json,whisper_json,ai_text,srt,vtt,hyperaudio_html,rttm
+
+secrets:
+  stt_mod_token:
+    file: ./tests/e2e/fixtures/stt_mod_token.txt
+
+networks:
+  timed-transcript-internal:
+    internal: true

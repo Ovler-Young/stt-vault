@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from "$lib/api/types";
+import type { TimedTranscriptUnit, TranscriptSegment } from "$lib/api/types";
 import { segmentMediaEnd, segmentMediaStart } from "./asset-page.helpers";
 
 type PlaybackSegment = Pick<
@@ -9,6 +9,35 @@ type PlaybackSegment = Pick<
 export function seekAndPlay(mediaElement: HTMLMediaElement, time: number) {
   mediaElement.currentTime = time;
   mediaElement.play().catch(() => {});
+}
+
+export function activeTimedTranscriptUnitIndex(
+  units: Pick<TimedTranscriptUnit, "unit_index" | "start_ms" | "end_ms">[],
+  currentTime: number,
+  playbackEnded: boolean,
+): number {
+  if (playbackEnded) return -1;
+
+  const currentMs = currentTime * 1000;
+  const roundedCurrentMs = Math.floor(currentMs + 0.5);
+  let activeIndex = -1;
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index];
+    const isActive =
+      unit.start_ms === unit.end_ms
+        ? roundedCurrentMs === unit.start_ms
+        : currentMs >= unit.start_ms && currentMs < unit.end_ms;
+    if (
+      isActive &&
+      (activeIndex === -1 ||
+        unit.start_ms > units[activeIndex].start_ms ||
+        (unit.start_ms === units[activeIndex].start_ms &&
+          unit.unit_index < units[activeIndex].unit_index))
+    ) {
+      activeIndex = index;
+    }
+  }
+  return activeIndex;
 }
 
 export function boundedSeekTime(

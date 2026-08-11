@@ -17,6 +17,7 @@ from stt_vault.core.models.records import (
     ProviderInvocationTransition,
     ProviderMetadata,
     RetryProviderInvocation,
+    TimedTranscriptUnit,
     TranscriptChunk,
     TranscriptChunkUpsert,
     TranscriptSegment,
@@ -167,7 +168,11 @@ class _SidecarInvocation(SidecarInvocationLifecycle):
         return self._transition("accepted", "completed")
 
     def complete_transcript(
-        self, asset_id: str, chunk_index: int, segment: TranscriptSegment
+        self,
+        asset_id: str,
+        chunk_index: int,
+        segment: TranscriptSegment,
+        timed_units: tuple[TimedTranscriptUnit, ...],
     ) -> bool:
         if self.state != "accepted":
             return self.state == "completed"
@@ -182,6 +187,7 @@ class _SidecarInvocation(SidecarInvocationLifecycle):
                 self.invocation_attempt,
                 ProviderMetadata(**self.provider_metadata) if self.provider_metadata else None,
                 self.timing_ms,
+                timed_units,
             )
         )
         if result.applied:
@@ -457,8 +463,10 @@ class TranscriptionStage:
                     correlation_id=str(invocation.correlation_id),
                 ),
                 lifecycle=lifecycle,
-                on_completed=lambda result, index=index, lifecycle=lifecycle: (
-                    self._complete_sidecar_chunk(asset_id, prepared, work, index, result, lifecycle)
+                on_completed=lambda result, timed_units, index=index, lifecycle=lifecycle: (
+                    self._complete_sidecar_chunk(
+                        asset_id, prepared, work, index, result, timed_units, lifecycle
+                    )
                 ),
             )
         return requests
@@ -470,9 +478,10 @@ class TranscriptionStage:
         work: TranscriptionWork,
         index: int,
         result: TranscriptSegment,
+        timed_units: tuple[TimedTranscriptUnit, ...],
         lifecycle: _SidecarInvocation,
     ) -> None:
         enriched = self.speaker_reconciler.reconcile(prepared, [result])[0]
-        if not lifecycle.complete_transcript(asset_id, index, enriched):
+        if not lifecycle.complete_transcript(asset_id, index, enriched, timed_units):
             raise RuntimeError("sidecar invocation completion transition was stale")
         self.progress_events.record_success(asset_id, work, index)

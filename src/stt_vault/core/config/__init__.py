@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     )
     openai_transcribe_prompt: str = Field(default="", alias="OPENAI_TRANSCRIBE_PROMPT")
     openai_summary_model: str = Field(default="gpt-4o-mini", alias="OPENAI_SUMMARY_MODEL")
+    stt_auto_summary_enabled: bool = Field(default=True, alias="STT_AUTO_SUMMARY_ENABLED")
     openai_speaker_name_confidence: float = Field(
         default=0.95,
         ge=0.0,

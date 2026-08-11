@@ -10,12 +10,14 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "pnpm check",
     "format": "prettier --plugin=prettier-plugin-svelte --check src package.json pnpm-workspace.yaml svelte.config.js tsconfig.json vite.config.ts vitest.config.ts",
-    "test": "svelte-kit sync && vitest run"
+    "test": "svelte-kit sync && vitest run",
+    "e2e:timed-transcript": "playwright test e2e/timed-transcript.spec.ts"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.65.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@playwright/test": "^1.58.2",
     "jsdom": "^26.1.0",
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^3.5.2",

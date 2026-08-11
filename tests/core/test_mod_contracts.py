@@ -1,3 +1,4 @@
+from copy import deepcopy
 from uuid import uuid4
 
 import pytest
@@ -8,6 +9,7 @@ from stt_vault.core.models.mod_contracts import (
     DiarizationResponseV1,
     EmbeddingSpaceV1,
     ModErrorV1,
+    TimedUnitsCapabilityV1,
     TranscriptionRequestV1,
     TranscriptionResponseV1,
 )
@@ -80,6 +82,69 @@ def test_transcription_response_rejects_nonfinite_overlapping_and_empty_segments
     }
     with pytest.raises(ValidationError):
         TranscriptionResponseV1.model_validate(response, context={"chunk_duration": 2.0})
+
+
+def test_timed_units_require_a_valid_capability_and_valid_chunk_relative_values() -> None:
+    capability = TimedUnitsCapabilityV1.model_validate(
+        {
+            "unit_kinds": ["word", "punctuation"],
+            "time_base": "chunk_ms",
+            "precision_ms": 20,
+        }
+    )
+    response = {
+        "contract_version": "v1",
+        "correlation_id": str(uuid4()),
+        "mod": _mod(),
+        "result": {
+            "kind": "speech",
+            "segments": [{"start": 0.0, "end": 1.0, "text": "你好，"}],
+            "timed_units": [
+                {
+                    "unit_index": 0,
+                    "text": "你好",
+                    "start_ms": 0,
+                    "end_ms": 500,
+                    "confidence": 1,
+                    "language": "zh-Hans",
+                    "token_kind": "word",
+                },
+                {
+                    "unit_index": 1,
+                    "text": "，",
+                    "start_ms": 500,
+                    "end_ms": 500,
+                    "confidence": None,
+                    "language": "zh-Hans",
+                    "token_kind": "punctuation",
+                },
+            ],
+        },
+    }
+    context = {"chunk_duration": 1.0, "timed_units_capability": capability}
+    parsed = TranscriptionResponseV1.model_validate(response, context=context)
+    assert [unit.text for unit in parsed.result.timed_units or []] == ["你好", "，"]
+
+    for unit_override in (
+        {"start_ms": 1},
+        {"end_ms": 1001},
+        {"confidence": 1.1},
+        {"language": "not a language"},
+        {"token_kind": "token"},
+    ):
+        invalid = deepcopy(response)
+        invalid["result"]["timed_units"][0].update(unit_override)
+        with pytest.raises(ValidationError):
+            TranscriptionResponseV1.model_validate(invalid, context=context)
+
+    with pytest.raises(ValidationError):
+        TimedUnitsCapabilityV1.model_validate(
+            {"unit_kinds": ["word", "word"], "time_base": "chunk_ms", "precision_ms": 20}
+        )
+    with pytest.raises(ValidationError):
+        TimedUnitsCapabilityV1.model_validate(
+            {"unit_kinds": ["word"], "time_base": "chunk_ms", "precision_ms": "20"}
+        )
 
 
 def test_diarization_response_requires_cosine_finite_compatible_embeddings() -> None:

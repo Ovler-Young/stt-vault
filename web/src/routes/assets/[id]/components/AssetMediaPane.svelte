@@ -14,7 +14,9 @@
   export let currentTime = 0;
   export let mediaElement: HTMLMediaElement | null = null;
   export let progressBar: SpeakerProgressBarHandle | null = null;
-  export let onTimeUpdate: () => void = () => {};
+  export let onTimeUpdate: (mediaElement: HTMLMediaElement) => void = () => {};
+  export let onPlaybackEnded: () => void = () => {};
+  export let onPlaybackResumed: () => void = () => {};
   export let onStartClock: () => void = () => {};
   export let onStopClock: () => void = () => {};
   export let onRestoreMediaSeek: () => void = () => {};
@@ -35,6 +37,10 @@
   function handleTimelineSeek(event: CustomEvent<{ time: number }>) {
     onTimelineSeek(event.detail.time);
   }
+
+  function updateCurrentTime(event: Event) {
+    onTimeUpdate(event.currentTarget as HTMLMediaElement);
+  }
 </script>
 
 <svelte:element
@@ -42,12 +48,19 @@
   bind:this={mediaElement}
   controls
   src={mediaUrl(asset.id, selectedAudioTrack)}
-  on:timeupdate={onTimeUpdate}
-  on:seeked={onTimeUpdate}
-  on:play={onTimeUpdate}
+  on:timeupdate={updateCurrentTime}
+  on:seeked={updateCurrentTime}
+  on:play={(event: Event) => {
+    onPlaybackResumed();
+    updateCurrentTime(event);
+  }}
+  on:seeking={onPlaybackResumed}
   on:playing={onStartClock}
   on:pause={onStopClock}
-  on:ended={onStopClock}
+  on:ended={() => {
+    onPlaybackEnded();
+    onStopClock();
+  }}
   on:loadedmetadata={onRestoreMediaSeek}
 >
   <track

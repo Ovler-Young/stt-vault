@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  activeTimedTranscriptUnitIndex,
   adjacentSpeakerSegment,
   boundedSeekTime,
   nextSegment,
@@ -38,5 +39,41 @@ describe("asset playback controller", () => {
     expect(
       segmentMediaEnd({ ...segment, chunk_end: Number.POSITIVE_INFINITY }),
     ).toBe(8);
+  });
+
+  it("selects timed units on the absolute media timeline", () => {
+    const units = [
+      { unit_index: 4, text: "first", start_ms: 1000, end_ms: 3000 },
+      { unit_index: 3, text: "later", start_ms: 2000, end_ms: 4000 },
+      { unit_index: 2, text: "zero", start_ms: 4000, end_ms: 4000 },
+      { unit_index: 1, text: "also zero", start_ms: 4000, end_ms: 4000 },
+    ];
+
+    expect(activeTimedTranscriptUnitIndex(units, 1.9995, false)).toBe(0);
+    expect(activeTimedTranscriptUnitIndex(units, 2, false)).toBe(1);
+    expect(activeTimedTranscriptUnitIndex(units, 4, false)).toBe(3);
+    expect(activeTimedTranscriptUnitIndex(units, 4, true)).toBe(-1);
+    expect(activeTimedTranscriptUnitIndex(units, 4.001, false)).toBe(-1);
+  });
+
+  it("keeps nonzero intervals half-open while resolving equal-start overlaps", () => {
+    const units = [
+      { unit_index: 3, text: "earlier", start_ms: 1000, end_ms: 3000 },
+      { unit_index: 2, text: "later", start_ms: 2000, end_ms: 4000 },
+      { unit_index: 1, text: "same start", start_ms: 2000, end_ms: 2500 },
+    ];
+
+    expect(activeTimedTranscriptUnitIndex(units, 1.9995, false)).toBe(0);
+    expect(activeTimedTranscriptUnitIndex(units, 2, false)).toBe(2);
+    expect(activeTimedTranscriptUnitIndex(units, 2.5, false)).toBe(1);
+  });
+
+  it("clears a nonzero unit exactly at its end boundary", () => {
+    const units = [
+      { unit_index: 0, text: "boundary", start_ms: 1000, end_ms: 2000 },
+    ];
+
+    expect(activeTimedTranscriptUnitIndex(units, 1.9995, false)).toBe(0);
+    expect(activeTimedTranscriptUnitIndex(units, 2, false)).toBe(-1);
   });
 });

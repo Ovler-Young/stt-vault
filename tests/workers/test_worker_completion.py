@@ -34,6 +34,28 @@ def test_complete_asset_persists_before_generating_summary() -> None:
     assert calls == ["asset-success", "generate-summary"]
 
 
+def test_complete_asset_skips_automatic_summary_when_disabled() -> None:
+    calls: list[str] = []
+    database = SimpleNamespace(
+        complete_asset=lambda _command: calls.append("asset-success"),
+        add_event=lambda _event: None,
+    )
+    stage = CompletionStage(
+        SimpleNamespace(stt_auto_summary_enabled=False),
+        database,
+        summary_generator=lambda _settings, asset_id, *, database: calls.append("generate-summary"),
+    )
+
+    stage.complete(
+        "asset-1",
+        PreparedAsset(Path("audio.wav"), 12.0, {}, [], [], {}),
+        transcript_segments=[TranscriptSegment(0.0, 1.0, "SPEAKER_00", "hello")],
+        exports=ExportPaths(srt="asset.srt"),
+    )
+
+    assert calls == ["asset-success"]
+
+
 @pytest.mark.parametrize("error", [OSError("private"), ProviderFailure("secret")])
 def test_partial_completion_uses_the_explicit_database(error: Exception) -> None:
     errors: list[ErrorRecord] = []

@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends espeak-ng ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY tests/e2e/fixtures/timed_transcript_mod.py ./timed_transcript_mod.py
+RUN espeak-ng --stdout -s 130 "The timed transcript fixture contains spoken words for integration testing." \
+    | ffmpeg -y -hide_banner -loglevel error -f wav -i pipe:0 -ar 16000 -ac 1 /tmp/speech.wav \
+    && ffmpeg -y -hide_banner -loglevel error -f lavfi -t 60 -i anullsrc=r=16000:cl=mono \
+        -i /tmp/speech.wav -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" \
+        -ar 16000 -ac 1 /app/timed-transcript.wav
+
+CMD ["python", "timed_transcript_mod.py"]

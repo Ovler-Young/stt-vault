@@ -17,6 +17,32 @@ env:
   IMAGE_NAME: ghcr.io/ovler-young/stt-vault
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      timed_transcript: ${{ steps.filter.outputs.timed_transcript }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect timed transcript changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            timed_transcript:
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+              - 'docker-compose.e2e-timed-transcript.yml'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'src/**'
+              - 'tests/e2e/**'
+              - 'web/**'
+              - '.github/workflows/docker.yml'
+
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -26,7 +52,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -47,7 +73,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
@@ -62,6 +88,65 @@ jobs:
 
       - name: Build frontend
         run: pnpm --dir web build
+
+  timed-transcript-e2e:
+    needs:
+      - changes
+      - quality
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.timed_transcript == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Install Chromium and system dependencies
+        run: pnpm --dir web exec playwright install --with-deps chromium
+
+      - name: Run timed transcript Compose E2E
+        env:
+          E2E_TIMED_TRANSCRIPT_PROJECT: stt-vault-timed-transcript-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm --dir web e2e:timed-transcript
+
+      - name: Verify captured Compose logs
+        if: always()
+        run: test -s web/test-results/timed-transcript-compose.log
+
+      - name: Upload timed transcript failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timed-transcript-e2e-artifacts
+          if-no-files-found: warn
+          path: |
+            web/test-results/timed-transcript-compose.log
+            web/test-results
+            web/playwright-report
+
+      - name: Tear down timed transcript Compose services
+        if: always()
+        env:
+          E2E_TIMED_TRANSCRIPT_PROJECT: stt-vault-timed-transcript-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          case "$E2E_TIMED_TRANSCRIPT_PROJECT" in
+            stt-vault-timed-transcript-*) ;;
+            *) echo "refusing to remove a non-E2E Compose project" >&2; exit 1 ;;
+          esac
+          docker compose -p "$E2E_TIMED_TRANSCRIPT_PROJECT" -f docker-compose.yml -f docker-compose.e2e-timed-transcript.yml down --volumes --remove-orphans
 
   build:
     needs: quality

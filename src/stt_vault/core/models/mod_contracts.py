@@ -16,6 +16,7 @@ _SEMVER_PATTERN = (
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 _CSS_HEX_PATTERN = r"^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{1}|[0-9A-Fa-f]{3}|[0-9A-Fa-f]{5})?$"
+_BCP47_PATTERN = r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
 
 ContractVersionV1 = Literal["v1"]
 ModErrorCategory = Literal[
@@ -153,9 +154,52 @@ class TranscriptionSegmentV1(ModContractModel):
         return self
 
 
+class TimedUnitsCapabilityV1(ModContractModel):
+    unit_kinds: list[Literal["word", "token", "punctuation", "other"]]
+    time_base: Literal["chunk_ms"]
+    precision_ms: Annotated[int, Field(strict=True, gt=0)]
+
+    @model_validator(mode="after")
+    def declares_each_kind_once(self) -> "TimedUnitsCapabilityV1":
+        if not self.unit_kinds:
+            raise ValueError("timed unit kinds must be nonempty")
+        if len(set(self.unit_kinds)) != len(self.unit_kinds):
+            raise ValueError("timed unit kinds must be unique")
+        return self
+
+
+class TimedTranscriptUnitV1(ModContractModel):
+    unit_index: Annotated[int, Field(strict=True, ge=0)]
+    text: Annotated[str, Field(min_length=1)]
+    start_ms: Annotated[int, Field(strict=True, ge=0)]
+    end_ms: Annotated[int, Field(strict=True, ge=0)]
+    confidence: float | None
+    language: Annotated[str, Field(pattern=_BCP47_PATTERN)] | None
+    token_kind: Literal["word", "token", "punctuation", "other"]
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def confidence_is_a_finite_number(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("confidence must be a number or null")
+        confidence = _validate_finite(float(value))
+        if not 0 <= confidence <= 1:
+            raise ValueError("confidence must be within [0, 1]")
+        return confidence
+
+    @model_validator(mode="after")
+    def has_valid_bounds(self) -> "TimedTranscriptUnitV1":
+        if self.start_ms > self.end_ms:
+            raise ValueError("timed unit start must not exceed end")
+        return self
+
+
 class TranscriptionResultV1(ModContractModel):
     kind: Literal["speech", "no_speech"]
     segments: list[TranscriptionSegmentV1]
+    timed_units: list[TimedTranscriptUnitV1] | None = None
 
     @model_validator(mode="after")
     def segments_match_kind_and_do_not_overlap(self) -> "TranscriptionResultV1":
@@ -166,6 +210,8 @@ class TranscriptionResultV1(ModContractModel):
         for previous, current in zip(self.segments, self.segments[1:], strict=False):
             if current.start < previous.end:
                 raise ValueError("segments must be ordered and non-overlapping")
+        if self.kind == "no_speech" and self.timed_units:
+            raise ValueError("no_speech results must not include timed units")
         return self
 
 
@@ -184,6 +230,33 @@ class TranscriptionResponseV1(ModSuccessV1):
             raise ValueError("chunk_duration must be nonnegative")
         if any(segment.end > duration + 0.050 for segment in self.result.segments):
             raise ValueError("segment ends after the allowed chunk tolerance")
+        timed_units_capability = (
+            info.context.get("timed_units_capability") if info.context else None
+        )
+        units = self.result.timed_units
+        if timed_units_capability is None:
+            if units is not None:
+                raise ValueError("timed units require an advertised capability")
+            return self
+        if self.result.kind == "speech" and units is None:
+            raise ValueError("timed capability requires units for speech results")
+        if units is None:
+            return self
+        duration_ms = math.floor(duration * 1000 + 0.5)
+        if [unit.unit_index for unit in units] != list(range(len(units))):
+            raise ValueError("timed unit indexes must be contiguous from zero")
+        for previous, current in zip(units, units[1:], strict=False):
+            if current.start_ms < previous.start_ms:
+                raise ValueError("timed unit starts must be nondecreasing")
+        for unit in units:
+            if unit.end_ms > duration_ms:
+                raise ValueError("timed unit ends after chunk duration")
+            if unit.start_ms % timed_units_capability.precision_ms:
+                raise ValueError("timed unit start is outside the precision grid")
+            if unit.end_ms % timed_units_capability.precision_ms:
+                raise ValueError("timed unit end is outside the precision grid")
+            if unit.token_kind not in timed_units_capability.unit_kinds:
+                raise ValueError("timed unit kind is absent from the capability")
         return self
 
 
@@ -336,11 +409,16 @@ class ModCapabilityOfferingV1(ModContractModel):
     embedding: EmbeddingSpaceV1 | None = None
 
 
+class TranscriptionCapabilityV1(ModContractModel):
+    timed_units: TimedUnitsCapabilityV1 | None = None
+
+
 class ModCapabilitiesResultV1(ModContractModel):
     offerings: list[ModCapabilityOfferingV1]
     max_audio_bytes: Annotated[int, Field(ge=1)]
     max_audio_seconds: Annotated[float, Field(gt=0)]
     readiness: Literal["loading", "ready", "failed"]
+    transcription: TranscriptionCapabilityV1 | None = None
 
     @field_validator("max_audio_seconds")
     @classmethod

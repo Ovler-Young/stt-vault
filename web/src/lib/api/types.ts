@@ -45,6 +45,16 @@ export type TranscriptSegment = {
   speaker_name?: string;
   speaker_similarity?: number | null;
   text: string;
+  timed_units?: TimedTranscriptUnit[];
+};
+export type TimedTranscriptUnit = {
+  unit_index: number;
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  confidence: number | null;
+  language: string | null;
+  token_kind: "word" | "token" | "punctuation" | "other";
 };
 export type Job = {
   id: string;

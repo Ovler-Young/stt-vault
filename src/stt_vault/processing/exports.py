@@ -1,5 +1,6 @@
 import html
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from stt_vault.core.models.records import ExportPaths, SpeakerSegment, TranscriptSegment
@@ -20,7 +21,7 @@ def write_exports(
     if "json" in formats:
         path = target / "transcript.json"
         path.write_text(
-            json.dumps([segment.__dict__ for segment in transcript_segments], indent=2),
+            json.dumps([asdict(segment) for segment in transcript_segments], indent=2),
             encoding="utf-8",
         )
         outputs["json"] = str(path)

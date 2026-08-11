@@ -1,15 +1,18 @@
 <script lang="ts">
-  import type { TranscriptSegment } from "$lib/api/types";
+  import type { TimedTranscriptUnit, TranscriptSegment } from "$lib/api/types";
   import { formatTime } from "$lib/formatting/date-time";
   import {
     activeTranscriptSegmentIndex,
     segmentMediaEnd,
     segmentMediaStart,
   } from "../asset-page.helpers";
+  import { activeTimedTranscriptUnitIndex } from "../asset-playback.controller";
 
   export let segments: TranscriptSegment[] = [];
   export let currentTime = 0;
+  export let playbackEnded = false;
   export let onSeek: (segment: TranscriptSegment) => void = () => {};
+  export let onTimedUnitSeek: (unit: TimedTranscriptUnit) => void = () => {};
   export let onEditSpeaker: (
     event: MouseEvent,
     segment: TranscriptSegment,
@@ -26,6 +29,14 @@
       currentTime >= segmentMediaStart(segment) &&
       currentTime < segmentMediaEnd(segment)
     );
+  }
+
+  function activeTimedUnitIndex(
+    units: TimedTranscriptUnit[],
+    time: number,
+    ended: boolean,
+  ) {
+    return activeTimedTranscriptUnitIndex(units, time, ended);
   }
 
   function scrollActiveTranscriptIntoView(index: number) {
@@ -53,22 +64,51 @@
 <article class="transcript" bind:this={transcriptEl}>
   {#if segments.length}
     {#each segments as segment, index}
-      <button
-        data-segment-index={index}
-        class:active={isActive(segment)}
-        on:click={() => onSeek(segment)}
-        on:contextmenu={(event) => onEditSpeaker(event, segment)}
-      >
-        <span class="row-head">
-          <strong>{segment.speaker_name ?? segment.speaker}</strong>
-          <small
-            >{formatTime(segmentMediaStart(segment))} - {formatTime(
-              segmentMediaEnd(segment),
-            )}</small
-          >
-        </span>
-        <span class="text">{segment.text}</span>
-      </button>
+      {#if segment.timed_units?.length}
+        {@const activeUnitIndex = activeTimedUnitIndex(
+          segment.timed_units,
+          currentTime,
+          playbackEnded,
+        )}
+        <section data-segment-index={index} class="timed-segment">
+          <span class="row-head">
+            <strong>{segment.speaker_name ?? segment.speaker}</strong>
+            <small
+              >{formatTime(segmentMediaStart(segment))} - {formatTime(
+                segmentMediaEnd(segment),
+              )}</small
+            >
+          </span>
+          <span class="timed-units" data-timed-unit-controls>
+            {#each segment.timed_units as unit, unitPosition}
+              <button
+                data-timed-unit-control
+                data-unit-index={unit.unit_index}
+                class:active={unitPosition === activeUnitIndex}
+                aria-label={`Seek to ${formatTime(unit.start_ms / 1000)}: ${unit.text}`}
+                on:click={() => onTimedUnitSeek(unit)}>{unit.text}</button
+              >
+            {/each}
+          </span>
+        </section>
+      {:else}
+        <button
+          data-segment-index={index}
+          class:active={isActive(segment)}
+          on:click={() => onSeek(segment)}
+          on:contextmenu={(event) => onEditSpeaker(event, segment)}
+        >
+          <span class="row-head">
+            <strong>{segment.speaker_name ?? segment.speaker}</strong>
+            <small
+              >{formatTime(segmentMediaStart(segment))} - {formatTime(
+                segmentMediaEnd(segment),
+              )}</small
+            >
+          </span>
+          <span class="text">{segment.text}</span>
+        </button>
+      {/if}
     {/each}
   {:else}
     <p class="muted">Completed chunks will appear here during processing.</p>
@@ -98,6 +138,46 @@
     text-align: left;
     border-radius: 6px;
     background: var(--color-surface-strong);
+  }
+
+  .timed-segment {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 6px;
+    background: var(--color-surface-strong);
+  }
+
+  .timed-units {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .transcript .timed-units button {
+    display: inline;
+    width: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 1.35;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .transcript .timed-units button.active {
+    background: var(--color-accent-surface);
+    color: var(--color-accent);
   }
 
   .transcript button.active {

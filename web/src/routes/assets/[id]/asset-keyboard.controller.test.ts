@@ -29,6 +29,19 @@ describe("asset keyboard controller", () => {
     expect(preventDefault).toHaveBeenCalled();
   });
 
+  it("keeps the global Space shortcut outside interactive controls", () => {
+    const handlers = actions();
+    const event = new KeyboardEvent("keydown", {
+      code: "Space",
+      cancelable: true,
+    });
+
+    handleAssetKeydown(event, null, handlers);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(handlers.togglePlay).toHaveBeenCalledOnce();
+  });
+
   it("does not consume keys typed into controls", () => {
     const handlers = actions();
     const input = document.createElement("input");
@@ -39,6 +52,30 @@ describe("asset keyboard controller", () => {
     Object.defineProperty(event, "target", { value: input });
 
     handleAssetKeydown(event, null, handlers);
+
+    expect(handlers.togglePlay).not.toHaveBeenCalled();
+  });
+
+  it("leaves timed-unit button activation to the browser", () => {
+    const handlers = actions();
+    const control = document.createElement("button");
+    control.dataset.timedUnitControl = "";
+    const child = document.createElement("span");
+    control.append(child);
+
+    for (const code of ["Enter", "Space"]) {
+      const event = new KeyboardEvent("keydown", {
+        code,
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(event, "target", { value: child });
+      const preventDefault = vi.spyOn(event, "preventDefault");
+
+      handleAssetKeydown(event, null, handlers);
+
+      expect(preventDefault).not.toHaveBeenCalled();
+    }
 
     expect(handlers.togglePlay).not.toHaveBeenCalled();
   });

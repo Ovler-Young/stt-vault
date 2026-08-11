@@ -1,6 +1,7 @@
 import hashlib
 import http.client
 import json
+import math
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -21,7 +22,12 @@ from stt_vault.core.models.mod_contracts import (
     TranscriptionRequestV1,
     TranscriptionResponseV1,
 )
-from stt_vault.core.models.records import SpeakerSegment, TranscriptChunk, TranscriptSegment
+from stt_vault.core.models.records import (
+    SpeakerSegment,
+    TimedTranscriptUnit,
+    TranscriptChunk,
+    TranscriptSegment,
+)
 
 from .media_transcoding import extract_audio_chunk
 
@@ -70,6 +76,10 @@ class SidecarProviderError(RuntimeError):
         self.retryable = retryable
 
 
+class _SidecarCompletionError(RuntimeError):
+    """Keep a persistence failure from changing an accepted provider invocation."""
+
+
 @dataclass(frozen=True)
 class SidecarRequestIdentity:
     idempotency_key: str
@@ -81,6 +91,7 @@ class SidecarTranscriptionResult:
     text: str
     provider_metadata: dict[str, str]
     timing_ms: int
+    timed_units: tuple[TimedTranscriptUnit, ...] = ()
 
 
 class SidecarInvocationLifecycle(Protocol):
@@ -103,7 +114,7 @@ class SidecarPreparedRequest:
     request_hash: str
     identity: SidecarRequestIdentity
     lifecycle: SidecarInvocationLifecycle | None = None
-    on_completed: Callable[[TranscriptSegment], None] | None = None
+    on_completed: Callable[[TranscriptSegment, tuple[TimedTranscriptUnit, ...]], None] | None = None
 
 
 def canonical_sidecar_request_hash(
@@ -233,7 +244,7 @@ class SidecarTranscriptionClient:
         expected_id: str | None = None,
         expected_digest: str | None = None,
         deadline: float,
-    ) -> None:
+    ) -> ModCapabilitiesV1:
         capabilities = self._get_contract_response(
             "/v1/capabilities", ModCapabilitiesV1, deadline=deadline
         )
@@ -266,6 +277,7 @@ class SidecarTranscriptionClient:
                 "sidecar readiness model did not match capabilities",
                 retryable=False,
             )
+        return capabilities
 
     def _get_contract_response(
         self,
@@ -336,7 +348,7 @@ class SidecarTranscriptionClient:
         )
         body, content_type = self._multipart_body(request, audio_path)
         started_at = time.monotonic()
-        self._validate_attempt_preflight(deadline=deadline)
+        capabilities = self._validate_attempt_preflight(deadline=deadline)
         total_timeout = self._remaining_timeout(deadline)
         try:
             response = self.transport.post(
@@ -363,7 +375,14 @@ class SidecarTranscriptionClient:
             payload = json.loads(response.body)
             parsed = TranscriptionResponseV1.model_validate(
                 payload,
-                context={"chunk_duration": chunk.end - chunk.start},
+                context={
+                    "chunk_duration": chunk.end - chunk.start,
+                    "timed_units_capability": (
+                        capabilities.result.transcription.timed_units
+                        if capabilities.result.transcription is not None
+                        else None
+                    ),
+                },
             )
         except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
             raise SidecarProviderError(
@@ -371,6 +390,7 @@ class SidecarTranscriptionClient:
                 "sidecar response failed contract validation",
                 retryable=False,
             ) from error
+        chunk_offset_ms = math.floor(chunk.start * 1000 + 0.5)
         return SidecarTranscriptionResult(
             text=" ".join(segment.text.strip() for segment in parsed.result.segments),
             provider_metadata={
@@ -385,6 +405,18 @@ class SidecarTranscriptionClient:
                 "access_declaration": parsed.mod.model.access_declaration,
             },
             timing_ms=round((time.monotonic() - started_at) * 1000),
+            timed_units=tuple(
+                TimedTranscriptUnit(
+                    unit.unit_index,
+                    unit.text,
+                    chunk_offset_ms + unit.start_ms,
+                    chunk_offset_ms + unit.end_ms,
+                    unit.confidence,
+                    unit.language,
+                    unit.token_kind,
+                )
+                for unit in parsed.result.timed_units or ()
+            ),
         )
 
     def cancel(self, idempotency_key: str) -> int:
@@ -666,7 +698,7 @@ class Transcriber:
         try:
             for attempt in range(1, max(self.max_retries, 3) + 1):
                 try:
-                    result = self._transcribe_attempt(
+                    result, timed_units = self._transcribe_attempt(
                         media_path,
                         chunk,
                         chunk_path,
@@ -679,7 +711,12 @@ class Transcriber:
                         sidecar_prepared_request is not None
                         and sidecar_prepared_request.on_completed
                     ):
-                        sidecar_prepared_request.on_completed(result)
+                        try:
+                            sidecar_prepared_request.on_completed(result, timed_units)
+                        except Exception as error:
+                            raise _SidecarCompletionError(
+                                "sidecar completion persistence failed"
+                            ) from error
                     elif self.on_chunk_done:
                         self.on_chunk_done(index, result)
                     if (
@@ -692,6 +729,8 @@ class Transcriber:
                             "sidecar invocation claim became stale before completion"
                         )
                     return result
+                except _SidecarCompletionError:
+                    raise
                 except Exception as exc:
                     max_attempts, retry_backoff_seconds = self._retry_policy(exc)
                     if attempt >= max_attempts:
@@ -733,7 +772,7 @@ class Transcriber:
         asset_id: str | None,
         request_identity: SidecarRequestIdentity,
         sidecar_prepared_request: SidecarPreparedRequest | None,
-    ) -> TranscriptSegment:
+    ) -> tuple[TranscriptSegment, tuple[TimedTranscriptUnit, ...]]:
         self._wait_for_pause()
         if sidecar_prepared_request is None:
             self.chunk_extractor(
@@ -765,10 +804,12 @@ class Transcriber:
                 text = response.text
                 provider_metadata = response.provider_metadata
                 timing_ms = response.timing_ms
+                timed_units = response.timed_units
             else:
                 text = response
                 provider_metadata = None
                 timing_ms = None
+                timed_units = ()
             if (
                 sidecar_prepared_request is not None
                 and (lifecycle := sidecar_prepared_request.lifecycle) is not None
@@ -790,15 +831,19 @@ class Transcriber:
                     self.client.audio.transcriptions.create(file=audio_file, **kwargs)
                 )
             text = response.text or ""
+            timed_units = ()
 
-        return TranscriptSegment(
-            start=chunk.start,
-            end=chunk.end,
-            chunk_start=chunk.start,
-            chunk_end=chunk.end,
-            speaker=chunk.speaker,
-            text=text.strip(),
-            attempts=attempt,
+        return (
+            TranscriptSegment(
+                start=chunk.start,
+                end=chunk.end,
+                chunk_start=chunk.start,
+                chunk_end=chunk.end,
+                speaker=chunk.speaker,
+                text=text.strip(),
+                attempts=attempt,
+            ),
+            timed_units,
         )
 
     @staticmethod

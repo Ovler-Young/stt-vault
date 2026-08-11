@@ -18,6 +18,8 @@ services:
 
   mod-whisper-cpu:
     image: ${STT_MOD_WHISPER_CPU_IMAGE:?}@${STT_MOD_WHISPER_CPU_DIGEST:?}
+    user: "10001:10001"
+    read_only: true
     profiles:
       - mod-whisper-cpu
     environment:
@@ -30,23 +32,8 @@ services:
         mode: 0400
     networks:
       - stt-mods
-    volumes:
-      - mod_whisper_cpu_cache:/models
     cpus: "2.0"
     mem_limit: 4g
     pids_limit: 256
     tmpfs:
-      - /tmp:size=512m,noexec,nosuid
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          header="Authorization: Bearer $(cat /run/secrets/stt_mod_token)" && export header && python -c
-          "import json, os, urllib.request; request = urllib.request.Request('http://127.0.0.1:8081/readyz', headers=dict([os.environ['header'].split(': ', 1)])); response = urllib.request.urlopen(request, timeout=5); assert response.status == 200 and json.load(response)['status'] == 'ready'"
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
-volumes:
-  mod_whisper_cpu_cache: {}
+      - /tmp:rw,noexec,nosuid,nodev,size=512m,uid=10001,gid=10001,mode=1777

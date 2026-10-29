@@ -148,6 +148,7 @@ class DiarizationSegment(DatabaseRecord):
 
 
 class DiarizationResult(DatabaseRecord):
+    vad: list[tuple[float, float]] | None = None
     raw_segments: list[DiarizationSegment]
     merged_segments: list[DiarizationSegment]
     speaker_centroids: dict[str, list[float]]

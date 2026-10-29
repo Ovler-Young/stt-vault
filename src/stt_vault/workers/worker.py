@@ -196,12 +196,10 @@ class Worker:
                 )
                 return
 
-            persisted_segments = self.database.list_transcript_chunks(asset_id)
-            completed_segments = persisted_segments or transcript_segments
             exports = self._write_exports(
-                asset_id, asset, prepared, completed_segments, partial=False
+                asset_id, asset, prepared, transcript_segments, partial=False
             )
-            self.completion.complete(asset_id, prepared, completed_segments, exports)
+            self.completion.complete(asset_id, prepared, transcript_segments, exports)
 
     def _write_exports(
         self,

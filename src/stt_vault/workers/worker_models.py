@@ -15,6 +15,7 @@ class PreparedAsset:
     merged_segments: list[SpeakerSegment]
     speaker_centroids: dict[str, list[float]]
     embedding_space: EmbeddingSpaceV1 | None = None
+    vad: list[tuple[float, float]] | None = None
 
 
 @dataclass
@@ -45,6 +46,7 @@ def apply_speaker_names(
                 speaker_id=match.speaker_id if match is not None else segment.speaker,
                 speaker_name=match.display_name if match is not None else segment.speaker,
                 speaker_similarity=match.score if match is not None else None,
+                timed_units=segment.timed_units,
             )
         )
     return enriched

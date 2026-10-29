@@ -228,6 +228,7 @@ def test_public_senko_runtime_preserves_diarization_payload_through_manager(
                     "SPEAKER_00": np.full(192, 0.25, dtype=np.float32),
                 },
                 "timing_stats": {"provider_time": 1.25},
+                "vad": [(0.0, 2.0)],
             }
 
     senko = ModuleType("senko")
@@ -255,6 +256,7 @@ def test_public_senko_runtime_preserves_diarization_payload_through_manager(
     ]
     assert result.speaker_centroids == {"SPEAKER_00": [0.25] * 192}
     assert result.embedding_space == SENKO_EMBEDDING_SPACE
+    assert result.vad == [(0.0, 2.0)]
     assert result.timing_stats["provider_time"] == 1.25
     assert isinstance(result.timing_stats["manager_diarize_wall_time"], float)
     assert "manager_rss_mb_before" in result.timing_stats

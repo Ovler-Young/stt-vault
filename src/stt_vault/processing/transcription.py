@@ -565,9 +565,36 @@ def build_chunks(
 
 
 def build_transcription_plan(
-    raw_segments: list[SpeakerSegment], *, max_seconds: float
+    raw_segments: list[SpeakerSegment],
+    *,
+    max_seconds: float,
+    vad: list[tuple[float, float]] | None = None,
+    duration: float | None = None,
 ) -> list[TranscriptChunk]:
-    return build_chunks(raw_segments, max_seconds=max_seconds)
+    """Pack padded speech regions without using speaker changes as cut points."""
+    if not math.isfinite(max_seconds) or max_seconds <= 0:
+        raise ValueError("max_seconds must be positive and finite")
+    regions = vad if vad is not None else [(s.start, s.end) for s in raw_segments]
+    padded: list[tuple[float, float]] = []
+    for start, end in sorted(regions):
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            raise ValueError("speech region must have finite increasing timestamps")
+        start = max(0.0, start - 0.25)
+        end = min(duration, end + 0.25) if duration is not None else end + 0.25
+        if end <= start:
+            continue
+        if padded and start <= padded[-1][1]:
+            padded[-1] = (padded[-1][0], max(padded[-1][1], end))
+        else:
+            padded.append((start, end))
+    # Keep nearby utterances together, including short pauses between speakers.
+    packed: list[SpeakerSegment] = []
+    for start, end in padded:
+        if packed and end - packed[-1].start <= max_seconds:
+            packed[-1] = SpeakerSegment(packed[-1].start, end, "UNKNOWN")
+        else:
+            packed.append(SpeakerSegment(start, end, "UNKNOWN"))
+    return build_chunks(packed, max_seconds=max_seconds)
 
 
 def transcript_chunks_match_plan(

@@ -2,6 +2,7 @@ import json
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ import pytest
 from stt_vault.core.models.records import (
     AssetRecord,
     ClaimNextJob,
+    ExportPaths,
     FindProviderWorkItem,
     NewAsset,
     SpeakerSegment,
@@ -18,6 +20,7 @@ from stt_vault.core.models.records import (
 )
 from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.transcription import SidecarTranscriptionClient, Transcriber
+from stt_vault.workers.worker_completion import CompletionPersistence
 from stt_vault.workers.worker_models import PreparedAsset, TranscriptionWork
 from stt_vault.workers.worker_transcription import (
     ProviderJobContext,
@@ -35,13 +38,9 @@ def test_sidecar_stage_persists_real_http_timed_units_with_chunk_identity_and_of
                 _unit(0, "你", 0, 100, "word"),
                 _unit(1, "好", 80, 200, "word"),
                 _unit(2, "。", 200, 200, "punctuation"),
-            ]
-        ),
-        _speech_response(
-            [
-                _unit(0, "repeat", 0, 100, "word"),
-                _unit(1, "repeat", 100, 200, "word"),
-                _unit(2, ",", 200, 200, "punctuation"),
+                _unit(3, "repeat", 4700, 4800, "word"),
+                _unit(4, "repeat", 4800, 4900, "word"),
+                _unit(5, ",", 4900, 4900, "punctuation"),
             ]
         ),
     ]
@@ -60,28 +59,39 @@ def test_sidecar_stage_persists_real_http_timed_units_with_chunk_identity_and_of
 
     assert error is None
     assert [(segment.speaker, segment.text) for segment in segments] == [
-        ("SPEAKER_00", "你 好 。"),
+        ("SPEAKER_00", "你 好 。 "),
         ("SPEAKER_01", "repeat repeat ,"),
     ]
     assert [
         (unit.chunk_index, unit.unit_index, unit.text, unit.start_ms, unit.end_ms, unit.token_kind)
         for unit in database.list_transcript_timed_units(asset.id)
     ] == [
-        (0, 0, "你", 1235, 1335, "word"),
-        (0, 1, "好", 1315, 1435, "word"),
-        (0, 2, "。", 1435, 1435, "punctuation"),
-        (1, 0, "repeat", 5679, 5779, "word"),
-        (1, 1, "repeat", 5779, 5879, "word"),
-        (1, 2, ",", 5879, 5879, "punctuation"),
+        (0, 0, "你", 984, 1084, "word"),
+        (0, 1, "好", 1064, 1184, "word"),
+        (0, 2, "。", 1184, 1184, "punctuation"),
+        (0, 3, "repeat", 5684, 5784, "word"),
+        (0, 4, "repeat", 5784, 5884, "word"),
+        (0, 5, ",", 5884, 5884, "punctuation"),
     ]
     assert [
         (chunk.chunk_index, chunk.speaker, chunk.chunk_start, chunk.chunk_end)
         for chunk in database.list_transcript_chunks(asset.id)
     ] == [
-        (0, "SPEAKER_00", 1.2345, 2.2345),
-        (1, "SPEAKER_01", 5.6785, 6.6785),
+        (0, "UNKNOWN", 0.9844999999999999, 6.9285),
     ]
-    for index in (0, 1):
+    CompletionPersistence(stage.settings, database).persist_success(
+        asset.id, prepared, segments, ExportPaths()
+    )
+    reloaded = database.get_asset(asset.id)
+    assert [(s.speaker, s.text) for s in reloaded.transcript_segments] == [
+        ("SPEAKER_00", "你 好 。 "),
+        ("SPEAKER_01", "repeat repeat ,"),
+    ]
+    assert [[u.unit_index for u in s.timed_units] for s in reloaded.transcript_segments] == [
+        [0, 1, 2],
+        [3, 4, 5],
+    ]
+    for index in (0,):
         invocation = database.find_provider_work_item(_find_transcription_work(asset.id, index))
         assert invocation is not None
         assert invocation.state == "completed"
@@ -91,6 +101,166 @@ def test_sidecar_stage_persists_real_http_timed_units_with_chunk_identity_and_of
                 invocation.work_item_id, invocation.invocation_attempt
             )
         ] == ["prepared", "sent", "accepted", "completed"]
+
+
+def test_timed_display_playback_bounds_and_boundary_punctuation_survive_reload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _sidecar_server(
+        [
+            _speech_response(
+                [
+                    _unit(0, "one", 0, 100, "word"),
+                    _unit(1, "two", 7800, 7900, "word"),
+                    _unit(2, ".", 7900, 7900, "punctuation"),
+                    _unit(3, "three", 8000, 8100, "word"),
+                ]
+            )
+        ]
+    ) as base_url:
+        database, stage, asset, prepared = _sidecar_stage(
+            tmp_path,
+            monkeypatch,
+            base_url,
+            database_name="boundary-punctuation.sqlite3",
+            raw_segments=[SpeakerSegment(0, 8, "A"), SpeakerSegment(8, 20, "B")],
+        )
+        prepared = replace(prepared, duration=20)
+        segments, error = stage.transcribe(
+            asset.id, asset, prepared, tmp_path, ProviderJobContext(asset.id, 1, 0)
+        )
+    assert error is None
+    assert [(s.speaker, s.text, s.chunk_start, s.chunk_end) for s in segments] == [
+        ("A", "one two . ", 0, 7.9),
+        ("B", "three", 8, 8.1),
+    ]
+    CompletionPersistence(stage.settings, database).persist_success(
+        asset.id, prepared, segments, ExportPaths()
+    )
+    reloaded = database.get_asset(asset.id)
+    assert [[u.unit_index for u in s.timed_units] for s in reloaded.transcript_segments] == [
+        [0, 1, 2],
+        [3],
+    ]
+    assert [(s.chunk_start, s.chunk_end) for s in reloaded.transcript_segments] == [
+        (0, 7.9),
+        (8, 8.1),
+    ]
+    assert [(s.chunk_start, s.chunk_end) for s in database.list_transcript_chunks(asset.id)] == [
+        (0, 20)
+    ]
+
+
+def test_overlapping_timed_units_keep_exact_speaker_membership_after_reload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _sidecar_server(
+        [
+            _speech_response(
+                [
+                    _unit(0, "repeat", 0, 100, "word"),
+                    _unit(1, "repeat", 7800, 8100, "word"),
+                    _unit(2, "repeat", 8000, 8040, "word"),
+                    _unit(3, "repeat", 19000, 20000, "word"),
+                ]
+            )
+        ]
+    ) as base_url:
+        database, stage, asset, prepared = _sidecar_stage(
+            tmp_path,
+            monkeypatch,
+            base_url,
+            database_name="overlapping-units.sqlite3",
+            raw_segments=[SpeakerSegment(0, 8, "A"), SpeakerSegment(8, 20, "B")],
+        )
+        prepared = replace(prepared, duration=20)
+        segments, error = stage.transcribe(
+            asset.id, asset, prepared, tmp_path, ProviderJobContext(asset.id, 1, 0)
+        )
+    assert error is None
+    expected = [("A", [0, 1]), ("B", [2, 3])]
+    assert [(s.speaker, [u.unit_index for u in s.timed_units]) for s in segments] == expected
+    CompletionPersistence(stage.settings, database).persist_success(
+        asset.id, prepared, segments, ExportPaths()
+    )
+    reloaded = database.get_asset(asset.id)
+    assert [
+        (s.speaker, [u.unit_index for u in s.timed_units]) for s in reloaded.transcript_segments
+    ] == expected
+
+
+def test_text_only_transcription_splits_after_stt_and_resumes_raw_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database, stage, asset, prepared = _sidecar_stage(
+        tmp_path, monkeypatch, "http://unused", database_name="resume.sqlite3"
+    )
+    stage.settings.stt_transcription_provider = "openai"
+    prepared = replace(
+        prepared,
+        duration=80,
+        raw_segments=[
+            SpeakerSegment(0, 2, "A"),
+            SpeakerSegment(2, 4, "B"),
+            SpeakerSegment(70, 72, "B"),
+        ],
+        vad=[(0, 4), (70, 72)],
+    )
+    requests = []
+    fail = True
+
+    class TextTranscriber:
+        def __init__(self, config):
+            self.config = config
+
+        def transcribe_chunks(self, _media, chunks, _work_dir, **_kwargs):
+            results = []
+            for chunk in chunks:
+                requests.append(chunk.chunk_index)
+                if fail and chunk.chunk_index == 1:
+                    raise RuntimeError("provider unavailable")
+                result = TranscriptSegment(
+                    chunk.start,
+                    chunk.end,
+                    chunk.speaker,
+                    "one two three four" if chunk.chunk_index == 0 else "five six",
+                    chunk_start=chunk.start,
+                    chunk_end=chunk.end,
+                )
+                self.config.on_chunk_done(chunk.chunk_index, result)
+                results.append(result)
+            return results
+
+    stage.transcriber_factory = TextTranscriber
+    partial, error = stage.transcribe(asset.id, asset, prepared, tmp_path)
+    assert isinstance(error, RuntimeError)
+    assert [(s.speaker, s.text) for s in partial] == [("A", "one two "), ("B", "three four")]
+    completion = CompletionPersistence(stage.settings, database)
+    completion.persist_partial(asset.id, prepared, partial, ExportPaths(), error)
+    assert [(s.speaker, s.text) for s in database.get_asset(asset.id).transcript_segments] == [
+        ("A", "one two "),
+        ("B", "three four"),
+    ]
+
+    fail = False
+    segments, error = stage.transcribe(asset.id, asset, prepared, tmp_path)
+    assert error is None
+    assert requests == [0, 1, 1]
+    assert [(s.speaker, s.text) for s in segments] == [
+        ("A", "one two "),
+        ("B", "three four"),
+        ("B", "five six"),
+    ]
+    completion.persist_success(asset.id, prepared, segments, ExportPaths())
+    assert [(s.speaker, s.text) for s in database.get_asset(asset.id).transcript_segments] == [
+        ("A", "one two "),
+        ("B", "three four"),
+        ("B", "five six"),
+    ]
+    assert [(s.speaker, s.text) for s in database.list_transcript_chunks(asset.id)] == [
+        ("UNKNOWN", "one two three four"),
+        ("UNKNOWN", "five six"),
+    ]
 
 
 def test_sidecar_stage_retry_replaces_the_provider_invocation_without_duplicate_units(
@@ -119,7 +289,7 @@ def test_sidecar_stage_retry_replaces_the_provider_invocation_without_duplicate_
     assert [
         (unit.chunk_index, unit.unit_index, unit.text, unit.start_ms, unit.end_ms)
         for unit in database.list_transcript_timed_units(asset.id)
-    ] == [(0, 0, "重试", 1235, 1435)]
+    ] == [(0, 0, "重试", 984, 1184)]
     invocation = database.find_provider_work_item(_find_transcription_work(asset.id, 0))
     assert invocation is not None
     assert invocation.invocation_attempt == 2
@@ -450,7 +620,7 @@ def test_transcription_stage_coordinates_storage_reconciliation_and_progress_eve
 
     assert error is None
     assert segments == [TranscriptSegment(0.0, 1.0, "SPEAKER_00", "hello")]
-    assert calls == ["prepare", "start", "reconcile", "save", "progress", "reconcile"]
+    assert calls == ["prepare", "start", "save", "progress", "reconcile"]
 
 
 @pytest.mark.parametrize("suffix", ["wav", "mp3", "m4a", "mp4"])

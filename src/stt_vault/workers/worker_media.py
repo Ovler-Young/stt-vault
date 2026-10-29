@@ -132,4 +132,5 @@ class DiarizationStage:
             merged_segments=merged_segments,
             speaker_centroids=result.speaker_centroids,
             embedding_space=result.embedding_space,
+            vad=result.vad,
         )

@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Protocol
 from uuid import uuid4
@@ -25,6 +25,7 @@ from stt_vault.core.models.records import (
 from stt_vault.persistence.sqlite_database import SqliteDatabase
 from stt_vault.processing.diarization import match_speakers
 from stt_vault.processing.media_transcoding import extract_audio_chunk
+from stt_vault.processing.speaker_attribution import attribute_speakers
 from stt_vault.processing.transcription import (
     ChunkDoneCallback,
     ChunkRetryCallback,
@@ -211,6 +212,8 @@ class TranscriptChunkPersistence:
         chunks = build_transcription_plan(
             prepared.raw_segments,
             max_seconds=self.settings.transcribe_chunk_seconds,
+            vad=prepared.vad,
+            duration=prepared.duration,
         )
         existing_chunks = self.database.list_transcript_chunks(asset_id)
         plan_changed = False
@@ -238,7 +241,14 @@ class TranscriptChunkPersistence:
         )
 
     def recorded_segments(self, asset_id: str) -> list[TranscriptSegment]:
-        return self.database.list_transcript_chunks(asset_id)
+        chunks = self.database.list_transcript_chunks(asset_id)
+        units_by_chunk = {}
+        for unit in self.database.list_transcript_timed_units(asset_id):
+            units_by_chunk.setdefault(unit.chunk_index, []).append(unit)
+        return [
+            replace(chunk, timed_units=tuple(units_by_chunk.get(chunk.chunk_index, ())))
+            for chunk in chunks
+        ]
 
 
 class SpeakerReconciler:
@@ -255,7 +265,7 @@ class SpeakerReconciler:
             self.settings.speaker_similarity_threshold,
             embedding_space=prepared.embedding_space,
         )
-        return apply_speaker_names(segments, matches)
+        return apply_speaker_names(attribute_speakers(segments, prepared.raw_segments), matches)
 
 
 class TranscriptionProgressEvents:
@@ -354,8 +364,7 @@ class TranscriptionStage:
         self.progress_events.start(asset_id, work, plan_changed=plan_changed)
 
         def on_chunk_done(index: int, result: TranscriptSegment) -> None:
-            enriched = self.speaker_reconciler.reconcile(prepared, [result])[0]
-            self.chunk_persistence.save_success(asset_id, index, enriched)
+            self.chunk_persistence.save_success(asset_id, index, result)
             self.progress_events.record_success(asset_id, work, index)
 
         def on_chunk_retry(index: int, attempt: int, error: Exception, retry_at: int) -> None:
@@ -379,9 +388,9 @@ class TranscriptionStage:
         sidecar_requests: dict[int, SidecarPreparedRequest] | None = None
         if self.settings.stt_transcription_provider == "mod-whisper-cpu":
             if job_context is None:
-                return self.chunk_persistence.recorded_segments(asset_id), ValueError(
-                    "sidecar transcription requires an active job context"
-                )
+                return self.speaker_reconciler.reconcile(
+                    prepared, self.chunk_persistence.recorded_segments(asset_id)
+                ), ValueError("sidecar transcription requires an active job context")
             sidecar_requests = self._prepare_sidecar_requests(
                 asset_id,
                 prepared,
@@ -398,8 +407,11 @@ class TranscriptionStage:
                 prepared.wav_path, work.pending_chunks, work_dir, **transcribe_kwargs
             )
         except Exception as error:
-            return self.chunk_persistence.recorded_segments(asset_id), error
-        return self.speaker_reconciler.reconcile(prepared, segments), None
+            return self.speaker_reconciler.reconcile(
+                prepared, self.chunk_persistence.recorded_segments(asset_id)
+            ), error
+        recorded = self.chunk_persistence.recorded_segments(asset_id)
+        return self.speaker_reconciler.reconcile(prepared, recorded or segments), None
 
     def _prepare_sidecar_requests(
         self,
@@ -465,7 +477,7 @@ class TranscriptionStage:
                 lifecycle=lifecycle,
                 on_completed=lambda result, timed_units, index=index, lifecycle=lifecycle: (
                     self._complete_sidecar_chunk(
-                        asset_id, prepared, work, index, result, timed_units, lifecycle
+                        asset_id, work, index, result, timed_units, lifecycle
                     )
                 ),
             )
@@ -474,14 +486,12 @@ class TranscriptionStage:
     def _complete_sidecar_chunk(
         self,
         asset_id: str,
-        prepared: PreparedAsset,
         work: TranscriptionWork,
         index: int,
         result: TranscriptSegment,
         timed_units: tuple[TimedTranscriptUnit, ...],
         lifecycle: _SidecarInvocation,
     ) -> None:
-        enriched = self.speaker_reconciler.reconcile(prepared, [result])[0]
-        if not lifecycle.complete_transcript(asset_id, index, enriched, timed_units):
+        if not lifecycle.complete_transcript(asset_id, index, result, timed_units):
             raise RuntimeError("sidecar invocation completion transition was stale")
         self.progress_events.record_success(asset_id, work, index)

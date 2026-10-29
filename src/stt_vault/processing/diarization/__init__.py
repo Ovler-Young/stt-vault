@@ -207,6 +207,7 @@ def _validate_provider_result(provider_result: object) -> DiarizationResult:
         raise ValueError(f"Diarization provider returned {error.args[0].lower()}") from error
     return DiarizationResult.model_validate(
         {
+            "vad": provider_result.get("vad"),
             "raw_segments": provider_result.get("raw_segments"),
             "merged_segments": provider_result.get("merged_segments"),
             "speaker_centroids": serialize_centroids(typed_centroids),

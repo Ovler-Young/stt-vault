@@ -22,6 +22,7 @@ def test_diarization_stage_persists_embedding_space_on_the_injected_database(
     commands: list[object] = []
     result = SimpleNamespace(
         timing_stats={},
+        vad=[(0.0, 1.0)],
         raw_segments=[],
         merged_segments=[],
         speaker_centroids={"SPEAKER_00": [0.1, 0.2]},
@@ -37,6 +38,7 @@ def test_diarization_stage_persists_embedding_space_on_the_injected_database(
 
     prepared = stage.diarize("asset-1", tmp_path / "audio.wav", 1.0)
 
+    assert prepared.vad == [(0.0, 1.0)]
     assert prepared.embedding_space == EMBEDDING_SPACE
     assert commands[0].embedding_space == EMBEDDING_SPACE
 

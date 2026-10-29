@@ -1435,16 +1435,27 @@ def test_build_chunks_preserves_exact_60_second_request_windows() -> None:
     ]
 
 
-def test_transcription_plan_uses_raw_speaker_turns() -> None:
+def test_transcription_plan_packs_padded_vad_independent_of_speaker_turns() -> None:
     chunks = build_transcription_plan(
-        [SpeakerSegment(0.0, 20.0, "SPEAKER_01"), SpeakerSegment(20.0, 30.0, "SPEAKER_02")],
+        [SpeakerSegment(1.0, 1.5, "SPEAKER_01"), SpeakerSegment(1.5, 2.0, "SPEAKER_02")],
+        vad=[(0.1, 3.0), (4.0, 5.0), (70.0, 90.0)],
+        duration=90.0,
         max_seconds=60,
     )
-
     assert [(chunk.start, chunk.end, chunk.speaker) for chunk in chunks] == [
-        (0.0, 20.0, "SPEAKER_01"),
-        (20.0, 30.0, "SPEAKER_02"),
+        (0.0, 5.25, "UNKNOWN"),
+        (69.75, 90.0, "UNKNOWN"),
     ]
+    assert build_transcription_plan([], vad=[], duration=90, max_seconds=60) == []
+
+
+def test_transcription_plan_bounds_long_speech_and_merges_fallback_turns() -> None:
+    chunks = build_transcription_plan(
+        [SpeakerSegment(0, 20, "A"), SpeakerSegment(20, 130, "B")],
+        duration=130,
+        max_seconds=60,
+    )
+    assert [(chunk.start, chunk.end) for chunk in chunks] == [(0, 60), (60, 120), (120, 130)]
 
 
 def test_transcript_chunks_require_the_current_request_plan() -> None:

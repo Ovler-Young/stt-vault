@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -362,18 +363,15 @@ class SqliteDatabase:
             if row is None:
                 return None
             asset = self._asset_record(row)
-            chunks = self._list_transcript_chunks_in_connection(conn, asset_id)
-            if chunks:
-                units_by_chunk: dict[int, list[PersistedTimedTranscriptUnit]] = {}
-                for unit in self._list_transcript_timed_units_in_connection(conn, asset_id):
-                    units_by_chunk.setdefault(unit.chunk_index, []).append(unit)
-                asset = replace(
-                    asset,
-                    transcript_segments=tuple(
-                        replace(chunk, timed_units=tuple(units_by_chunk.get(chunk.chunk_index, ())))
-                        for chunk in chunks
-                    ),
-                )
+            segments = list(
+                asset.transcript_segments
+            ) or self._list_transcript_chunks_in_connection(conn, asset_id)
+            asset = replace(
+                asset,
+                transcript_segments=self._segments_with_timed_units(
+                    segments, self._list_transcript_timed_units_in_connection(conn, asset_id)
+                ),
+            )
             job = conn.execute("SELECT * FROM jobs WHERE asset_id = ?", (asset_id,)).fetchone()
             job_record = self._job_record(job) if job is not None else None
             events = (
@@ -704,7 +702,15 @@ class SqliteDatabase:
                 "UPDATE transcript_chunks SET speaker_name = ?, updated_at = ? WHERE speaker_id = ?",
                 (display_name, timestamp, speaker_id),
             )
-            self._refresh_speaker_transcript_caches(conn, speaker_id, timestamp)
+            self._update_cached_transcripts(
+                conn,
+                lambda segment: (
+                    replace(segment, speaker_name=display_name)
+                    if segment.speaker_id == speaker_id
+                    else segment
+                ),
+                timestamp,
+            )
 
     def merge_speakers(self, source_speaker_id: str, target_speaker_id: str) -> None:
         if source_speaker_id == target_speaker_id:
@@ -738,10 +744,6 @@ class SqliteDatabase:
                         centroid, source_record.centroid, strict=False
                     )
                 ]
-            rows = conn.execute(
-                "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id IN (?, ?)",
-                (source_speaker_id, target_speaker_id),
-            ).fetchall()
             conn.execute(
                 "UPDATE speakers SET centroid = ?, sample_count = ?, updated_at = ? WHERE id = ?",
                 (json.dumps(centroid), merged_count, timestamp, target_speaker_id),
@@ -751,24 +753,43 @@ class SqliteDatabase:
                 "UPDATE transcript_chunks SET speaker_id = ?, speaker_name = ?, updated_at = ? WHERE speaker_id = ?",
                 (target_speaker_id, str(target["display_name"]), timestamp, source_speaker_id),
             )
-            for row in rows:
-                self._sync_transcript_cache(conn, str(row["asset_id"]), timestamp)
+            self._update_cached_transcripts(
+                conn,
+                lambda segment: (
+                    replace(
+                        segment,
+                        speaker_id=target_speaker_id,
+                        speaker_name=str(target["display_name"]),
+                    )
+                    if segment.speaker_id == source_speaker_id
+                    else segment
+                ),
+                timestamp,
+            )
 
     def delete_speaker(self, speaker_id: str) -> None:
         timestamp = self._now()
         with self._transaction() as conn:
-            rows = conn.execute(
-                "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id = ?",
-                (speaker_id,),
-            ).fetchall()
             conn.execute("DELETE FROM speakers WHERE id = ?", (speaker_id,))
             conn.execute(
                 """UPDATE transcript_chunks SET speaker_id = speaker, speaker_name = speaker,
             speaker_similarity = NULL, updated_at = ? WHERE speaker_id = ?""",
                 (timestamp, speaker_id),
             )
-            for row in rows:
-                self._sync_transcript_cache(conn, str(row["asset_id"]), timestamp)
+            self._update_cached_transcripts(
+                conn,
+                lambda segment: (
+                    replace(
+                        segment,
+                        speaker_id=segment.speaker,
+                        speaker_name=segment.speaker,
+                        speaker_similarity=None,
+                    )
+                    if segment.speaker_id == speaker_id
+                    else segment
+                ),
+                timestamp,
+            )
 
     def relabel_asset_speaker(self, command: SpeakerRelabel) -> None:
         timestamp = self._now()
@@ -785,12 +806,28 @@ class SqliteDatabase:
                     command.local_speaker,
                 ),
             )
-            self._sync_transcript_cache(conn, command.asset_id, timestamp)
+            self._update_cached_transcripts(
+                conn,
+                lambda segment: (
+                    replace(
+                        segment,
+                        speaker_id=command.speaker_id,
+                        speaker_name=command.display_name,
+                        speaker_similarity=command.similarity,
+                    )
+                    if segment.speaker == command.local_speaker
+                    else segment
+                ),
+                timestamp,
+                asset_id=command.asset_id,
+            )
 
     def list_asset_ids_for_speaker(self, speaker_id: str) -> list[str]:
         with self._read_connection() as conn:
             rows = conn.execute(
-                "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id = ?",
+                """SELECT DISTINCT assets.id AS asset_id FROM assets,
+                json_each(assets.transcript_segments) AS segment
+                WHERE json_extract(segment.value, '$.speaker_id') = ?""",
                 (speaker_id,),
             ).fetchall()
         return [str(row["asset_id"]) for row in rows]
@@ -2088,14 +2125,83 @@ class SqliteDatabase:
             (command.asset_id, str(command.media_path), str(command.exports_path), self._now()),
         )
 
-    def _refresh_speaker_transcript_caches(
-        self, conn: sqlite3.Connection, speaker_id: str, timestamp: int
+    @staticmethod
+    def _segments_with_timed_units(
+        segments: list[TranscriptSegment], units: list[PersistedTimedTranscriptUnit]
+    ) -> tuple[TranscriptSegment, ...]:
+        candidates_by_chunk: dict[int | None, list[int]] = {}
+        for index, segment in enumerate(segments):
+            candidates_by_chunk.setdefault(segment.chunk_index, []).append(index)
+        units_by_chunk: dict[int, list[PersistedTimedTranscriptUnit]] = {}
+        for unit in units:
+            units_by_chunk.setdefault(unit.chunk_index, []).append(unit)
+        units_by_segment: dict[int, list[PersistedTimedTranscriptUnit]] = {}
+        for chunk_index, chunk_units in units_by_chunk.items():
+            candidates = candidates_by_chunk.get(chunk_index, [])
+            if not candidates:
+                continue
+            # Derived segments retain contiguous slices of the request text.
+            # Reconstruct those slices to preserve ownership even when times overlap.
+            text = ""
+            boundaries: list[tuple[int, int]] = []
+            for index in candidates:
+                text += segments[index].text
+                boundaries.append((index, len(text)))
+            cursor = 0
+            text_indexes: list[int] = []
+            for unit in chunk_units:
+                offset = text.find(unit.text, cursor)
+                if offset < 0:
+                    break
+                text_indexes.append(next(index for index, end in boundaries if offset < end))
+                cursor = offset + len(unit.text)
+            if len(text_indexes) == len(chunk_units):
+                for index, unit in zip(text_indexes, chunk_units, strict=True):
+                    units_by_segment.setdefault(index, []).append(unit)
+                continue
+            for unit in chunk_units:
+                start, end = unit.start_ms / 1000, unit.end_ms / 1000
+                index = max(
+                    candidates,
+                    key=lambda index: (
+                        (segments[index].start < start <= segments[index].end)
+                        if start == end
+                        else (segments[index].start <= start and end <= segments[index].end),
+                        max(0.0, min(end, segments[index].end) - max(start, segments[index].start)),
+                        -abs((start + end) / 2 - (segments[index].start + segments[index].end) / 2),
+                    ),
+                )
+                units_by_segment.setdefault(index, []).append(unit)
+        return tuple(
+            replace(segment, timed_units=tuple(units_by_segment.get(index, ())))
+            for index, segment in enumerate(segments)
+        )
+
+    def _update_cached_transcripts(
+        self,
+        conn: sqlite3.Connection,
+        update: Callable[[TranscriptSegment], TranscriptSegment],
+        timestamp: int,
+        *,
+        asset_id: str | None = None,
     ) -> None:
         rows = conn.execute(
-            "SELECT DISTINCT asset_id FROM transcript_chunks WHERE speaker_id = ?", (speaker_id,)
+            "SELECT id, transcript_segments FROM assets WHERE transcript_segments IS NOT NULL"
+            + (" AND id = ?" if asset_id is not None else ""),
+            (asset_id,) if asset_id is not None else (),
         ).fetchall()
         for row in rows:
-            self._sync_transcript_cache(conn, str(row["asset_id"]), timestamp)
+            segments = self._transcript_segments(json.loads(row["transcript_segments"]))
+            updated = [update(segment) for segment in segments]
+            if updated != segments:
+                conn.execute(
+                    "UPDATE assets SET transcript_segments = ?, updated_at = ? WHERE id = ?",
+                    (
+                        json.dumps([self._transcript_segment_payload(s) for s in updated]),
+                        timestamp,
+                        row["id"],
+                    ),
+                )
 
     @staticmethod
     def _add_event_in_connection(

@@ -490,3 +490,124 @@ func TestCapabilitiesDeclareConfiguredTimedUnitPrecision(t *testing.T) {
 		t.Fatalf("status=%d payload=%s", result.Code, result.Body.String())
 	}
 }
+
+func submit(t *testing.T, s *Server, key string, audio []byte) <-chan *httptest.ResponseRecorder {
+	t.Helper()
+	body, typ := requestBodyWithAudio(t, key, audio)
+	req := httptest.NewRequest("POST", "/v1/transcriptions", body)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", typ)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { out := httptest.NewRecorder(); s.Handler().ServeHTTP(out, req); done <- out }()
+	return done
+}
+
+func TestAudioLimitExcludesMultipartEnvelope(t *testing.T) {
+	s, _, _ := testServer(t)
+	s.config.MaxAudioBytes = int64(len(wav()))
+	for _, tc := range []struct {
+		audio  []byte
+		status int
+	}{{wav(), 200}, {append(wav(), 0), 413}} {
+		out := <-submit(t, s, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", tc.audio)
+		if out.Code != tc.status {
+			t.Fatalf("status=%d want=%d body=%s", out.Code, tc.status, out.Body.String())
+		}
+	}
+}
+
+func TestMultipartBodyLimitPreservesSizeError(t *testing.T) {
+	s, _, _ := testServer(t)
+	body, typ := requestBody(t, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
+	limit := int64(bytes.Index(body.Bytes(), wav()) + 20)
+	req := httptest.NewRequest("POST", "/v1/transcriptions", body)
+	out := httptest.NewRecorder()
+	req.Body = http.MaxBytesReader(out, req.Body, limit)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", typ)
+	s.Handler().ServeHTTP(out, req)
+	if out.Code != 413 {
+		t.Fatalf("status=%d body=%s", out.Code, out.Body.String())
+	}
+}
+
+func TestCancellationOfQueuedRequestReturnsWhileOtherInferenceRuns(t *testing.T) {
+	s, e, _ := testServer(t)
+	e.block, e.started, e.release = true, make(chan struct{}, 1), make(chan struct{})
+	first := submit(t, s, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", wav())
+	<-e.started
+	key := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	queued := submit(t, s, key, wav())
+	deadline := time.Now().Add(time.Second)
+	for s.state.Cancellation(key) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("request did not queue")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	req := httptest.NewRequest("POST", "/v1/cancellations/"+key, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	done := make(chan int, 1)
+	go func() { out := httptest.NewRecorder(); s.Handler().ServeHTTP(out, req); done <- out.Code }()
+	select {
+	case code := <-done:
+		if code != 204 {
+			t.Fatalf("cancel status=%d", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued cancellation waited for unrelated inference")
+	}
+	if out := <-queued; out.Code != 503 {
+		t.Fatalf("queued status=%d", out.Code)
+	}
+	close(e.release)
+	if out := <-first; out.Code != 200 {
+		t.Fatalf("unrelated inference status=%d", out.Code)
+	}
+}
+
+type delayedStopEngine struct {
+	*fakeEngine
+	stopping, stopRelease chan struct{}
+}
+
+func (e *delayedStopEngine) CancelActive() {
+	close(e.stopping)
+	<-e.stopRelease
+	e.fakeEngine.CancelActive()
+}
+
+func TestCancellationKeepsExecutionOwnedUntilEngineStopCompletes(t *testing.T) {
+	s, base, _ := testServer(t)
+	base.block, base.started, base.release = true, make(chan struct{}, 2), make(chan struct{})
+	e := &delayedStopEngine{base, make(chan struct{}), make(chan struct{})}
+	s.engine = e
+	key := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	first := submit(t, s, key, wav())
+	<-base.started
+	req := httptest.NewRequest("POST", "/v1/cancellations/"+key, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	cancelled := make(chan struct{})
+	go func() { s.Handler().ServeHTTP(httptest.NewRecorder(), req); close(cancelled) }()
+	<-e.stopping
+	second := submit(t, s, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", wav())
+	close(base.release)
+	select {
+	case <-base.started:
+		t.Fatal("later inference started before old engine stop completed")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(e.stopRelease)
+	<-cancelled
+	if out := <-first; out.Code != 503 {
+		t.Fatalf("cancelled owner status=%d", out.Code)
+	}
+	select {
+	case out := <-second:
+		if out.Code != 200 {
+			t.Fatalf("later status=%d", out.Code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("later request did not complete")
+	}
+}

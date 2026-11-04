@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -204,5 +206,29 @@ func TestInferenceDeadlineUsesAdapterBudgetAndCallerDeadline(t *testing.T) {
 	defer innerCancel()
 	if deadline, ok = inner.Deadline(); !ok || time.Until(deadline) > 2*time.Second {
 		t.Fatal("caller deadline was not preserved")
+	}
+}
+
+func TestInferenceForwardsLanguageAndPrompt(t *testing.T) {
+	child := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1024 * 1024); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		if r.URL.Path != "/inference" || r.FormValue("language") != "zh" || r.FormValue("prompt") != "专有名词" {
+			t.Errorf("inference options: %s %v", r.URL.Path, r.Form)
+		}
+		_, _ = w.Write([]byte(`{"text":"ok"}`))
+	}))
+	defer child.Close()
+	s := &Supervisor{port: strings.TrimPrefix(child.URL, "http://127.0.0.1:")}
+	language, prompt := "zh", "专有名词"
+	var out map[string]any
+	if err := s.callJSON(t.Context(), []byte("wav"), &language, &prompt, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["text"] != "ok" {
+		t.Fatalf("result=%v", out)
 	}
 }

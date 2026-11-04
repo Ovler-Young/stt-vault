@@ -6,6 +6,7 @@ import pytest
 from stt_vault.core.models.records import (
     ClaimNextJob,
     CompleteDiarizationProviderInvocation,
+    CompletedTranscriptionProvider,
     CompleteTranscriptionProviderInvocation,
     DiarizationMetadata,
     NewAsset,
@@ -57,6 +58,57 @@ def test_transcription_completion_atomically_writes_the_chunk_and_provider_state
     assert database.list_transcript_chunks("asset-1")[0].text == "hello"
     assert not database.complete_transcription_and_provider_invocation(command).applied
     assert len(database.list_transcript_chunks("asset-1")) == 1
+
+
+def test_completed_transcription_provider_evidence_reports_current_completed_invocations(
+    tmp_path: Path,
+) -> None:
+    database = SqliteDatabase(tmp_path / "provider-evidence.sqlite3")
+    database.initialize()
+    database.create_asset(NewAsset("asset-1", "clip.wav", "audio", tmp_path / "clip.wav"))
+    database.claim_next_job(ClaimNextJob("worker-1", 30, now=10))
+
+    for chunk_index in (0, 1):
+        prepared = database.prepare_provider_work_item(
+            PrepareProviderWorkItem.for_transcription(
+                work_item_id=f"work-{chunk_index}",
+                job_id="asset-1",
+                asset_id="asset-1",
+                chunk_key=f"chunk:{chunk_index}",
+                run_attempt=1,
+                idempotency_key=f"123e4567-e89b-42d3-a456-42661417400{chunk_index}",
+                request_hash=chr(ord("a") + chunk_index) * 64,
+                provider_id="mod-whisper-cpu",
+                image_digest="sha256:" + "b" * 64,
+            )
+        )
+        assert database.transition_provider_invocation(
+            ProviderInvocationTransition.sent(prepared)
+        ).applied
+        assert database.transition_provider_invocation(
+            ProviderInvocationTransition.accepted(prepared)
+        ).applied
+        assert database.complete_transcription_and_provider_invocation(
+            CompleteTranscriptionProviderInvocation(
+                work_item_id=prepared.work_item_id,
+                invocation_attempt=prepared.invocation_attempt,
+                claimant_run_attempt=1,
+                asset_id="asset-1",
+                chunk_index=chunk_index,
+                segment=TranscriptSegment(
+                    float(chunk_index), float(chunk_index + 1), "SPEAKER_00", "hello"
+                ),
+                attempts=1,
+            )
+        ).applied
+
+    assert database.list_completed_transcription_providers("asset-1") == [
+        CompletedTranscriptionProvider(
+            provider_id="mod-whisper-cpu",
+            image_digest="sha256:" + "b" * 64,
+            completed_invocation_count=2,
+        )
+    ]
 
 
 def test_transcription_completion_replaces_timed_units_in_the_same_conditional_transaction(

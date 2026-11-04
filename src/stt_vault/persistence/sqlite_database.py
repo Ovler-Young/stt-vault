@@ -47,6 +47,7 @@ from stt_vault.core.models.records import (
     CleanupTask,
     CompleteAsset,
     CompleteDiarizationProviderInvocation,
+    CompletedTranscriptionProvider,
     CompleteProviderRecovery,
     CompleteTranscriptionProviderInvocation,
     DiarizationMetadata,
@@ -148,6 +149,85 @@ class SqliteDatabase:
     def close(self) -> None:
         with self._lifetime_lock:
             self._closed = True
+
+    def list_schema_tables(self) -> set[str]:
+        with self._read_connection() as conn:
+            rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        return {str(row["name"]) for row in rows}
+
+    def list_schema_indexes(self) -> set[str]:
+        with self._read_connection() as conn:
+            rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()
+        return {str(row["name"]) for row in rows}
+
+    def list_migration_ids(self) -> set[str]:
+        with self._read_connection() as conn:
+            rows = conn.execute("SELECT id FROM schema_migrations ORDER BY id").fetchall()
+        return {str(row["id"]) for row in rows}
+
+    def create_recorded_migration_fixture(self, migration_id: str) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)", (migration_id, 1)
+            )
+
+    def create_partial_provider_schema_fixture(self) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
+            )
+            conn.execute("CREATE TABLE provider_work_items (work_item_id TEXT PRIMARY KEY)")
+
+    def create_incompatible_assets_schema_fixture(self) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
+            )
+            conn.execute(
+                "CREATE TABLE assets (id INTEGER, filename TEXT, media_type TEXT, "
+                "original_path TEXT, status TEXT, created_at INTEGER, updated_at INTEGER)"
+            )
+            conn.execute(
+                "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+                ("H0001_assets", 1),
+            )
+
+    def create_historical_assets_schema_fixture(self) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "CREATE TABLE assets (id TEXT PRIMARY KEY, filename TEXT NOT NULL, "
+                "media_type TEXT NOT NULL, original_path TEXT NOT NULL, status TEXT NOT NULL, "
+                "created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("asset-1", "clip.wav", "audio", "/media/clip.wav", "queued", 1, 1),
+            )
+
+    def set_folder_created_at_for_test(self, folder_id: str, created_at: str) -> None:
+        with self._transaction() as conn:
+            conn.execute("UPDATE folders SET created_at = ? WHERE id = ?", (created_at, folder_id))
+
+    def set_folder_parent_for_test(self, folder_id: str, parent_id: str | None) -> None:
+        with self._foreign_key_disabled_transaction_for_test() as conn:
+            conn.execute("UPDATE folders SET parent_id = ? WHERE id = ?", (parent_id, folder_id))
+
+    def set_asset_created_at_for_test(self, asset_id: str, created_at: str) -> None:
+        with self._transaction() as conn:
+            conn.execute("UPDATE assets SET created_at = ? WHERE id = ?", (created_at, asset_id))
+
+    def set_asset_parent_folder_for_test(self, asset_id: str, parent_folder_id: str | None) -> None:
+        with self._foreign_key_disabled_transaction_for_test() as conn:
+            conn.execute(
+                "UPDATE assets SET parent_folder_id = ? WHERE id = ?", (parent_folder_id, asset_id)
+            )
+
+    def set_asset_error_for_test(self, asset_id: str, error: str | None) -> None:
+        with self._transaction() as conn:
+            conn.execute("UPDATE assets SET error = ? WHERE id = ?", (error, asset_id))
 
     def create_asset(self, asset: NewAsset) -> NewAsset:
         timestamp = self._now()
@@ -397,6 +477,35 @@ class SqliteDatabase:
                 visual_events=visual_events,
             )
         return asset
+
+    def list_completed_transcription_providers(
+        self, asset_id: str
+    ) -> list[CompletedTranscriptionProvider]:
+        """Return current completed transcription provider identities for an asset."""
+        with self._read_connection() as conn:
+            rows = conn.execute(
+                """SELECT work_item.provider_id, work_item.image_digest,
+                COUNT(*) AS completed_invocation_count
+                FROM provider_work_items AS work_item
+                JOIN provider_invocations AS invocation
+                  ON invocation.work_item_id = work_item.work_item_id
+                 AND invocation.invocation_attempt = work_item.current_invocation_attempt
+                WHERE work_item.asset_id = ?
+                  AND work_item.role = 'transcription'
+                  AND work_item.state = 'completed'
+                  AND invocation.state = 'completed'
+                GROUP BY work_item.provider_id, work_item.image_digest
+                ORDER BY work_item.provider_id, work_item.image_digest""",
+                (asset_id,),
+            ).fetchall()
+        return [
+            CompletedTranscriptionProvider(
+                provider_id=str(row["provider_id"]),
+                image_digest=str(row["image_digest"]),
+                completed_invocation_count=int(row["completed_invocation_count"]),
+            )
+            for row in rows
+        ]
 
     def asset_exists(self, asset_id: str) -> bool:
         with self._read_connection() as conn:
@@ -3786,6 +3895,21 @@ class SqliteDatabase:
         with self._operation_guard():
             conn = self._connect()
             try:
+                conn.execute("BEGIN IMMEDIATE")
+                yield conn
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    @contextmanager
+    def _foreign_key_disabled_transaction_for_test(self):
+        with self._operation_guard():
+            conn = self._connect()
+            try:
+                conn.execute("PRAGMA foreign_keys=OFF")
                 conn.execute("BEGIN IMMEDIATE")
                 yield conn
                 conn.commit()

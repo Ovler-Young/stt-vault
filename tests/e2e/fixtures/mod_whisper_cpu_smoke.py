@@ -1,4 +1,4 @@
-"""Exercise the authenticated whisper CPU Mod contract from inside its network namespace."""
+"""Exercise the authenticated whisper CPU Mod from a helper on its internal network."""
 
 import hashlib
 import io
@@ -11,8 +11,9 @@ import urllib.request
 import uuid
 import wave
 
-TOKEN = open("/run/secrets/stt_mod_token", encoding="utf-8").read().strip()
+TOKEN = os.environ["MOD_TOKEN"].strip()
 EXPECTED_MODEL = os.environ["EXPECTED_MODEL"]
+MOD_BASE_URL = os.environ["MOD_BASE_URL"]
 FIXTURE_SHA256 = "2976da01e205a110c9fa41d47659e238a5c6d3c3f3137582f2949853faa201dd"
 
 
@@ -30,7 +31,7 @@ def request(
     if body is not None:
         headers["Content-Type"] = "multipart/form-data; boundary=smoke-boundary"
     request_value = urllib.request.Request(
-        f"http://127.0.0.1:8081{path}",
+        f"{MOD_BASE_URL}{path}",
         body,
         headers=headers,
         method=method or ("POST" if body else "GET"),

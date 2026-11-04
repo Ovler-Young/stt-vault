@@ -14,4 +14,5 @@ services:
       OPENAI_RETRY_BACKOFF_SECONDS: "1"
 
   mod-whisper-cpu:
-    image: ${STT_MOD_WHISPER_CPU_IMAGE:?}@${STT_MOD_WHISPER_CPU_DIGEST:?}
+    image: ${STT_MOD_WHISPER_CPU_IMAGE:?}
+    pull_policy: never

@@ -67,6 +67,7 @@ class Handler(BaseHTTPRequestHandler):
             "segments": [{"start": 0.0, "end": 1.0, "text": "fixture unit"}],
         }
         if timed:
+            result["segments"][0]["text"] += " " + "longunbrokenfixturetext" * 12
             result["timed_units"] = [
                 {
                     "unit_index": 0,

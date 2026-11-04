@@ -65,7 +65,15 @@ test("persists fixture timed units and seeks from transcript controls", async ({
   const detail = await waitForTerminalAsset(request, headers, assetId);
   const segment = detail.transcript_segments[0];
   const unit = segment.timed_units[0];
-  const absoluteStartMs = Math.floor(segment.chunk_start * 1000 + 0.5) + 50;
+  const absoluteStartMs = unit.start_ms as number;
+  // The audio has 60s of silence before speech; VAD padding includes nearby audio.
+  // Attributed segment boundaries do not identify the provider request origin.
+  expect(absoluteStartMs).toBeGreaterThan(59_500);
+  expect(absoluteStartMs).toBeLessThan(60_500);
+  expect(segment.timed_units[1]).toMatchObject({
+    start_ms: absoluteStartMs + 100,
+    end_ms: absoluteStartMs + 150,
+  });
 
   expect(unit).toMatchObject({
     unit_index: 0,

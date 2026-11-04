@@ -32,6 +32,11 @@ func TestFakeWhisperServer(t *testing.T) {
 	if os.Getenv("FAKE_WHISPER_MODE") == "ignore-term" {
 		signal.Ignore(syscall.SIGTERM)
 	}
+	for _, arg := range os.Args {
+		if arg == "-1" {
+			os.Exit(2)
+		}
+	}
 	mux := http.NewServeMux()
 	var inferences atomic.Int32
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

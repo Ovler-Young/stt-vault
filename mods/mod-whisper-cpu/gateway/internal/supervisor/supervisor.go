@@ -83,7 +83,7 @@ func (s *Supervisor) Load() error {
 		s.setFailed()
 		return fmt.Errorf("selected model is missing or does not match the image manifest")
 	}
-	args := append(append([]string{}, s.commandPrefix...), "-m", path, "-ng", "-1", "--host", "127.0.0.1", "--port", s.port)
+	args := append(append([]string{}, s.commandPrefix...), "-m", path, "-ng", "--host", "127.0.0.1", "--port", s.port)
 	cmd := exec.Command(s.command, args...)
 	if s.commandEnv != nil {
 		cmd.Env = s.commandEnv

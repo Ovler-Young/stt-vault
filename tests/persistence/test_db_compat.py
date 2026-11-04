@@ -129,3 +129,46 @@ def test_initialize_adopts_a_no_ledger_historical_schema_without_rewriting_rows(
     assert asset is not None
     assert (asset.id, asset.filename) == ("asset-1", "clip.wav")
     assert database.list_migration_ids()
+
+
+def test_initialize_adopts_historical_nullable_job_attempts(tmp_path: Path) -> None:
+    import sqlite3
+
+    from stt_vault.core.models.records import ClaimNextJob
+
+    path = tmp_path / "historical.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.execute("""CREATE TABLE jobs (
+            id TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            status TEXT NOT NULL, stage TEXT, error TEXT, created_at INTEGER NOT NULL,
+            started_at INTEGER, finished_at INTEGER,
+            progress_total_chunks INTEGER DEFAULT 0, progress_done_chunks INTEGER DEFAULT 0,
+            progress_failed_chunks INTEGER DEFAULT 0, next_retry_at INTEGER,
+            run_attempt INTEGER DEFAULT 0)""")
+        conn.executemany(
+            "INSERT INTO jobs (id, asset_id, status, created_at, run_attempt) "
+            "VALUES (?, ?, 'queued', 1, ?)",
+            [("zero", "zero", 0), ("null", "null", None)],
+        )
+    database = SqliteDatabase(path)
+    database.initialize()
+    database.initialize()
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT run_attempt FROM jobs WHERE id = 'null'").fetchone() == (None,)
+    for asset_id in ("null", "zero"):
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "INSERT INTO assets (id, filename, media_type, original_path, status, "
+                "created_at, updated_at) VALUES (?, ?, 'audio', 'clip.wav', 'queued', 1, 1)",
+                (asset_id, f"{asset_id}.wav"),
+            )
+        job = database.get_job(asset_id)
+        assert job is not None and job.run_attempt == 0
+        database.retry_asset(asset_id)
+        claim = database.claim_next_job(ClaimNextJob("worker", 60))
+        assert claim is not None and claim.asset_id == asset_id and claim.run_attempt == 1
+        assert database.get_active_job_context(asset_id) == claim
+        database.retry_asset(asset_id)
+        claim = database.claim_next_job(ClaimNextJob("worker", 60))
+        assert claim is not None and claim.run_attempt == 2

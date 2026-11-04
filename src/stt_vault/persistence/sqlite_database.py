@@ -265,7 +265,7 @@ class SqliteDatabase:
             expires_at = timestamp + command.lease_seconds
             updated = conn.execute(
                 """UPDATE jobs SET status = 'processing', stage = 'starting', started_at = ?,
-                run_attempt = run_attempt + 1, claim_owner = ?, claim_expires_at = ?
+                run_attempt = COALESCE(run_attempt, 0) + 1, claim_owner = ?, claim_expires_at = ?
                 WHERE id = ? AND status = 'queued'""",
                 (timestamp, command.claim_owner, expires_at, row["id"]),
             )
@@ -276,7 +276,7 @@ class SqliteDatabase:
                 (timestamp, row["asset_id"]),
             )
             return JobClaim(
-                str(row["asset_id"]), str(row["id"]), int(row["run_attempt"]) + 1, expires_at
+                str(row["asset_id"]), str(row["id"]), int(row["run_attempt"] or 0) + 1, expires_at
             )
 
     def renew_job_claim(self, command: RenewJobClaim) -> bool:
@@ -318,7 +318,7 @@ class SqliteDatabase:
         return JobClaim(
             str(row["asset_id"]),
             str(row["id"]),
-            int(row["run_attempt"]),
+            int(row["run_attempt"] or 0),
             int(row["claim_expires_at"]),
         )
 
@@ -618,7 +618,7 @@ class SqliteDatabase:
             ).fetchone()
             if job is None:
                 raise KeyError(asset_id)
-            next_run_attempt = int(job["run_attempt"]) + 1
+            next_run_attempt = int(job["run_attempt"] or 0) + 1
             conn.execute(
                 "UPDATE assets SET status = 'queued', error = NULL, updated_at = ? WHERE id = ?",
                 (timestamp, asset_id),
@@ -1611,7 +1611,14 @@ class SqliteDatabase:
             if (
                 row is None
                 or str(row["type"]).upper() != spec.column_type
-                or bool(row["notnull"]) != spec.not_null
+                or (
+                    bool(row["notnull"]) != spec.not_null
+                    and not (
+                        migration_id == "H0004_jobs_and_claim_columns"
+                        and table == "jobs"
+                        and spec.name == "run_attempt"
+                    )
+                )
                 or (None if row["dflt_value"] is None else str(row["dflt_value"]).strip("()'\""))
                 != spec.default
                 or int(row["pk"]) != spec.primary_key_order

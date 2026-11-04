@@ -12,6 +12,7 @@ from stt_vault.core.models.records import (
     NewAsset,
     PrepareProviderWorkItem,
     ProviderInvocationTransition,
+    SpeakerSegment,
     TimedTranscriptUnit,
     TranscriptSegment,
 )
@@ -186,10 +187,15 @@ def test_diarization_completion_rolls_back_late_failure_and_retries_without_stal
         DiarizationMetadata(
             "asset-1",
             tmp_path / "clip.wav",
-            1.0,
-            {"segments": 1},
-            [],
-            [],
+            11.0,
+            {"segments": 4},
+            [
+                SpeakerSegment(0.322, 10.622, "SPEAKER_01"),
+                SpeakerSegment(2.338, 4.414, "SPEAKER_01"),
+                SpeakerSegment(5.378, 7.678, "SPEAKER_01"),
+                SpeakerSegment(8.162, 10.622, "SPEAKER_01"),
+            ],
+            [SpeakerSegment(0.322, 10.622, "SPEAKER_01")],
             {"SPEAKER_00": [0.1, 0.2]},
         ),
     )
@@ -210,5 +216,6 @@ def test_diarization_completion_rolls_back_late_failure_and_retries_without_stal
     monkeypatch.undo()
     assert database.complete_diarization_and_provider_invocation(command).applied
     assert database.get_provider_invocation("work-1", 1).state == "completed"
-    assert database.get_asset("asset-1").duration == 1.0
+    assert database.get_asset("asset-1").duration == 11.0
+    assert database.get_asset("asset-1").raw_segments == command.metadata.raw_segments
     assert not database.complete_diarization_and_provider_invocation(command).applied

@@ -2966,7 +2966,7 @@ class SqliteDatabase:
             ("raw_segments", metadata.raw_segments),
             ("merged_segments", metadata.merged_segments),
         ):
-            previous_end = 0.0
+            previous_boundary = 0.0
             for segment in segments:
                 if not isinstance(segment, SpeakerSegment):
                     raise ValueError(f"{name} contains an invalid segment")
@@ -2981,12 +2981,12 @@ class SqliteDatabase:
                     or not isinstance(speaker, str)
                     or not speaker
                     or start < 0
-                    or start < previous_end
+                    or start < previous_boundary
                     or end < start
                     or end > metadata.duration
                 ):
                     raise ValueError(f"{name} contains an invalid segment")
-                previous_end = float(end)
+                previous_boundary = float(start if name == "raw_segments" else end)
         for speaker_id, centroid in metadata.speaker_centroids.entries:
             if (
                 not isinstance(speaker_id, str)

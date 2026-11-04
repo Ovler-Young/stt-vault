@@ -2,6 +2,7 @@
 import fcntl
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -12,6 +13,7 @@ from datetime import UTC, datetime
 from math import isfinite
 from pathlib import Path
 from threading import RLock
+from typing import get_args
 from uuid import uuid4
 
 from stt_vault.core.models.api import (
@@ -75,6 +77,7 @@ from stt_vault.core.models.records import (
     ProviderRecoveryCommand,
     RecoveryClaimSet,
     RecoveryCompletion,
+    RecoveryPhase,
     RecoveryProviderEntry,
     RenewJobClaim,
     ReplaceTranscriptTimedUnits,
@@ -92,6 +95,8 @@ from stt_vault.core.models.records import (
     VisualEvent,
 )
 from stt_vault.core.speakers.names import is_local_speaker_label, is_usable_speaker_name
+
+logger = logging.getLogger(__name__)
 
 _ACTIVE_STATES = ("prepared", "sent", "accepted")
 _TERMINAL_STATES = ("completed", "cancelled", "failed")
@@ -3437,7 +3442,6 @@ class SqliteDatabase:
             raise ValueError("reservation_seconds must be positive")
         timestamp = command.now if command.now is not None else self._now()
         commands = []
-        unsupported_phase: str | None = None
         with self._transaction() as conn:
             conn.execute(
                 "UPDATE job_recovery_reservations SET state = 'abandoned', finalized_at = ? "
@@ -3450,22 +3454,13 @@ class SqliteDatabase:
                 ORDER BY created_at, id""",
                 (timestamp,),
             ).fetchall()
-            unsupported_jobs = [
-                job
-                for job in jobs
-                if ("claimed" if job["stage"] == "starting" else str(job["stage"] or "claimed"))
-                not in {"claimed", "transcoding", "diarizing", "transcribing speech"}
-            ]
-            if unsupported_jobs:
-                unsupported_phase = str(unsupported_jobs[0]["stage"])
-                conn.executemany(
-                    """UPDATE job_recovery_reservations SET state = 'abandoned', finalized_at = ?
-                    WHERE job_id = ? AND state = 'active'""",
-                    [(timestamp, job["id"]) for job in unsupported_jobs],
-                )
-                jobs = ()
             for job in jobs:
                 phase = "claimed" if job["stage"] == "starting" else str(job["stage"] or "claimed")
+                if phase not in get_args(RecoveryPhase):
+                    logger.warning(
+                        "Skipping recovery for job %s with unsupported stage %r", job["id"], phase
+                    )
+                    continue
                 if job["stage"] == "starting":
                     normalized = conn.execute(
                         """UPDATE jobs SET stage = 'claimed' WHERE id = ? AND status = 'processing'
@@ -3526,8 +3521,6 @@ class SqliteDatabase:
                     if active
                     else JobOnlyRecoveryCommand(**base)
                 )
-        if unsupported_phase is not None:
-            raise ValueError(f"unsupported recovery stage: {unsupported_phase}")
         return RecoveryClaimSet(tuple(commands))
 
     def complete_provider_recovery(self, command: CompleteProviderRecovery) -> RecoveryCompletion:

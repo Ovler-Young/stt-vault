@@ -322,3 +322,49 @@ def test_worker_retries_recovery_after_lease_or_reservation_expires(
         assert len(cancellations) == 1 + int(transient_failure)
     finally:
         database.close()
+
+
+@pytest.mark.parametrize(
+    "phase",
+    ("writing exports", "writing partial exports", "detecting slide changes", "legacy phase"),
+)
+def test_recovery_of_late_pipeline_stages_does_not_block_queued_jobs(
+    tmp_path, monkeypatch, phase, caplog
+):
+    from stt_vault.core.models.records import ClaimNextJob, NewAsset
+    from stt_vault.persistence.sqlite_database import SqliteDatabase
+
+    database = SqliteDatabase(tmp_path / "late-stage-recovery.sqlite3")
+    database.initialize()
+    monkeypatch.setattr(database, "_now", lambda: 20)
+    database.create_asset(NewAsset("expired", "clip.wav", "audio", tmp_path / "clip.wav"))
+    database.claim_next_job(ClaimNextJob("old-worker", 5, now=10))
+    database.update_stage(asset_id="expired", stage=phase)
+    database.create_asset(NewAsset("queued", "next.wav", "audio", tmp_path / "next.wav"))
+    worker = Worker.__new__(Worker)
+    worker.database = database
+    worker.settings = SimpleNamespace(job_lease_seconds=30)
+    worker.claim_owner = "new-worker"
+    worker.stop_event = threading.Event()
+    times = iter((0, 3))
+    monkeypatch.setattr("stt_vault.workers.worker.time.monotonic", lambda: next(times, 3))
+    processed = []
+    expected = [("queued", 1)] if phase == "legacy phase" else [("expired", 2), ("queued", 1)]
+
+    def process(asset_id, context):
+        processed.append((asset_id, context.run_attempt))
+        if len(processed) == len(expected):
+            worker.stop_event.set()
+
+    worker.process_asset = process
+    try:
+        worker.run()
+        assert processed == expected
+        if phase == "legacy phase":
+            context = database.get_active_job_context("expired")
+            assert context.run_attempt == 1
+            assert database.get_asset("expired").status == "processing"
+            assert "expired" in caplog.text
+            assert "legacy phase" in caplog.text
+    finally:
+        database.close()

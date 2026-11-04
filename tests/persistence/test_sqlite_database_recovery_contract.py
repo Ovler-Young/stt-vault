@@ -127,7 +127,18 @@ def test_recovery_protocol_uses_only_the_reserved_database_methods() -> None:
 
 @pytest.mark.parametrize(
     "phase",
-    ("claimed", "transcoding", "diarizing", "transcribing speech"),
+    (
+        "claimed",
+        "transcoding",
+        "diarizing",
+        "transcribing speech",
+        "probing media",
+        "normalizing audio",
+        "identifying speakers",
+        "writing exports",
+        "writing partial exports",
+        "detecting slide changes",
+    ),
 )
 def test_job_only_recovery_command_allows_terminal_provider_history(
     phase: str, tmp_path: Path

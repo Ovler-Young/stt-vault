@@ -241,7 +241,18 @@ class UploadResponse:
 ProviderInvocationState = Literal[
     "prepared", "sent", "accepted", "completed", "cancelled", "failed"
 ]
-RecoveryPhase = Literal["claimed", "transcoding", "diarizing", "transcribing speech"]
+RecoveryPhase = Literal[
+    "claimed",
+    "transcoding",
+    "diarizing",
+    "transcribing speech",
+    "probing media",
+    "normalizing audio",
+    "identifying speakers",
+    "writing exports",
+    "writing partial exports",
+    "detecting slide changes",
+]
 ProviderInvocationActiveState = Literal["prepared", "sent", "accepted"]
 
 

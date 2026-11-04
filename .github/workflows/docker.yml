@@ -398,7 +398,14 @@ jobs:
           export_id="$(docker create "$STT_MOD_WHISPER_CPU_IMAGE")"
           docker export "$export_id" | tar -xC image-export
           docker rm "$export_id"
-          find image-export -type f | LC_ALL=C sort > mod-whisper-cpu-filesystem.txt
+          # docker export includes these Docker-owned container runtime files.
+          find image-export -type f \
+            ! -path image-export/.dockerenv \
+            ! -path image-export/dev/console \
+            ! -path image-export/etc/hostname \
+            ! -path image-export/etc/hosts \
+            ! -path image-export/etc/resolv.conf \
+            | LC_ALL=C sort > mod-whisper-cpu-filesystem.txt
           diff -u <(printf '%s\n' image-export/gateway image-export/model-manifest.json image-export/models/$STT_MOD_WHISPER_CPU_MODEL image-export/whisper-server) mod-whisper-cpu-filesystem.txt
           readelf -h image-export/gateway image-export/whisper-server > mod-whisper-cpu-elf.txt
           readelf -l image-export/gateway image-export/whisper-server >> mod-whisper-cpu-elf.txt

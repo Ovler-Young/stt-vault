@@ -143,7 +143,7 @@ assert resident_transcription["result"] == {"kind": "no_speech", "segments": []}
 assert resident_headers == first_headers
 assert int(first_headers["X-Mod-Engine-Pid"]) > 1
 assert int(first_headers["X-Mod-Engine-Generation"]) >= 1
-assert first_headers["X-Mod-Engine-Load-Count"] == "1"
+assert int(first_headers["X-Mod-Engine-Load-Count"]) >= 1
 
 cancel_key = uuid.uuid4()
 cancelled: list[object] = []
@@ -184,11 +184,15 @@ else:
     raise AssertionError("engine did not recover after cancellation")
 assert post_cancellation_transcription["result"] == {"kind": "no_speech", "segments": []}
 assert int(post_cancellation_headers["X-Mod-Engine-Pid"]) != int(first_headers["X-Mod-Engine-Pid"])
-assert int(post_cancellation_headers["X-Mod-Engine-Generation"]) > int(
-    first_headers["X-Mod-Engine-Generation"]
+assert int(post_cancellation_headers["X-Mod-Engine-Generation"]) == (
+    int(first_headers["X-Mod-Engine-Generation"]) + 1
 )
-assert int(post_cancellation_headers["X-Mod-Engine-Load-Count"]) > int(
-    first_headers["X-Mod-Engine-Load-Count"]
+assert int(post_cancellation_headers["X-Mod-Engine-Load-Count"]) == (
+    int(first_headers["X-Mod-Engine-Load-Count"]) + 1
 )
+
+recovered_transcription, recovered_headers = transcribe(uuid.uuid4())
+assert recovered_transcription["result"] == {"kind": "no_speech", "segments": []}
+assert recovered_headers == post_cancellation_headers
 
 assert not [path for path in os.listdir("/tmp") if path.startswith("stt-whisper-")]

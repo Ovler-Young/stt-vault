@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -515,8 +516,9 @@ def _sidecar_server(responses: list[dict[str, object]]) -> Iterator[str]:
         def do_POST(self) -> None:  # noqa: N802
             assert self.path == "/v1/transcriptions"
             assert self.headers["Authorization"] == "Bearer test-token"
-            self.rfile.read(int(self.headers["Content-Length"]))
+            body = self.rfile.read(int(self.headers["Content-Length"]))
             response = responses.pop(0)
+            response["correlation_id"] = re.search(rb'"correlation_id":"([^"]+)"', body)[1].decode()
             self._send_json(503 if "error" in response else 200, response)
 
         def _send_json(self, status: int, response: dict[str, object]) -> None:

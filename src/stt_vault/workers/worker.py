@@ -1,4 +1,5 @@
 import threading
+import time
 import uuid
 from collections.abc import Callable
 
@@ -122,7 +123,11 @@ class Worker:
         self.thread.join(timeout=10)
 
     def run(self) -> None:
+        next_recovery = time.monotonic() + 2
         while not self.stop_event.is_set():
+            if time.monotonic() >= next_recovery:
+                self.recover_startup_jobs()
+                next_recovery = time.monotonic() + 2
             claim = self.database.claim_next_job(
                 ClaimNextJob(self.claim_owner, self.settings.job_lease_seconds)
             )

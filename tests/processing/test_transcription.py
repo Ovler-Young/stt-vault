@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -553,7 +554,7 @@ def test_prepared_sidecar_retry_replaces_the_invocation_identity(tmp_path) -> No
 def _mod_response(result: dict[str, object]) -> dict[str, object]:
     return {
         "contract_version": "v1",
-        "correlation_id": "123e4567-e89b-42d3-a456-426614174000",
+        "correlation_id": "123e4567-e89b-42d3-a456-426614174002",
         "mod": {
             "id": "mod-whisper-cpu",
             "version": "1.0.0",
@@ -811,7 +812,14 @@ def test_sidecar_retry_starts_a_fresh_deadline_for_each_attempt(
                 raise SidecarProviderError("unavailable", "down", retryable=True)
             return SidecarHttpResponse(
                 status=200,
-                body=json.dumps(_mod_response({"kind": "no_speech", "segments": []})).encode(),
+                body=json.dumps(
+                    {
+                        **_mod_response({"kind": "no_speech", "segments": []}),
+                        "correlation_id": re.search(
+                            rb'"correlation_id":"([^"]+)"', _kwargs["body"]
+                        )[1].decode(),
+                    }
+                ).encode(),
             )
 
     def extract_chunk(_media_path, output_path, _start, _end):
@@ -1571,3 +1579,37 @@ def test_transcriber_retries_a_failed_attempt_then_reports_the_successful_attemp
     assert retries == [(0, 1, "provider unavailable", 103)]
     assert result[0].attempts == 2
     assert result[0].text == "recovered"
+
+
+@pytest.mark.parametrize("mismatch", ("correlation", "image", "model"))
+def test_sidecar_rejects_response_from_another_request_or_provider(tmp_path, mismatch):
+    class Transport:
+        def get(self, url, **_kwargs):
+            return (
+                _sidecar_capabilities_response()
+                if url.endswith("/v1/capabilities")
+                else _sidecar_ready_response()
+            )
+
+        def post(self, *_args, **_kwargs):
+            payload = _mod_response({"kind": "no_speech", "segments": []})
+            if mismatch == "correlation":
+                payload["correlation_id"] = "123e4567-e89b-42d3-a456-426614174009"
+            elif mismatch == "image":
+                payload["mod"]["image_digest"] = "sha256:" + "b" * 64
+            else:
+                payload["mod"]["model"]["revision"] = "v2"
+            return SidecarHttpResponse(status=200, body=json.dumps(payload).encode())
+
+    audio = tmp_path / "chunk.wav"
+    audio.write_bytes(b"RIFF audio")
+    with pytest.raises(SidecarProviderError, match="identity") as error:
+        SidecarTranscriptionClient("http://mod", "token", Transport()).transcribe(
+            asset_id="asset:1",
+            chunk=TranscriptChunk(0, 1, "speaker:1", 0),
+            audio_path=audio,
+            idempotency_key="123e4567-e89b-42d3-a456-426614174001",
+            correlation_id="123e4567-e89b-42d3-a456-426614174002",
+            prompt=None,
+        )
+    assert error.value.retryable is False

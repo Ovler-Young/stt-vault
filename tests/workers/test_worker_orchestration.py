@@ -246,3 +246,79 @@ def test_recovered_job_uses_its_next_run_attempt_as_provider_work_generation() -
     assert processed[0][0] == "asset-1"
     assert processed[0][1].run_attempt == 2
     assert processed[0][1].work_generation == 2
+
+
+@pytest.mark.parametrize("transient_failure", (False, True))
+def test_worker_retries_recovery_after_lease_or_reservation_expires(
+    tmp_path, monkeypatch, transient_failure
+):
+    from stt_vault.core.models.records import (
+        ClaimNextJob,
+        NewAsset,
+        PrepareProviderWorkItem,
+        ProviderInvocationTransition,
+    )
+    from stt_vault.persistence.sqlite_database import SqliteDatabase
+    from stt_vault.processing.transcription import SidecarProviderError
+
+    database = SqliteDatabase(tmp_path / "recovery.sqlite3")
+    database.initialize()
+    now = [10]
+    monkeypatch.setattr(database, "_now", lambda: now[0])
+    database.create_asset(NewAsset("asset-1", "clip.wav", "audio", tmp_path / "clip.wav"))
+    database.claim_next_job(ClaimNextJob("old-worker", 5, now=10))
+    database.update_stage(asset_id="asset-1", stage="transcribing speech")
+    prepared = database.prepare_provider_work_item(
+        PrepareProviderWorkItem.for_transcription(
+            work_item_id="work-1",
+            job_id="asset-1",
+            asset_id="asset-1",
+            chunk_key="chunk:1",
+            run_attempt=1,
+            provider_id="mod-whisper-cpu",
+            idempotency_key="00000000-0000-4000-8000-000000000001",
+            request_hash="a" * 64,
+        )
+    )
+    database.transition_provider_invocation(ProviderInvocationTransition.sent(prepared))
+    cancellations = []
+
+    class Client:
+        def cancel(self, key):
+            cancellations.append(key)
+            if transient_failure and len(cancellations) == 1:
+                raise SidecarProviderError("unavailable", "down", retryable=True)
+            return 204
+
+    monkeypatch.setattr("stt_vault.workers.worker.SidecarTranscriptionClient", Client)
+    worker = Worker.__new__(Worker)
+    worker.database = database
+    worker.settings = SimpleNamespace(job_lease_seconds=30)
+    worker.claim_owner = "new-worker"
+    worker.stop_event = threading.Event()
+    worker.diarizer = SimpleNamespace(maybe_unload=lambda: None)
+    if transient_failure:
+        now[0] = 16
+    worker.recover_startup_jobs()
+    assert len(cancellations) == int(transient_failure)
+    # Advance the ordinary idle wait deterministically, including reservation expiry.
+    ticks = [0]
+    monkeypatch.setattr("stt_vault.workers.worker.time.monotonic", lambda: now[0])
+
+    def idle_wait(_seconds):
+        ticks[0] += 1
+        assert ticks[0] < 100
+        now[0] += 10
+
+    monkeypatch.setattr(worker.stop_event, "wait", idle_wait)
+    processed = []
+    worker.process_asset = lambda asset_id, context: (
+        processed.append((asset_id, context.run_attempt)),
+        worker.stop_event.set(),
+    )
+    try:
+        worker.run()
+        assert processed == [("asset-1", 2)]
+        assert len(cancellations) == 1 + int(transient_failure)
+    finally:
+        database.close()

@@ -1,4 +1,5 @@
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -57,7 +58,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/v1/transcriptions":
             self.send_error(404)
             return
-        self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        self.correlation_id = re.search(rb'"correlation_id":"([^"]+)"', body)[1].decode()
         timed = REQUESTS % 2 == 0
         REQUESTS += 1
         result = {
@@ -95,7 +97,9 @@ class Handler(BaseHTTPRequestHandler):
             200,
             {
                 "contract_version": "v1",
-                "correlation_id": "00000000-0000-4000-8000-000000000001",
+                "correlation_id": getattr(
+                    self, "correlation_id", "00000000-0000-4000-8000-000000000001"
+                ),
                 "mod": MOD,
                 "result": result,
             },
@@ -106,7 +110,9 @@ class Handler(BaseHTTPRequestHandler):
             status,
             {
                 "contract_version": "v1",
-                "correlation_id": "00000000-0000-4000-8000-000000000001",
+                "correlation_id": getattr(
+                    self, "correlation_id", "00000000-0000-4000-8000-000000000001"
+                ),
                 "mod": MOD,
                 "error": {"category": "invalid_request", "message": message, "retryable": False},
             },

@@ -399,6 +399,12 @@ class SidecarTranscriptionClient:
                 "sidecar response failed contract validation",
                 retryable=False,
             ) from error
+        if parsed.correlation_id != request.correlation_id or parsed.mod != capabilities.mod:
+            raise SidecarProviderError(
+                "contract_incompatible",
+                "sidecar response identity did not match the request and preflight",
+                retryable=False,
+            )
         chunk_offset_ms = math.floor(chunk.start * 1000 + 0.5)
         return SidecarTranscriptionResult(
             text=" ".join(segment.text.strip() for segment in parsed.result.segments),

@@ -433,8 +433,8 @@ jobs:
           app_id="$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps -q stt-vault)"
           mod_id="$(docker compose -p "$MOD_WHISPER_CPU_PROJECT" -f docker-compose.yml -f docker-compose.mods.yml -f docker-compose.mod-whisper-cpu.yml -f tests/e2e/fixtures/docker-compose.mod-whisper-cpu-ci.yml --profile mod-whisper-cpu ps -q mod-whisper-cpu)"
           docker inspect "$app_id" "$mod_id" > selected-network-inspect.json
-          jq -e '.[0].NetworkSettings.Networks | keys | length == 2 and any(keys[]; endswith("_default")) and any(keys[]; endswith("_stt-mods"))' selected-network-inspect.json
-          jq -e '.[1].NetworkSettings.Networks | keys | length == 1 and any(keys[]; endswith("_stt-mods"))' selected-network-inspect.json
+          jq -e '.[0].NetworkSettings.Networks | keys | length == 2 and any(.[]; endswith("_default")) and any(.[]; endswith("_stt-mods"))' selected-network-inspect.json
+          jq -e '.[1].NetworkSettings.Networks | keys | length == 1 and any(.[]; endswith("_stt-mods"))' selected-network-inspect.json
 
       - name: Verify authenticated ready, model identity, and transcription shape
         run: |

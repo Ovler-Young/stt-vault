@@ -12,9 +12,6 @@ services:
       - stt-mods
     secrets:
       - source: stt_mod_token
-        uid: "0"
-        gid: "0"
-        mode: 0400
 
   mod-whisper-cpu:
     image: ${STT_MOD_WHISPER_CPU_IMAGE:?}@${STT_MOD_WHISPER_CPU_DIGEST:?}
@@ -27,9 +24,6 @@ services:
       WHISPER_IMAGE_DIGEST: ${STT_MOD_WHISPER_CPU_DIGEST:?}
     secrets:
       - source: stt_mod_token
-        uid: "10001"
-        gid: "10001"
-        mode: 0400
     networks:
       - stt-mods
     cpus: "2.0"

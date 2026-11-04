@@ -89,10 +89,8 @@ def test_compose_preserves_the_selected_two_service_isolation_without_model_volu
     assert "volumes" not in mod
     assert "ports" not in mod
     assert "gpus" not in mod
-    assert mod["secrets"] == [
-        {"source": "stt_mod_token", "uid": "10001", "gid": "10001", "mode": 0o400}
-    ]
-    assert shared["secrets"] == {"stt_mod_token": {"environment": "STT_MOD_TOKEN"}}
+    assert mod["secrets"] == [{"source": "stt_mod_token"}]
+    assert shared["secrets"] == {"stt_mod_token": {"file": "${STT_MOD_TOKEN_SOURCE_PATH:?}"}}
 
 
 def test_alpine_apk_lock_is_complete_and_docker_uses_only_locked_artifacts() -> None:
@@ -162,7 +160,7 @@ def test_ci_runs_go_gates_and_outside_image_smoke_with_static_inspection() -> No
     assert "find image-export" in workflow
     assert "ReadonlyRootfs == true" in workflow
     assert "STT_MOD_TOKEN_SOURCE_PATH" in workflow
-    assert "sudo install -o root -g root -m 0400" in workflow
+    assert "sudo install -o 10001 -g 10001 -m 0400" in workflow
     assert "sudo stat -c '%u:%g %a' \"$STT_MOD_TOKEN_SOURCE_PATH\"" in workflow
     assert "10001:10001 400" in workflow
     assert 'MOD_TOKEN="$STT_MOD_TOKEN"' in workflow

@@ -4,4 +4,4 @@ networks:
 
 secrets:
   stt_mod_token:
-    environment: STT_MOD_TOKEN
+    file: ${STT_MOD_TOKEN_SOURCE_PATH:?}

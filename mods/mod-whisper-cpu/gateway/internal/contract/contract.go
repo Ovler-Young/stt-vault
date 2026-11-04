@@ -220,3 +220,32 @@ func pythonFloat(v float64) string {
 var bcp47RE = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+
+func (r *Request) UnmarshalJSON(data []byte) error {
+	type plain Request
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, key := range []string{"language", "prompt"} {
+		if _, ok := fields[key]; !ok {
+			return fmt.Errorf("missing %s", key)
+		}
+	}
+	var chunk map[string]json.RawMessage
+	if err := json.Unmarshal(fields["chunk"], &chunk); err != nil {
+		return err
+	}
+	for _, key := range []string{"index", "start", "end"} {
+		raw, ok := chunk[key]
+		if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("missing chunk %s", key)
+		}
+	}
+	*r = Request(value)
+	return nil
+}

@@ -80,10 +80,10 @@ func TestSupervisorReusesOneProcessForDistinctRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid, generation, loads := s.Diagnostics()
-	if _, err := s.Transcribe(t.Context(), []byte("wav")); err != nil {
+	if _, err := s.Transcribe(t.Context(), []byte("wav"), nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Transcribe(t.Context(), []byte("wav")); err != nil {
+	if _, err := s.Transcribe(t.Context(), []byte("wav"), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if gotPID, gotGeneration, gotLoads := s.Diagnostics(); gotPID != pid || gotGeneration != generation || gotLoads != loads || loads != 1 {
@@ -139,7 +139,7 @@ func TestSupervisorCancellationKillsBlockedChildAndRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { _, err := s.Transcribe(t.Context(), []byte("wav")); done <- err }()
+	go func() { _, err := s.Transcribe(t.Context(), []byte("wav"), nil, nil); done <- err }()
 	time.Sleep(30 * time.Millisecond)
 	started := time.Now()
 	s.CancelActive()

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -63,7 +64,7 @@ func serve() {
 func healthcheck(args []string) {
 	flags := flag.NewFlagSet("healthcheck", flag.ExitOnError)
 	addr := flags.String("addr", "http://127.0.0.1:8081", "loopback gateway URL")
-	secret := flags.String("secret", "/run/secrets/stt_mod_token", "secret file")
+	secret := flags.String("secret", env("WHISPER_TOKEN_PATH", "/run/secrets/stt_mod_token"), "secret file")
 	flags.Parse(args)
 	token, err := os.ReadFile(filepath.Clean(*secret))
 	if err != nil {
@@ -74,7 +75,7 @@ func healthcheck(args []string) {
 	if err != nil {
 		os.Exit(1)
 	}
-	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 	client := &http.Client{Timeout: 5 * time.Second}
 	response, err := client.Do(request)
 	if err != nil || response.StatusCode != http.StatusOK {

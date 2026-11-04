@@ -45,7 +45,10 @@ func (s *Server) parts(r *http.Request) ([]byte, string, error) {
 				return nil, "", fmt.Errorf("request parts have unsupported media types")
 			}
 			requestRaw, readErr = io.ReadAll(io.LimitReader(part, media.MaxRequestPart+1))
-			if readErr != nil || len(requestRaw) > media.MaxRequestPart {
+			if readErr != nil {
+				return nil, "", readErr
+			}
+			if len(requestRaw) > media.MaxRequestPart {
 				return nil, "", fmt.Errorf("request part exceeds limit")
 			}
 		case "audio":
@@ -58,9 +61,15 @@ func (s *Server) parts(r *http.Request) ([]byte, string, error) {
 			}
 			path = file.Name()
 			_ = file.Chmod(0600)
-			_, readErr = io.Copy(file, io.LimitReader(part, s.config.MaxAudioBytes+1))
+			size, readErr := io.Copy(file, io.LimitReader(part, s.config.MaxAudioBytes+1))
 			closeErr := file.Close()
-			if readErr != nil || closeErr != nil {
+			if size > s.config.MaxAudioBytes {
+				return nil, "", &http.MaxBytesError{Limit: s.config.MaxAudioBytes}
+			}
+			if readErr != nil {
+				return nil, "", readErr
+			}
+			if closeErr != nil {
 				_ = os.Remove(path)
 				return nil, "", fmt.Errorf("audio failed validation")
 			}

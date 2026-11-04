@@ -95,3 +95,20 @@ func TestSharedFixtureContractCases(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestRequiredMembers(t *testing.T) {
+	valid := `{"chunk":{"index":0,"start":0,"end":1},"language":null,"prompt":null}`
+	var request Request
+	if err := json.Unmarshal([]byte(valid), &request); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"chunk":{"start":0,"end":1},"language":null,"prompt":null}`,
+		`{"chunk":{"index":0,"start":null,"end":1},"language":null,"prompt":null}`,
+		`{"chunk":{"index":0,"start":0,"end":1},"prompt":null}`,
+	} {
+		if json.Unmarshal([]byte(raw), &request) == nil {
+			t.Fatalf("accepted missing member: %s", raw)
+		}
+	}
+}

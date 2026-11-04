@@ -51,7 +51,7 @@ func (f *fakeEngine) Close() {
 }
 func (f *fakeEngine) Readiness() string            { f.mu.Lock(); defer f.mu.Unlock(); return f.readiness }
 func (f *fakeEngine) Diagnostics() (int, int, int) { return 42, 1, 1 }
-func (f *fakeEngine) Transcribe(ctx context.Context, _ []byte) (map[string]any, error) {
+func (f *fakeEngine) Transcribe(ctx context.Context, _ []byte, _, _ *string) (map[string]any, error) {
 	f.mu.Lock()
 	f.calls++
 	block, started, result := f.block, f.started, f.result

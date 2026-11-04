@@ -18,8 +18,9 @@ const (
 )
 
 type pendingEntry struct {
-	hash string
-	done chan struct{}
+	cancel chan struct{}
+	hash   string
+	done   chan struct{}
 }
 
 type Store struct {
@@ -53,7 +54,7 @@ func (s *Store) Begin(key, hash string) (Entry, BeginResult, chan struct{}) {
 		return Entry{}, Pending, pending.done
 	}
 	done := make(chan struct{})
-	s.pending[key] = pendingEntry{hash: hash, done: done}
+	s.pending[key] = pendingEntry{hash: hash, done: done, cancel: make(chan struct{})}
 	return Entry{}, Owner, done
 }
 func (s *Store) Activate(key string, done chan struct{}) bool {
@@ -101,6 +102,11 @@ func (s *Store) Cancel(key string) (active bool, done chan struct{}) {
 	if _, ok := s.replay[key]; ok {
 		return false, nil
 	}
+	if !s.cancelled[key] {
+		if pending, ok := s.pending[key]; ok {
+			close(pending.cancel)
+		}
+	}
 	s.cancelled[key] = true
 	if s.active == key {
 		return true, s.activeDone
@@ -108,3 +114,9 @@ func (s *Store) Cancel(key string) (active bool, done chan struct{}) {
 	return false, s.pending[key].done
 }
 func (s *Store) Cancelled(key string) bool { s.mu.Lock(); defer s.mu.Unlock(); return s.cancelled[key] }
+
+func (s *Store) Cancellation(key string) <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pending[key].cancel
+}

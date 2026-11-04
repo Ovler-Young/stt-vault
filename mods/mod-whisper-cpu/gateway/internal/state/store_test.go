@@ -121,3 +121,17 @@ func TestQueuedUnknownAndRepeatedCancellationAreIdempotent(t *testing.T) {
 		t.Fatal("repeated unknown cancellation must complete immediately")
 	}
 }
+
+func TestQueuedCancellationSignal(t *testing.T) {
+	s := New()
+	_, _, done := s.Begin("queued", "hash")
+	cancelled := s.Cancellation("queued")
+	s.Cancel("queued")
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("queued cancellation did not signal owner")
+	}
+	s.Cancel("queued")
+	s.Finish("queued", "hash", nil, done, false)
+}

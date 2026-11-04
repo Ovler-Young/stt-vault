@@ -32,7 +32,7 @@ type Engine interface {
 	Close()
 	Readiness() string
 	Diagnostics() (int, int, int)
-	Transcribe(context.Context, []byte) (map[string]any, error)
+	Transcribe(context.Context, []byte, *string, *string) (map[string]any, error)
 }
 type Config struct {
 	TokenPath       string
@@ -55,6 +55,7 @@ type Server struct {
 	requests        sync.WaitGroup
 	requestBodies   map[uint64]io.Closer
 	nextRequestID   uint64
+	executionMu     sync.Mutex
 	spawnMu         sync.Mutex
 	shutdownOnce    sync.Once
 }
@@ -173,13 +174,18 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusUnprocessableEntity, "invalid_request", "request body failed validation", false, "")
 		return
 	}
+	s.executionMu.Lock()
 	active, done := s.state.Cancel(key)
 	if active {
 		s.engine.CancelActive()
 		go s.restartEngine()
 	}
+	s.executionMu.Unlock()
 	if done != nil {
-		<-done
+		select {
+		case <-done:
+		case <-r.Context().Done():
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -200,7 +206,7 @@ func (s *Server) transcribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-s.tempPermit }()
-	r.Body = http.MaxBytesReader(w, r.Body, s.config.MaxAudioBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.config.MaxAudioBytes+media.MaxRequestPart+1024*1024)
 	requestRaw, audioPath, err := s.parts(r)
 	if err != nil {
 		s.errorForInput(w, err, correlation)
@@ -266,13 +272,16 @@ func (s *Server) transcribe(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusServiceUnavailable, "provider_failure", "transcription engine failed", false, correlation)
 		return
 	}
-	if !s.acquireInference(r.Context()) {
+	if !s.acquireInference(r.Context(), s.state.Cancellation(req.IdempotencyKey)) {
 		s.state.Finish(req.IdempotencyKey, hash, nil, done, false)
 		s.writeError(w, http.StatusServiceUnavailable, "unavailable", "gateway is shutting down", true, correlation)
 		return
 	}
 	defer func() { <-s.inferencePermit }()
-	if !s.state.Activate(req.IdempotencyKey, done) {
+	s.executionMu.Lock()
+	activated := s.state.Activate(req.IdempotencyKey, done)
+	s.executionMu.Unlock()
+	if !activated {
 		s.state.Finish(req.IdempotencyKey, hash, nil, done, false)
 		s.writeError(w, 503, "provider_failure", "request was cancelled", false, correlation)
 		return
@@ -282,7 +291,9 @@ func (s *Server) transcribe(w http.ResponseWriter, r *http.Request) {
 	if marshalErr != nil {
 		complete = false
 	}
+	s.executionMu.Lock()
 	s.state.Finish(req.IdempotencyKey, hash, payload, done, complete)
+	s.executionMu.Unlock()
 	if !complete {
 		s.writeError(w, 503, "provider_failure", "transcription engine failed", false, correlation)
 		return
@@ -329,13 +340,15 @@ func (s *Server) acquireTemp(ctx context.Context) bool {
 	}
 }
 
-func (s *Server) acquireInference(ctx context.Context) bool {
+func (s *Server) acquireInference(ctx context.Context, cancelled <-chan struct{}) bool {
 	if s.runCtx.Err() != nil || ctx.Err() != nil {
 		return false
 	}
 	select {
 	case s.inferencePermit <- struct{}{}:
 		return true
+	case <-cancelled:
+		return false
 	case <-ctx.Done():
 		return false
 	case <-s.runCtx.Done():
@@ -344,7 +357,7 @@ func (s *Server) acquireInference(ctx context.Context) bool {
 }
 
 func (s *Server) run(requestCtx context.Context, req contract.Request, audio []byte, duration float64) (any, bool) {
-	if s.isClosing() {
+	if s.isClosing() || requestCtx.Err() != nil {
 		return nil, false
 	}
 	if s.engine.Readiness() != "ready" {
@@ -355,7 +368,7 @@ func (s *Server) run(requestCtx context.Context, req contract.Request, audio []b
 	ctx, cancel := context.WithCancel(requestCtx)
 	stop := context.AfterFunc(s.runCtx, cancel)
 	defer func() { stop(); cancel() }()
-	result, err := s.engine.Transcribe(ctx, audio)
+	result, err := s.engine.Transcribe(ctx, audio, req.Language, req.Prompt)
 	if err != nil || s.state.Cancelled(req.IdempotencyKey) {
 		return nil, false
 	}

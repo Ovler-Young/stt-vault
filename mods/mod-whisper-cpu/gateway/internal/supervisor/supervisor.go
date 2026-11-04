@@ -160,10 +160,10 @@ func (s *Supervisor) selfCheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), s.startupClient.Timeout)
 	defer cancel()
 	var output map[string]any
-	return s.callJSON(ctx, wav.Bytes(), &output)
+	return s.callJSON(ctx, wav.Bytes(), nil, nil, &output)
 }
 
-func (s *Supervisor) Transcribe(ctx context.Context, wav []byte) (map[string]any, error) {
+func (s *Supervisor) Transcribe(ctx context.Context, wav []byte, language, prompt *string) (map[string]any, error) {
 	s.mu.Lock()
 	ready := s.readiness == "ready" && !s.closed && s.current != nil
 	s.mu.Unlock()
@@ -173,7 +173,7 @@ func (s *Supervisor) Transcribe(ctx context.Context, wav []byte) (map[string]any
 	ctx, cancel := s.inferenceContext(ctx)
 	defer cancel()
 	var payload map[string]any
-	err := s.callJSON(ctx, wav, &payload)
+	err := s.callJSON(ctx, wav, language, prompt, &payload)
 	return payload, err
 }
 
@@ -184,7 +184,7 @@ func (s *Supervisor) inferenceContext(ctx context.Context) (context.Context, con
 	return context.WithTimeout(ctx, s.inferenceTimeout)
 }
 
-func (s *Supervisor) callJSON(ctx context.Context, wav []byte, out *map[string]any) error {
+func (s *Supervisor) callJSON(ctx context.Context, wav []byte, language, prompt *string, out *map[string]any) error {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	part, err := w.CreateFormFile("file", "chunk.wav")
@@ -193,6 +193,12 @@ func (s *Supervisor) callJSON(ctx context.Context, wav []byte, out *map[string]a
 	}
 	if _, err = part.Write(wav); err != nil {
 		return err
+	}
+	if language != nil {
+		_ = w.WriteField("language", *language)
+	}
+	if prompt != nil {
+		_ = w.WriteField("prompt", *prompt)
 	}
 	if err = w.Close(); err != nil {
 		return err

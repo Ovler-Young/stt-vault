@@ -192,7 +192,6 @@ jobs:
     env:
       MOD_WHISPER_CPU_PROJECT: stt-vault-mod-whisper-cpu-${{ github.run_id }}-${{ github.run_attempt }}
       MOD_WHISPER_CPU_COMPOSE_STARTED: "false"
-      STT_MOD_TOKEN_SOURCE_PATH: ${{ runner.temp }}/stt_mod_token
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -211,7 +210,10 @@ jobs:
         run: uv run --extra dev pytest -q tests/test_mod_whisper_cpu_compose.py
 
       - name: Materialize a production-mode Mod token source
+        env:
+          STT_MOD_TOKEN_SOURCE_PATH: ${{ runner.temp }}/stt_mod_token
         run: |
+          printf 'STT_MOD_TOKEN_SOURCE_PATH=%s\n' "$STT_MOD_TOKEN_SOURCE_PATH" >> "$GITHUB_ENV"
           sudo install -o root -g root -m 0400 tests/e2e/fixtures/stt_mod_token.txt "$STT_MOD_TOKEN_SOURCE_PATH"
           test "$(sudo stat -c '%u:%g %a' "$STT_MOD_TOKEN_SOURCE_PATH")" = "0:0 400"
           printf 'STT_MOD_TOKEN=%s\n' "$(sudo cat "$STT_MOD_TOKEN_SOURCE_PATH")" >> "$GITHUB_ENV"

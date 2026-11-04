@@ -28,6 +28,8 @@ configs:
     content: |
       STT_DATA_DIR=/data
       STT_DB_PATH=/data/app.sqlite3
+      STT_TRANSCRIPTION_PROVIDER=openai
+      STT_DIARIZATION_PROVIDER=senko
       OPENAI_API_KEY=
       OPENAI_BASE_URL=https://api.openai.com/v1
       OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe

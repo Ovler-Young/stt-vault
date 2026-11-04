@@ -274,3 +274,27 @@ def test_initialize_serializes_legacy_schema_migrations(tmp_path: Path) -> None:
     with sqlite3.connect(legacy_path) as conn:
         jobs_columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
     assert {"run_attempt", "claim_owner", "claim_expires_at"}.issubset(jobs_columns)
+
+
+def test_reads_from_provider_upgraded_schema(tmp_path: Path) -> None:
+    db_path = tmp_path / "providers.sqlite3"
+    db.initialize(db_path)
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "ALTER TABLE jobs ADD COLUMN provider_work_generation INTEGER NOT NULL DEFAULT 1"
+        )
+        conn.execute("ALTER TABLE assets ADD COLUMN embedding_space TEXT")
+        conn.execute("ALTER TABLE speakers ADD COLUMN embedding_space TEXT")
+        conn.execute("UPDATE assets SET embedding_space = '{}'")
+    db.initialize(db_path)
+    asset = db.get_asset(db_path, "asset-1")
+    job = db.get_job(db_path, "asset-1")
+    assert asset is not None
+    assert asset["filename"] == "clip.wav"
+    assert job is not None
+    assert asset["job"] == job.model_dump()
+    assert db.list_jobs(db_path)[0].id == job.id
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT provider_work_generation FROM jobs").fetchone() == (1,)
+        assert conn.execute("SELECT embedding_space FROM assets").fetchone() == ("{}",)

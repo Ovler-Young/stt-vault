@@ -37,4 +37,6 @@ def decode_job(row: sqlite3.Row) -> JobResponse:
     record = decode_record(row, json_fields=JOB_JSON_FIELDS)
     if record is None:
         raise ValueError("job record has an invalid shape")
-    return JobResponse.model_validate(record)
+    return JobResponse.model_validate(
+        {name: value for name, value in record.items() if name in JobResponse.model_fields}
+    )

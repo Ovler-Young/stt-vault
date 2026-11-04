@@ -134,7 +134,9 @@ def asset_exists(db_path: Path, asset_id: str) -> bool:
 def _validated_asset(record: dict[str, JsonValue] | None) -> AssetRecord:
     if record is None:
         raise ValueError("asset record was missing")
-    asset_fields = dict(record)
+    asset_fields = {
+        name: value for name, value in record.items() if name in AssetResponse.model_fields
+    }
     asset_fields.pop("transcript_segments", None)
     AssetResponse.model_validate(asset_fields)
     return record

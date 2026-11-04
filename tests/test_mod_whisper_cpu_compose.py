@@ -23,7 +23,7 @@ APK_LOCK = ROOT / "mods/mod-whisper-cpu/alpine-apk-lock.v1.json"
 def test_scratch_image_has_pinned_static_builds_and_one_selected_model() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 
-    assert "FROM --platform=linux/amd64 golang:1.24.0-alpine3.21@sha256:" in dockerfile
+    assert "FROM --platform=linux/amd64 golang:1.27.3-alpine3.23@sha256:" in dockerfile
     assert (
         "alpine:3.22.1@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f"
         in dockerfile

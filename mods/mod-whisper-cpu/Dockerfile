@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM --platform=linux/amd64 golang:1.24.0-alpine3.21@sha256:32ece9b4650da07c5e92744894d2fb9e857729466eeb9e38c99f7ddec83803ec AS gateway-builder
+FROM --platform=linux/amd64 golang:1.27.3-alpine3.23@sha256:8a5046497cda39860b832ffdbe8dd66018a0f05bb01352f533a36e7e2ced66a0 AS gateway-builder
 
 WORKDIR /src/gateway
 COPY gateway/go.mod ./

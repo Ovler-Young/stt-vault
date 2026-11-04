@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from stt_vault.core.models.api import AssetResponse
 from stt_vault.persistence import db
 from stt_vault.persistence.shared.db_schema import ASSET_COLUMN_DEFINITIONS, ASSET_MIGRATION_COLUMNS
 
@@ -291,7 +292,8 @@ def test_reads_from_provider_upgraded_schema(tmp_path: Path) -> None:
     asset = db.get_asset(db_path, "asset-1")
     job = db.get_job(db_path, "asset-1")
     assert asset is not None
-    assert asset["filename"] == "clip.wav"
+    response = AssetResponse.model_validate(asset)
+    assert response.filename == "clip.wav"
     assert job is not None
     assert asset["job"] == job.model_dump()
     assert db.list_jobs(db_path)[0].id == job.id

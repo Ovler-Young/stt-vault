@@ -3,14 +3,8 @@ from typing import Literal, Protocol, TypedDict
 from openai import OpenAI
 
 from stt_vault.core.config import Settings
-from stt_vault.core.models.records import (
-    AiSpeakerName,
-    ApplyAiSpeakerNames,
-    AssetRecord,
-    AssetSummaryUpdate,
-    TranscriptSegment,
-)
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.core.models.records import AssetRecord, TranscriptSegment
+from stt_vault.persistence.workspace.worker_repository import SqliteWorkerRepository
 
 from .ai_content import (
     build_content_analysis_prompt,
@@ -52,6 +46,25 @@ class SummaryClientFactory(Protocol):
     def __call__(self, *, api_key: str, base_url: str) -> SummaryClient: ...
 
 
+class SummaryRepository(Protocol):
+    def get_asset(self, asset_id: str) -> AssetRecord | None: ...
+
+    def update_asset_summary(
+        self,
+        asset_id: str,
+        *,
+        status: str,
+        text: str | None = None,
+        error: str | None = None,
+        model: str | None = None,
+        title: str | None = None,
+    ) -> None: ...
+
+    def apply_ai_speaker_names(
+        self, asset_id: str, speaker_names: dict[str, str]
+    ) -> dict[str, str]: ...
+
+
 class CompletedTranscriptRequiredError(ValueError):
     pass
 
@@ -64,8 +77,8 @@ class SummaryGenerationResult(TypedDict):
 
 
 def require_completed_transcript(asset: AssetRecord) -> list[TranscriptSegment]:
-    segments = asset.transcript_segments
-    if asset.status != "success" or not segments:
+    segments = asset.get("transcript_segments") or []
+    if asset.get("status") != "success" or not segments:
         raise CompletedTranscriptRequiredError("A completed transcript is required")
     return segments
 
@@ -76,9 +89,10 @@ def generate_asset_summary(
     asset: AssetRecord | None = None,
     *,
     client_factory: SummaryClientFactory = OpenAI,
-    database: SqliteDatabase,
+    repository: SummaryRepository | None = None,
 ) -> SummaryGenerationResult:
-    current_asset = asset or database.get_asset(asset_id)
+    repository = repository or SqliteWorkerRepository(settings.stt_db_path)
+    current_asset = asset or repository.get_asset(asset_id)
     if current_asset is None:
         raise KeyError(asset_id)
     segments = require_completed_transcript(current_asset)
@@ -87,7 +101,7 @@ def generate_asset_summary(
         segments,
         minimum_speaker_confidence=settings.openai_speaker_name_confidence,
     )
-    database.update_asset_summary(AssetSummaryUpdate(asset_id, "running"))
+    repository.update_asset_summary(asset_id, status="running")
     try:
         client = client_factory(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
         response = client.chat.completions.create(
@@ -105,38 +119,26 @@ def generate_asset_summary(
             minimum_speaker_confidence=settings.openai_speaker_name_confidence,
         )
         text = format_content_summary(analysis)
-        applied_names = database.apply_speaker_name_updates(
-            ApplyAiSpeakerNames(
-                asset_id,
-                tuple(
-                    AiSpeakerName(local_speaker, display_name)
-                    for local_speaker, display_name in analysis.speaker_names.items()
-                ),
-            )
-        )
+        speaker_names = repository.apply_ai_speaker_names(asset_id, analysis.speaker_names)
     except Exception:
-        database.update_asset_summary(
-            AssetSummaryUpdate(
-                asset_id,
-                "failed",
-                error="Summary generation failed",
-                model=settings.openai_summary_model,
-            )
+        repository.update_asset_summary(
+            asset_id,
+            status="failed",
+            error="Summary generation failed",
+            model=settings.openai_summary_model,
         )
         raise
 
-    database.update_asset_summary(
-        AssetSummaryUpdate(
-            asset_id,
-            "success",
-            text=text,
-            model=settings.openai_summary_model,
-            title=analysis.title,
-        )
+    repository.update_asset_summary(
+        asset_id,
+        status="success",
+        text=text,
+        model=settings.openai_summary_model,
+        title=analysis.title,
     )
     return {
         "status": "success",
         "summary": text,
         "title": analysis.title,
-        "speaker_names": {name.local_speaker: name.display_name for name in applied_names.names},
+        "speaker_names": speaker_names,
     }

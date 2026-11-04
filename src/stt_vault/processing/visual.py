@@ -92,7 +92,13 @@ def detect_slide_changes(
             if previous is not None:
                 score = frame_difference(previous, frame)
                 if score >= threshold and timestamp - last_event_at >= min_gap_seconds:
-                    events.append(VisualEvent(timestamp, score))
+                    events.append(
+                        {
+                            "timestamp": timestamp,
+                            "score": score,
+                            "kind": "slide_change",
+                        }
+                    )
                     last_event_at = timestamp
 
             previous = frame
@@ -163,7 +169,7 @@ def write_visual_event_thumbnails(
     target.mkdir(parents=True, exist_ok=True)
     extractor = extractor or run_thumbnail_extractor
     for index, event in enumerate(events):
-        extractor(media_path, target / f"event-{index:04d}.jpg", event.timestamp, runner)
+        extractor(media_path, target / f"event-{index:04d}.jpg", float(event["timestamp"]), runner)
 
 
 def extract_thumbnail(

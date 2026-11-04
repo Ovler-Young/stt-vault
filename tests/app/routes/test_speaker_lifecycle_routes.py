@@ -6,10 +6,8 @@ from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
 from stt_vault.core.config import get_settings
-from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
-from stt_vault.core.models.persistence_errors import AssetNotFoundError
-from stt_vault.core.models.records import AssetCleanup, AssetMove, DiarizationMetadata, NewAsset
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.persistence import db
+from stt_vault.persistence.assets.db_asset_relocation import AssetNotFoundError
 
 
 @pytest.fixture
@@ -35,30 +33,22 @@ def test_asset_speaker_and_lifecycle_routes_return_declared_response_shapes(
 ) -> None:
     client, headers = route_client
     settings = get_settings()
-    database = SqliteDatabase(settings.stt_db_path)
-    database.create_asset(
-        NewAsset(
-            "asset-1", "recording.wav", "audio", settings.media_dir / "asset-1" / "recording.wav"
-        )
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-1",
+        "recording.wav",
+        "audio",
+        settings.media_dir / "asset-1" / "recording.wav",
     )
-    database.update_diarization_metadata(
-        DiarizationMetadata(
-            "asset-1",
-            settings.media_dir / "asset-1" / "recording.wav",
-            1.0,
-            {},
-            [],
-            [],
-            {"SPEAKER_00": [0.1, 0.2]},
-            EmbeddingSpaceV1(
-                space_id="test-space",
-                model_id="test-model",
-                revision="r1",
-                sha256="a" * 64,
-                dimension=2,
-                metric="cosine",
-            ),
-        )
+    db.update_diarization_metadata(
+        settings.stt_db_path,
+        "asset-1",
+        wav_path=settings.media_dir / "asset-1" / "recording.wav",
+        duration=1.0,
+        diarization_stats={},
+        raw_segments=[],
+        merged_segments=[],
+        speaker_centroids={"SPEAKER_00": [0.1, 0.2]},
     )
 
     saved = client.post(
@@ -77,12 +67,11 @@ def test_asset_speaker_and_lifecycle_routes_return_declared_response_shapes(
         json={"parent_folder_id": None},
     )
     deleted = client.delete("/api/assets/asset-1", headers=headers)
-    database.record_cleanup_task(
-        AssetCleanup(
-            "asset-cleanup",
-            settings.media_dir / "asset-cleanup",
-            settings.exports_dir / "asset-cleanup",
-        )
+    db.record_cleanup_task(
+        settings.stt_db_path,
+        "asset-cleanup",
+        settings.media_dir / "asset-cleanup",
+        settings.exports_dir / "asset-cleanup",
     )
     cleanup = client.post("/api/assets/asset-cleanup/cleanup", headers=headers)
 
@@ -114,16 +103,18 @@ def test_asset_lifecycle_mutations_do_not_preflight_load_assets(
     client, headers = route_client
     settings = get_settings()
     for asset_id in ("asset-retry", "asset-move", "asset-delete"):
-        SqliteDatabase(settings.stt_db_path).create_asset(
-            NewAsset(
-                asset_id, "recording.wav", "audio", settings.media_dir / asset_id / "recording.wav"
-            )
+        db.create_asset(
+            settings.stt_db_path,
+            asset_id,
+            "recording.wav",
+            "audio",
+            settings.media_dir / asset_id / "recording.wav",
         )
 
-    def fail_preflight_load(_database: SqliteDatabase, asset_id: str):
+    def fail_preflight_load(db_path: Path, asset_id: str):
         raise AssertionError(f"unexpected asset preflight for {asset_id}")
 
-    monkeypatch.setattr(SqliteDatabase, "get_asset", fail_preflight_load)
+    monkeypatch.setattr(db, "get_asset", fail_preflight_load)
 
     retried = client.post("/api/assets/asset-retry/retry", headers=headers)
     moved = client.post(
@@ -153,13 +144,12 @@ def test_asset_lifecycle_mutations_report_missing_assets_and_folders(
     )
     delete = client.delete("/api/assets/missing-delete", headers=headers)
     settings = get_settings()
-    SqliteDatabase(settings.stt_db_path).create_asset(
-        NewAsset(
-            "asset-folder",
-            "recording.wav",
-            "audio",
-            settings.media_dir / "asset-folder" / "recording.wav",
-        )
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-folder",
+        "recording.wav",
+        "audio",
+        settings.media_dir / "asset-folder" / "recording.wav",
     )
     missing_folder = client.post(
         "/api/assets/asset-folder/move",
@@ -183,28 +173,25 @@ def test_asset_move_reports_a_disappearing_asset_at_mutation_time(
 ) -> None:
     client, headers = route_client
     settings = get_settings()
-    database = SqliteDatabase(settings.stt_db_path)
-    database.create_asset(
-        NewAsset(
-            "asset-disappears",
-            "recording.wav",
-            "audio",
-            settings.media_dir / "asset-disappears" / "recording.wav",
-        )
+    db.create_asset(
+        settings.stt_db_path,
+        "asset-disappears",
+        "recording.wav",
+        "audio",
+        settings.media_dir / "asset-disappears" / "recording.wav",
     )
-    original_move_asset = SqliteDatabase.move_asset
+    original_move_asset = db.move_asset
 
-    def delete_then_move(database: SqliteDatabase, command: AssetMove):
-        database.delete_asset_with_cleanup_task(
-            AssetCleanup(
-                command.asset_id,
-                settings.media_dir / command.asset_id,
-                settings.exports_dir / command.asset_id,
-            )
+    def delete_then_move(db_path: Path, asset_id: str, parent_folder_id: str | None):
+        db.delete_asset_with_cleanup_task(
+            db_path,
+            asset_id,
+            settings.media_dir / asset_id,
+            settings.exports_dir / asset_id,
         )
-        return original_move_asset(database, command)
+        return original_move_asset(db_path, asset_id, parent_folder_id)
 
-    monkeypatch.setattr(SqliteDatabase, "move_asset", delete_then_move)
+    monkeypatch.setattr(db, "move_asset", delete_then_move)
 
     response = client.post(
         "/api/assets/asset-disappears/move",
@@ -222,10 +209,10 @@ def test_asset_move_does_not_map_unrelated_key_errors_to_missing_folders(
 ) -> None:
     client, headers = route_client
 
-    def fail_move(_database: SqliteDatabase, _command: AssetMove):
+    def fail_move(db_path: Path, asset_id: str, parent_folder_id: str | None):
         raise KeyError("unexpected persistence failure")
 
-    monkeypatch.setattr(SqliteDatabase, "move_asset", fail_move)
+    monkeypatch.setattr(db, "move_asset", fail_move)
 
     response = client.post(
         "/api/assets/asset-unrelated-error/move",
@@ -239,14 +226,17 @@ def test_asset_move_does_not_map_unrelated_key_errors_to_missing_folders(
 def test_asset_mutation_persistence_operations_raise_typed_missing_asset_errors(
     tmp_path: Path,
 ) -> None:
-    database = SqliteDatabase(tmp_path / "stt.sqlite3")
-    database.initialize()
+    db_path = tmp_path / "stt.sqlite3"
+    db.initialize(db_path)
 
     with pytest.raises(AssetNotFoundError):
-        database.retry_asset("missing-retry")
+        db.retry_asset(db_path, "missing-retry")
     with pytest.raises(AssetNotFoundError):
-        database.move_asset(AssetMove("missing-move", None))
+        db.move_asset(db_path, "missing-move", None)
     with pytest.raises(AssetNotFoundError):
-        database.delete_asset_with_cleanup_task(
-            AssetCleanup("missing-delete", tmp_path / "media", tmp_path / "exports")
+        db.delete_asset_with_cleanup_task(
+            db_path,
+            "missing-delete",
+            tmp_path / "media",
+            tmp_path / "exports",
         )

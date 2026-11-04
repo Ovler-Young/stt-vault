@@ -3,17 +3,11 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from stt_vault.core.config import Settings
-from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
-from stt_vault.core.models.persistence_errors import EmbeddingSpaceConflictError
-from stt_vault.core.models.records import AssetRecord, SpeakerRelabel
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.core.models.records import AssetRecord
+from stt_vault.persistence.assets.db_asset_records import get_asset
+from stt_vault.persistence.assets.db_speaker_assignments import relabel_asset_speakers
+from stt_vault.persistence.assets.db_speakers import find_speaker_by_display_name, list_speakers
 from stt_vault.processing.diarization import match_speakers
-
-
-def require_cosine_embedding_space(value: object) -> EmbeddingSpaceV1:
-    if not isinstance(value, EmbeddingSpaceV1) or value.metric != "cosine":
-        raise EmbeddingSpaceConflictError("Speaker embedding space is incompatible")
-    return value
 
 
 def clean_display_name(display_name: str) -> str:
@@ -27,21 +21,20 @@ def clean_display_name(display_name: str) -> str:
 
 def resolve_speaker_id(
     settings: Settings,
-    database: SqliteDatabase,
     asset: AssetRecord,
     local_speaker: str,
     display_name: str,
 ) -> str:
-    for segment in asset.transcript_segments:
-        if segment.speaker != local_speaker:
+    for segment in asset.get("transcript_segments") or []:
+        if segment.get("speaker") != local_speaker:
             continue
-        speaker_id = segment.speaker_id
+        speaker_id = segment.get("speaker_id")
         if speaker_id and speaker_id != local_speaker:
             return speaker_id
 
-    existing = database.find_speaker_by_display_name(display_name)
+    existing = find_speaker_by_display_name(settings.stt_db_path, display_name)
     if existing is not None:
-        return existing.id
+        return existing["id"]
 
     return f"spk_{uuid4().hex[:12]}"
 
@@ -49,45 +42,33 @@ def resolve_speaker_id(
 def count_local_speaker_segments(asset: AssetRecord, local_speaker: str) -> int:
     return max(
         1,
-        sum(1 for segment in asset.transcript_segments if segment.speaker == local_speaker),
+        sum(
+            1
+            for segment in asset.get("transcript_segments") or []
+            if segment["speaker"] == local_speaker
+        ),
     )
 
 
-def recompute_asset_speaker_matches(
-    settings: Settings, database: SqliteDatabase, asset_ids: list[str]
-) -> list[str]:
+def recompute_asset_speaker_matches(settings: Settings, asset_ids: list[str]) -> list[str]:
     updated_asset_ids = []
-    known_speakers = database.list_speakers()
+    known_speakers = list_speakers(settings.stt_db_path)
     for asset_id in dict.fromkeys(asset_ids):
-        asset = database.get_asset(asset_id)
+        asset = get_asset(settings.stt_db_path, asset_id, include_event_history=False)
         if asset is None:
             continue
 
-        centroids = asset.speaker_centroids.as_dict()
-        transcript_segments = asset.transcript_segments
+        centroids = asset.get("speaker_centroids") or {}
+        transcript_segments = asset.get("transcript_segments") or []
         if not centroids or not transcript_segments:
-            continue
-        try:
-            embedding_space = require_cosine_embedding_space(asset.embedding_space)
-        except EmbeddingSpaceConflictError:
             continue
 
         matches = match_speakers(
             centroids,
             known_speakers,
             settings.speaker_similarity_threshold,
-            embedding_space=embedding_space,
         )
-        for local_speaker, match in matches.items():
-            database.relabel_asset_speaker(
-                SpeakerRelabel(
-                    asset_id,
-                    local_speaker,
-                    match.speaker_id,
-                    match.display_name,
-                    match.score,
-                )
-            )
+        relabel_asset_speakers(settings.stt_db_path, asset_id, matches)
         updated_asset_ids.append(asset_id)
     return updated_asset_ids
 
@@ -96,6 +77,5 @@ __all__ = [
     "clean_display_name",
     "count_local_speaker_segments",
     "recompute_asset_speaker_matches",
-    "require_cosine_embedding_space",
     "resolve_speaker_id",
 ]

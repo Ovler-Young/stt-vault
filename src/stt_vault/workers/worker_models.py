@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from stt_vault.core.models.api import JsonValue
-from stt_vault.core.models.mod_contracts import EmbeddingSpaceV1
 from stt_vault.core.models.records import SpeakerMatch, SpeakerSegment, TranscriptSegment
 
 
@@ -14,7 +13,6 @@ class PreparedAsset:
     raw_segments: list[SpeakerSegment]
     merged_segments: list[SpeakerSegment]
     speaker_centroids: dict[str, list[float]]
-    embedding_space: EmbeddingSpaceV1 | None = None
     vad: list[tuple[float, float]] | None = None
 
 
@@ -32,21 +30,13 @@ def apply_speaker_names(
 ) -> list[TranscriptSegment]:
     enriched: list[TranscriptSegment] = []
     for segment in transcript_segments:
-        match = speaker_matches.get(segment.speaker)
+        match = speaker_matches.get(segment["speaker"], {})
         enriched.append(
-            TranscriptSegment(
-                start=segment.start,
-                end=segment.end,
-                speaker=segment.speaker,
-                text=segment.text,
-                chunk_index=segment.chunk_index,
-                chunk_start=segment.chunk_start,
-                chunk_end=segment.chunk_end,
-                attempts=segment.attempts,
-                speaker_id=match.speaker_id if match is not None else segment.speaker,
-                speaker_name=match.display_name if match is not None else segment.speaker,
-                speaker_similarity=match.score if match is not None else None,
-                timed_units=segment.timed_units,
-            )
+            {
+                **segment,
+                "speaker_id": match.get("speaker_id", segment["speaker"]),
+                "speaker_name": match.get("display_name", segment["speaker"]),
+                "speaker_similarity": match.get("score"),
+            }
         )
     return enriched

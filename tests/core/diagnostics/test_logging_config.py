@@ -7,17 +7,15 @@ from stt_vault.core.diagnostics.logging import (
     configure_logging,
     job_log_context,
 )
-from stt_vault.core.models.records import NewAsset
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.persistence import db
 
 
 def test_job_log_context_uses_persisted_job_identifier(tmp_path: Path) -> None:
     db_path = tmp_path / "app.sqlite3"
-    database = SqliteDatabase(db_path)
-    database.initialize()
-    database.create_asset(NewAsset("asset-1", "clip.wav", "audio", tmp_path / "clip.wav"))
+    db.initialize(db_path)
+    db.create_asset(db_path, "asset-1", "clip.wav", "audio", tmp_path / "clip.wav")
 
-    context = job_log_context(database, "asset-1")
+    context = job_log_context(db_path, "asset-1")
     event = json.loads(
         StructuredFormatter().format(
             logging.makeLogRecord(
@@ -34,9 +32,7 @@ def test_job_log_context_uses_persisted_job_identifier(tmp_path: Path) -> None:
     )
 
     assert event["asset_id"] == "asset-1"
-    job = database.get_job("asset-1")
-    assert job is not None
-    assert event["job_id"] == job.job_id
+    assert event["job_id"] == db.get_job(db_path, "asset-1").id
 
 
 def test_configure_logging_reformats_existing_root_handlers() -> None:

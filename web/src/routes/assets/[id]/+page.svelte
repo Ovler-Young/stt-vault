@@ -5,7 +5,6 @@
     type AudioTrack,
     type AssetDetail,
     type JobEvent,
-    type TimedTranscriptUnit,
     type TranscriptSegment,
   } from "$lib/api/types";
   import {
@@ -50,7 +49,6 @@
   let playbackRate = 1;
   let pendingMediaSeek: number | null = null;
   let playbackFrame: number | null = null;
-  let playbackEnded = false;
   let autoMatchedAssetId = "";
 
   $: assetId = $page.params.id ?? "";
@@ -116,22 +114,15 @@
     >,
   ) {
     if (!mediaEl) return;
-    playbackEnded = false;
     seekAndPlay(mediaEl, segmentMediaStart(segment));
-  }
-
-  function seekTimedUnit(unit: TimedTranscriptUnit) {
-    if (!mediaEl) return;
-    playbackEnded = false;
-    seekAndPlay(mediaEl, unit.start_ms / 1000);
   }
 
   function seekToTime(time: number) {
     seek({ start: time, end: time + 1 });
   }
 
-  function updateCurrentTime(mediaElement: HTMLMediaElement | null = mediaEl) {
-    currentTime = mediaElement?.currentTime ?? 0;
+  function updateCurrentTime() {
+    currentTime = mediaEl?.currentTime ?? 0;
   }
 
   function applyPlaybackRate() {
@@ -277,7 +268,6 @@
   {selectedAudioTrack}
   {playbackRate}
   {currentTime}
-  {playbackEnded}
   {visualMessage}
   {speakerMatchMessage}
   bind:mediaElement={mediaEl}
@@ -286,8 +276,6 @@
   onRetry={retry}
   onRemove={remove}
   onTimeUpdate={updateCurrentTime}
-  onPlaybackEnded={() => (playbackEnded = true)}
-  onPlaybackResumed={() => (playbackEnded = false)}
   onStartClock={startPlaybackClock}
   onStopClock={stopPlaybackClock}
   onRestoreMediaSeek={restoreMediaSeek}
@@ -298,7 +286,6 @@
   onLoad={load}
   onError={(message) => (error = message)}
   onTranscriptSeek={seek}
-  onTimedUnitSeek={seekTimedUnit}
   onEditSpeaker={(event, segment) =>
     speakerControls?.editSpeaker(event, segment)}
 />

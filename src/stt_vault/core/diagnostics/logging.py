@@ -3,8 +3,7 @@ import logging
 import math
 from collections.abc import Mapping, Sequence
 from itertools import islice
-
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from pathlib import Path
 
 from .process import format_diagnostic_text
 
@@ -13,10 +12,12 @@ _RESERVED_EXTRA_FIELDS = _STANDARD_LOG_RECORD_FIELDS | {"asctime", "message"}
 _DIAGNOSTIC_FIELDS = frozenset({"event_name", "cause", "error_type"})
 
 
-def job_log_context(database: SqliteDatabase, asset_id: str) -> dict[str, str | None]:
+def job_log_context(db_path: Path, asset_id: str) -> dict[str, str | None]:
     """Correlate a worker log record with its persisted job when available."""
-    job = database.get_job(asset_id)
-    return {"asset_id": asset_id, "job_id": job.job_id if job is not None else None}
+    from stt_vault.persistence import db
+
+    job = db.get_job(db_path, asset_id)
+    return {"asset_id": asset_id, "job_id": job.id if job is not None else None}
 
 
 def log_exception_diagnostic(

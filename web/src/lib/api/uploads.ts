@@ -29,7 +29,7 @@ export async function uploadAsset(
           headers: {
             "Content-Range": `bytes ${start}-${endExclusive - 1}/${file.size}`,
           },
-          body: await file.slice(start, endExclusive).arrayBuffer(),
+          body: file.slice(start, endExclusive),
         });
         break;
       } catch (error) {

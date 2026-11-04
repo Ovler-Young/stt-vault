@@ -19,7 +19,6 @@ def test_create_transcriber_maps_every_config_field(monkeypatch: pytest.MonkeyPa
         return None
 
     config = TranscriberConfig(
-        provider="mod-whisper-cpu",
         api_key="api-key",
         base_url="https://example.test/v1",
         model="transcription-model",
@@ -35,7 +34,6 @@ def test_create_transcriber_maps_every_config_field(monkeypatch: pytest.MonkeyPa
     create_transcriber(config)
 
     assert captured == {
-        "provider": "mod-whisper-cpu",
         "api_key": "api-key",
         "base_url": "https://example.test/v1",
         "model": "transcription-model",

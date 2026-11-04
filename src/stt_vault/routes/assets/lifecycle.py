@@ -1,14 +1,15 @@
 import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
 from stt_vault.core.auth import require_admin
 from stt_vault.core.config import Settings
 from stt_vault.core.models.api import AssetDeleteResponse, AssetMoveResponse, AssetRetryResponse
-from stt_vault.core.models.persistence_errors import AssetNotFoundError, FolderNotFoundError
-from stt_vault.core.models.records import AssetCleanup, AssetMove
 from stt_vault.core.models.requests import AssetMoveRequest
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.persistence import db
+from stt_vault.persistence.assets.db_asset_relocation import AssetNotFoundError
+from stt_vault.persistence.folders.folder_records import FolderNotFoundError
 
 __all__ = [
     "register_asset_cleanup_routes",
@@ -18,7 +19,7 @@ __all__ = [
 ]
 
 
-def register_asset_retry_route(app: FastAPI, settings: Settings, database: SqliteDatabase) -> None:
+def register_asset_retry_route(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.post(
@@ -28,7 +29,7 @@ def register_asset_retry_route(app: FastAPI, settings: Settings, database: Sqlit
     )
     def retry_asset(asset_id: str) -> AssetRetryResponse:
         try:
-            database.retry_asset(asset_id)
+            db.retry_asset(settings.stt_db_path, asset_id)
         except AssetNotFoundError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
         return AssetRetryResponse(status="queued")
@@ -36,7 +37,7 @@ def register_asset_retry_route(app: FastAPI, settings: Settings, database: Sqlit
     app.include_router(router)
 
 
-def register_asset_move_route(app: FastAPI, settings: Settings, database: SqliteDatabase) -> None:
+def register_asset_move_route(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.post(
@@ -46,11 +47,8 @@ def register_asset_move_route(app: FastAPI, settings: Settings, database: Sqlite
     )
     def move_asset(asset_id: str, payload: AssetMoveRequest) -> AssetMoveResponse:
         try:
-            result = database.move_asset(AssetMove(asset_id, payload.parent_folder_id))
-            return AssetMoveResponse(
-                id=result.asset_id,
-                parent_folder_id=result.parent_folder_id,
-                updated_at=result.updated_at,
+            return AssetMoveResponse.model_validate(
+                db.move_asset(settings.stt_db_path, asset_id, payload.parent_folder_id)
             )
         except AssetNotFoundError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
@@ -60,7 +58,7 @@ def register_asset_move_route(app: FastAPI, settings: Settings, database: Sqlite
     app.include_router(router)
 
 
-def register_asset_delete_route(app: FastAPI, settings: Settings, database: SqliteDatabase) -> None:
+def register_asset_delete_route(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.delete(
@@ -72,20 +70,18 @@ def register_asset_delete_route(app: FastAPI, settings: Settings, database: Sqli
         media_path = settings.media_dir / asset_id
         exports_path = settings.exports_dir / asset_id
         try:
-            database.delete_asset_with_cleanup_task(
-                AssetCleanup(asset_id, media_path, exports_path)
+            db.delete_asset_with_cleanup_task(
+                settings.stt_db_path, asset_id, media_path, exports_path
             )
         except AssetNotFoundError:
             raise HTTPException(status_code=404, detail="Asset not found") from None
-        _retry_cleanup(database, asset_id)
+        _retry_cleanup(settings.stt_db_path, asset_id)
         return AssetDeleteResponse(status="deleted")
 
     app.include_router(router)
 
 
-def register_asset_cleanup_routes(
-    app: FastAPI, settings: Settings, database: SqliteDatabase
-) -> None:
+def register_asset_cleanup_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.post(
@@ -94,23 +90,23 @@ def register_asset_cleanup_routes(
         response_model=AssetDeleteResponse,
     )
     def retry_cleanup(asset_id: str) -> AssetDeleteResponse:
-        if not _retry_cleanup(database, asset_id):
+        if not _retry_cleanup(settings.stt_db_path, asset_id):
             raise HTTPException(status_code=404, detail="Cleanup task not found")
         return AssetDeleteResponse(status="deleted")
 
     app.include_router(router)
 
 
-def _retry_cleanup(database: SqliteDatabase, asset_id: str) -> bool:
-    task = database.get_cleanup_task(asset_id)
+def _retry_cleanup(db_path: Path, asset_id: str) -> bool:
+    task = db.get_cleanup_task(db_path, asset_id)
     if task is None:
         return False
-    for path in (task.media_path, task.exports_path):
+    for path in (task["media_path"], task["exports_path"]):
         try:
             shutil.rmtree(path)
         except FileNotFoundError:
             continue
         except OSError:
             return False
-    database.clear_cleanup_task(asset_id)
+    db.clear_cleanup_task(db_path, asset_id)
     return True

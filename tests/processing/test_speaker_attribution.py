@@ -1,16 +1,12 @@
-from stt_vault.core.models.records import SpeakerSegment, TranscriptSegment
 from stt_vault.processing.speaker_attribution import attribute_speakers
 
 
-def test_text_only_chinese_is_allocated_without_losing_characters() -> None:
+def test_text_only_attribution_preserves_chinese_and_playback_bounds() -> None:
     segments = attribute_speakers(
-        [TranscriptSegment(0, 8, "UNKNOWN", "你好世界。再见！", chunk_start=0, chunk_end=8)],
-        [SpeakerSegment(0, 4, "A"), SpeakerSegment(4, 8, "B")],
+        [{"start": 0, "end": 8, "speaker": "UNKNOWN", "text": "你好世界。再见！"}],
+        [{"start": 0, "end": 4, "speaker": "A"}, {"start": 4, "end": 8, "speaker": "B"}],
     )
-
-    assert [(s.speaker, s.text, s.start, s.end) for s in segments] == [
+    assert [(s["speaker"], s["text"], s["chunk_start"], s["chunk_end"]) for s in segments] == [
         ("A", "你好世界", 0, 4),
         ("B", "。再见！", 4, 8),
     ]
-
-    assert [(s.chunk_start, s.chunk_end) for s in segments] == [(0, 4), (4, 8)]

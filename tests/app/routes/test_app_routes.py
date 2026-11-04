@@ -108,18 +108,15 @@ def test_create_app_accepts_injected_composition_dependencies(tmp_path: Path) ->
     worker = SimpleNamespace(
         start=lambda: calls.append("start"),
         stop=lambda: calls.append("stop"),
-        recover_startup_jobs=lambda: calls.append("recover"),
-    )
-    database = SimpleNamespace(
-        initialize=lambda: calls.append("initialize"), close=lambda: calls.append("close")
     )
     dependencies = ApplicationDependencies(
         configure_logging=lambda: calls.append("logging"),
         get_settings=lambda: settings,
         prepare_directories=lambda _settings: calls.append("directories"),
-        database_factory=lambda _settings: database,
-        worker_factory=lambda _settings, database: worker,
-        register_routes=lambda _app, _settings, created_worker, database: (
+        initialize_database=lambda _path: calls.append("initialize"),
+        recover_expired_jobs=lambda _path: calls.append("recover"),
+        worker_factory=lambda _settings: worker,
+        register_routes=lambda _app, _settings, created_worker: (
             calls.append("routes"),
             assert_worker(created_worker, worker),
         ),
@@ -134,47 +131,12 @@ def test_create_app_accepts_injected_composition_dependencies(tmp_path: Path) ->
         "logging",
         "directories",
         "initialize",
+        "recover",
         "routes",
         "frontend",
-        "recover",
         "start",
         "stop",
-        "close",
     ]
-
-
-def test_create_app_validates_the_selected_mod_before_starting_workers(tmp_path: Path) -> None:
-    settings = Settings(
-        stt_data_dir=tmp_path / "data",
-        stt_db_path=tmp_path / "app.sqlite3",
-        stt_transcription_provider="mod-whisper-cpu",
-        stt_diarization_provider="senko",
-        mod_whisper_cpu_image_digest="sha256:" + "a" * 64,
-    )
-    calls: list[str] = []
-    worker = SimpleNamespace(
-        start=lambda: calls.append("start"),
-        stop=lambda: calls.append("stop"),
-        recover_startup_jobs=lambda: calls.append("recover"),
-    )
-    database = SimpleNamespace(initialize=lambda: None, close=lambda: None)
-    app = create_app(
-        ApplicationDependencies(
-            configure_logging=lambda: None,
-            get_settings=lambda: settings,
-            prepare_directories=lambda _settings: None,
-            database_factory=lambda _settings: database,
-            worker_factory=lambda _settings, database: worker,
-            register_routes=lambda _app, _settings, _worker, _database: None,
-            mount_frontend=lambda _app: None,
-            validate_selected_mod=lambda _settings: calls.append("validate"),
-        )
-    )
-
-    with TestClient(app):
-        pass
-
-    assert calls == ["validate", "recover", "start", "stop"]
 
 
 def assert_worker(actual: object, expected: object) -> None:

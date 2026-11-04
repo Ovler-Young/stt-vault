@@ -66,7 +66,6 @@ export function handleAssetKeydown(
 
 function shouldIgnorePlaybackKey(target: HTMLElement | null): boolean {
   if (!target) return false;
-  if (target.closest("[data-timed-unit-control]")) return true;
   const tagName = target.tagName;
   if (
     target.isContentEditable ||

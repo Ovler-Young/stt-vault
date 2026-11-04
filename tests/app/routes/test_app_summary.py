@@ -7,15 +7,7 @@ from fastapi.testclient import TestClient
 
 from stt_vault.core.app import create_app
 from stt_vault.core.config import get_settings
-from stt_vault.core.models.records import (
-    AssetRecord,
-    CompleteAsset,
-    DiarizationMetadata,
-    ExportPaths,
-    NewAsset,
-    TranscriptSegment,
-)
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.persistence import db
 from stt_vault.processing.summary_service import (
     CompletedTranscriptRequiredError,
     generate_asset_summary,
@@ -51,10 +43,6 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def database() -> SqliteDatabase:
-    return SqliteDatabase(get_settings().stt_db_path)
-
-
 def test_summary_requires_completed_transcript(client: TestClient) -> None:
     response = client.post("/api/assets/missing/summary", headers=auth_headers(client))
     assert response.status_code == 404
@@ -63,15 +51,13 @@ def test_summary_requires_completed_transcript(client: TestClient) -> None:
 def test_completed_transcript_precondition_is_shared_by_service_and_endpoint(
     client: TestClient,
 ) -> None:
-    asset = AssetRecord("asset-1", "clip.wav", "audio", "/tmp/clip.wav", "processing", 1, 1)
+    asset = {"status": "processing", "transcript_segments": []}
 
     with pytest.raises(CompletedTranscriptRequiredError):
         require_completed_transcript(asset)
 
     db_path = get_settings().stt_db_path
-    database().create_asset(
-        NewAsset("incomplete", "clip.wav", "audio", db_path.parent / "clip.wav")
-    )
+    db.create_asset(db_path, "incomplete", "clip.wav", "audio", db_path.parent / "clip.wav")
     response = client.post("/api/assets/incomplete/summary", headers=auth_headers(client))
 
     assert response.status_code == 409
@@ -82,16 +68,7 @@ def test_summary_endpoint_preserves_valid_generated_response(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    asset = AssetRecord(
-        "asset-1",
-        "clip.wav",
-        "audio",
-        "/tmp/clip.wav",
-        "success",
-        1,
-        1,
-        transcript_segments=(TranscriptSegment(0.0, 1.0, "SPEAKER_00", "Complete transcript"),),
-    )
+    asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
     expected = {
         "status": "success",
         "summary": "Meeting summary",
@@ -135,16 +112,7 @@ def test_summary_endpoint_rejects_malformed_generated_response(
     monkeypatch: pytest.MonkeyPatch,
     generated_summary: dict[str, object],
 ) -> None:
-    asset = AssetRecord(
-        "asset-1",
-        "clip.wav",
-        "audio",
-        "/tmp/clip.wav",
-        "success",
-        1,
-        1,
-        transcript_segments=(TranscriptSegment(0.0, 1.0, "SPEAKER_00", "Complete transcript"),),
-    )
+    asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
     monkeypatch.setattr(
         "stt_vault.routes.assets.details.get_asset_or_404", lambda *_args, **_kwargs: asset
     )
@@ -164,16 +132,7 @@ def test_summary_endpoint_logs_bounded_diagnostic_context(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    asset = AssetRecord(
-        "asset-1",
-        "clip.wav",
-        "audio",
-        "/tmp/clip.wav",
-        "success",
-        1,
-        1,
-        transcript_segments=(TranscriptSegment(0.0, 1.0, "SPEAKER_00", "Complete transcript"),),
-    )
+    asset = {"status": "success", "transcript_segments": [{"text": "Complete transcript"}]}
     monkeypatch.setattr(
         "stt_vault.routes.assets.details.get_asset_or_404", lambda *_args, **_kwargs: asset
     )
@@ -229,29 +188,36 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
             self.chat = SimpleNamespace(completions=completions)
 
     db_path = get_settings().stt_db_path
-    test_database = database()
-    test_database.create_asset(
-        NewAsset("asset-1", "clip.mp4", "video", db_path.parent / "clip.mp4")
+    db.create_asset(db_path, "asset-1", "clip.mp4", "video", db_path.parent / "clip.mp4")
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        0,
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00", "text": "Ship Friday."},
+        attempts=1,
     )
-    test_database.complete_asset(
-        CompleteAsset(
-            "asset-1",
-            DiarizationMetadata("asset-1", db_path.parent / "clip.wav", 4.0, {}, [], [], {}),
-            (
-                TranscriptSegment(0.0, 2.0, "SPEAKER_00", "Ship Friday."),
-                TranscriptSegment(2.0, 4.0, "SPEAKER_01", "I approve.", speaker_name="Alice"),
-            ),
-            ExportPaths(),
-        )
+    db.upsert_transcript_chunk(
+        db_path,
+        "asset-1",
+        1,
+        {
+            "start": 2.0,
+            "end": 4.0,
+            "speaker": "SPEAKER_01",
+            "speaker_name": "Alice",
+            "text": "I approve.",
+        },
+        attempts=1,
     )
+    with db.transaction(db_path) as conn:
+        conn.execute("UPDATE assets SET status = 'success' WHERE id = 'asset-1'")
 
     result = generate_asset_summary(
         get_settings(),
         "asset-1",
-        database=test_database,
         client_factory=FakeOpenAI,
     )
-    asset = test_database.get_asset("asset-1")
+    asset = db.get_asset(db_path, "asset-1")
 
     assert result["title"] == "Friday release approved"
     assert result["speaker_names"] == {"SPEAKER_00": "Maya Chen"}
@@ -262,10 +228,10 @@ def test_summary_uses_complete_context_and_only_applies_confident_speaker_names(
         in completions.calls[0]["messages"][1]["content"]
     )
     assert asset is not None
-    assert asset.title == "Friday release approved"
-    assert "## Summary\n\nThe team approved a Friday release." in (asset.summary_text or "")
-    assert "## Highlights\n\n- [00:00:03] Friday release confirmed." in (asset.summary_text or "")
-    assert [segment.speaker_name for segment in asset.transcript_segments] == [
+    assert asset["title"] == "Friday release approved"
+    assert "## Summary\n\nThe team approved a Friday release." in asset["summary_text"]
+    assert "## Highlights\n\n- [00:00:03] Friday release confirmed." in asset["summary_text"]
+    assert [segment["speaker_name"] for segment in asset["transcript_segments"]] == [
         "Maya Chen",
         "Alice",
     ]

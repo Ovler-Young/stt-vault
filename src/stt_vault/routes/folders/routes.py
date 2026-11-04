@@ -11,26 +11,25 @@ from stt_vault.core.models.api import (
     FolderResponse,
     FolderTreeResponse,
 )
-from stt_vault.core.models.persistence_errors import FolderDataIntegrityError
-from stt_vault.core.models.records import FolderCreate, FolderMove, FolderRename
 from stt_vault.core.models.requests import (
     FolderCreateRequest,
     FolderMoveRequest,
     FolderRenameRequest,
 )
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.persistence import db
+from stt_vault.persistence.folders.db_folders import FolderDataIntegrityError
 
 __all__ = ["register_folder_routes"]
 logger = logging.getLogger(__name__)
 
 
-def register_folder_routes(app: FastAPI, settings: Settings, database: SqliteDatabase) -> None:
+def register_folder_routes(app: FastAPI, settings: Settings) -> None:
     router = APIRouter()
 
     @router.get("/api/folders", response_model=FolderTreeResponse)
     def list_folder_tree(_: Annotated[None, Depends(require_admin)]) -> FolderTreeResponse:
         try:
-            return database.list_folder_tree()
+            return db.list_folder_tree(settings.stt_db_path)
         except FolderDataIntegrityError as exc:
             _raise_folder_integrity_error(exc, operation="list")
 
@@ -41,11 +40,15 @@ def register_folder_routes(app: FastAPI, settings: Settings, database: SqliteDat
     )
     def create_folder(payload: FolderCreateRequest) -> FolderResponse:
         try:
-            return database.create_folder(FolderCreate(payload.name, payload.parent_id))
+            return db.create_folder(
+                settings.stt_db_path,
+                payload.name,
+                parent_id=payload.parent_id,
+            )
         except KeyError:
             raise HTTPException(status_code=404, detail="Parent folder not found") from None
         except FolderDataIntegrityError as exc:
-            _raise_folder_integrity_error(exc, operation="add", folder_id=payload.parent_id)
+            _raise_folder_integrity_error(exc, operation="create", folder_id=payload.parent_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -56,7 +59,7 @@ def register_folder_routes(app: FastAPI, settings: Settings, database: SqliteDat
     )
     def move_folder(folder_id: str, payload: FolderMoveRequest) -> FolderResponse:
         try:
-            return database.move_folder(FolderMove(folder_id, payload.parent_id))
+            return db.move_folder(settings.stt_db_path, folder_id, payload.parent_id)
         except FolderDataIntegrityError as exc:
             _raise_folder_integrity_error(exc, operation="move", folder_id=folder_id)
         except KeyError as exc:
@@ -72,7 +75,7 @@ def register_folder_routes(app: FastAPI, settings: Settings, database: SqliteDat
     )
     def rename_folder(folder_id: str, payload: FolderRenameRequest) -> FolderResponse:
         try:
-            return database.rename_folder(FolderRename(folder_id, payload.name))
+            return db.rename_folder(settings.stt_db_path, folder_id, payload.name)
         except FolderDataIntegrityError as exc:
             _raise_folder_integrity_error(exc, operation="rename", folder_id=folder_id)
         except KeyError:
@@ -87,9 +90,9 @@ def register_folder_routes(app: FastAPI, settings: Settings, database: SqliteDat
     )
     def delete_folder(folder_id: str) -> FolderDeleteResponse:
         try:
-            database.delete_folder(folder_id)
+            db.delete_folder(settings.stt_db_path, folder_id)
         except FolderDataIntegrityError as exc:
-            _raise_folder_integrity_error(exc, operation="remove", folder_id=folder_id)
+            _raise_folder_integrity_error(exc, operation="delete", folder_id=folder_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Folder not found") from None
         except ValueError as exc:

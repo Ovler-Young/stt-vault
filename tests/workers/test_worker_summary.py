@@ -1,37 +1,27 @@
 from types import SimpleNamespace
 
-from stt_vault.core.models.records import (
-    AppliedAiSpeakerNames,
-    AssetRecord,
-    AssetSummaryUpdate,
-    TranscriptSegment,
-)
 from stt_vault.processing.summary_service import generate_asset_summary
 
 
-def test_summary_generation_uses_injected_database() -> None:
+def test_summary_generation_uses_injected_repository() -> None:
     calls: list[tuple[str, object]] = []
 
-    class FakeDatabase:
+    class FakeRepository:
         def get_asset(self, asset_id: str):
             calls.append(("get", asset_id))
-            return AssetRecord(
-                asset_id,
-                "clip.wav",
-                "audio",
-                "/tmp/clip.wav",
-                "success",
-                1,
-                1,
-                transcript_segments=(TranscriptSegment(0.0, 1.0, "SPEAKER_00", "Hello"),),
-            )
+            return {
+                "status": "success",
+                "transcript_segments": [
+                    {"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00", "text": "Hello"}
+                ],
+            }
 
-        def update_asset_summary(self, command: AssetSummaryUpdate) -> None:
-            calls.append(("summary", command))
+        def update_asset_summary(self, asset_id: str, **kwargs):
+            calls.append(("summary", (asset_id, kwargs)))
 
-        def apply_speaker_name_updates(self, command):
-            calls.append(("speakers", command))
-            return AppliedAiSpeakerNames(())
+        def apply_ai_speaker_names(self, asset_id: str, speaker_names: dict[str, str]):
+            calls.append(("speakers", (asset_id, speaker_names)))
+            return speaker_names
 
     class FakeCompletions:
         def create(self, **_kwargs):
@@ -54,7 +44,7 @@ def test_summary_generation_uses_injected_database() -> None:
     result = generate_asset_summary(
         settings,
         "asset-1",
-        database=FakeDatabase(),
+        repository=FakeRepository(),
         client_factory=lambda **_kwargs: SimpleNamespace(
             chat=SimpleNamespace(completions=FakeCompletions())
         ),

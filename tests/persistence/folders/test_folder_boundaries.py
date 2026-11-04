@@ -1,50 +1,52 @@
 from pathlib import Path
 
-from stt_vault.core.models.records import (
-    AssetMove,
-    FolderCreate,
-    FolderMove,
-    FolderRename,
-    NewAsset,
-)
-from stt_vault.persistence.sqlite_database import SqliteDatabase
+from stt_vault.persistence.assets.db_asset_records import create_asset
+from stt_vault.persistence.assets.db_asset_relocation import move_asset
+from stt_vault.persistence.folders.db_folders import create_folder, move_folder, rename_folder
+from stt_vault.persistence.folders.folder_tree import list_folder_tree
+from stt_vault.persistence.shared.db_schema import initialize
 
 
 def test_folder_storage_mutations_persist_without_tree_projection(tmp_path: Path) -> None:
-    database = SqliteDatabase(tmp_path / "app.sqlite3")
-    database.initialize()
-    root = database.create_folder(FolderCreate("Root"))
-    child = database.create_folder(FolderCreate("Child", root.id))
+    db_path = tmp_path / "app.sqlite3"
+    initialize(db_path)
+    root = create_folder(db_path, "Root")
+    child = create_folder(db_path, "Child", parent_id=root.id)
 
-    renamed = database.rename_folder(FolderRename(child.id, "Renamed"))
-    relocated = database.move_folder(FolderMove(child.id, None))
+    renamed = rename_folder(db_path, child.id, "Renamed")
+    relocated = move_folder(db_path, child.id, None)
 
     assert renamed.name == "Renamed"
     assert relocated.parent_id is None
 
 
 def test_asset_relocation_persists_without_folder_tree_projection(tmp_path: Path) -> None:
-    database = SqliteDatabase(tmp_path / "app.sqlite3")
-    database.initialize()
-    folder = database.create_folder(FolderCreate("Meetings"))
-    database.create_asset(NewAsset("asset-1", "meeting.wav", "audio", tmp_path / "meeting.wav"))
+    db_path = tmp_path / "app.sqlite3"
+    initialize(db_path)
+    folder = create_folder(db_path, "Meetings")
+    create_asset(db_path, "asset-1", "meeting.wav", "audio", tmp_path / "meeting.wav")
 
-    moved = database.move_asset(AssetMove("asset-1", folder.id))
+    moved = move_asset(db_path, "asset-1", folder.id)
 
-    assert moved.asset_id == "asset-1"
-    assert moved.parent_folder_id == folder.id
+    assert moved["id"] == "asset-1"
+    assert moved["parent_folder_id"] == folder.id
 
 
 def test_tree_projection_assembles_persisted_folders_and_assets(tmp_path: Path) -> None:
-    database = SqliteDatabase(tmp_path / "app.sqlite3")
-    database.initialize()
-    root = database.create_folder(FolderCreate("Root"))
-    child = database.create_folder(FolderCreate("Child", root.id))
-    database.create_asset(
-        NewAsset("asset-1", "meeting.wav", "audio", tmp_path / "meeting.wav", child.id)
+    db_path = tmp_path / "app.sqlite3"
+    initialize(db_path)
+    root = create_folder(db_path, "Root")
+    child = create_folder(db_path, "Child", parent_id=root.id)
+    create_asset(
+        db_path,
+        "asset-1",
+        "meeting.wav",
+        "audio",
+        tmp_path / "meeting.wav",
+        parent_folder_id=child.id,
     )
 
-    tree = database.list_folder_tree()
+    tree = list_folder_tree(db_path)
 
     assert tree.assets == []
     [tree_root] = tree.folders

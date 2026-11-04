@@ -43,8 +43,6 @@ describe("asset page shell boundary", () => {
     const target = document.createElement("div");
     const onTranscriptSeek = vi.fn();
     const onTimeUpdate = vi.fn();
-    const onPlaybackEnded = vi.fn();
-    const onPlaybackResumed = vi.fn();
     const onDetectVisualEvents = vi.fn();
     document.body.append(target);
 
@@ -57,14 +55,11 @@ describe("asset page shell boundary", () => {
         selectedAudioTrack: "default",
         playbackRate: 1,
         currentTime: 0,
-        playbackEnded: false,
         visualMessage: "",
         speakerMatchMessage: "",
         onRetry: async () => {},
         onRemove: async () => {},
         onTimeUpdate,
-        onPlaybackEnded,
-        onPlaybackResumed,
         onStartClock: () => {},
         onStopClock: () => {},
         onRestoreMediaSeek: () => {},
@@ -75,7 +70,6 @@ describe("asset page shell boundary", () => {
         onLoad: async () => {},
         onError: () => {},
         onTranscriptSeek,
-        onTimedUnitSeek: () => {},
         onEditSpeaker: () => {},
       },
     });
@@ -96,16 +90,12 @@ describe("asset page shell boundary", () => {
 
       flushSync(() => transcriptButton?.click());
       flushSync(() => media?.dispatchEvent(new Event("timeupdate")));
-      flushSync(() => media?.dispatchEvent(new Event("ended")));
-      flushSync(() => media?.dispatchEvent(new Event("play")));
       flushSync(() => detectButton?.click());
 
       expect(onTranscriptSeek).toHaveBeenCalledWith(
         asset.transcript_segments?.[0],
       );
-      expect(onTimeUpdate).toHaveBeenCalledTimes(2);
-      expect(onPlaybackEnded).toHaveBeenCalledOnce();
-      expect(onPlaybackResumed).toHaveBeenCalledOnce();
+      expect(onTimeUpdate).toHaveBeenCalledTimes(1);
       expect(onDetectVisualEvents).toHaveBeenCalledTimes(1);
     } finally {
       unmount(component);
@@ -125,14 +115,11 @@ describe("asset page shell boundary", () => {
         selectedAudioTrack: "default",
         playbackRate: 1,
         currentTime: 0,
-        playbackEnded: false,
         visualMessage: "",
         speakerMatchMessage: "",
         onRetry: async () => {},
         onRemove: async () => {},
         onTimeUpdate: () => {},
-        onPlaybackEnded: () => {},
-        onPlaybackResumed: () => {},
         onStartClock: () => {},
         onStopClock: () => {},
         onRestoreMediaSeek: () => {},
@@ -143,7 +130,6 @@ describe("asset page shell boundary", () => {
         onLoad: async () => {},
         onError: () => {},
         onTranscriptSeek: () => {},
-        onTimedUnitSeek: () => {},
         onEditSpeaker: () => {},
       },
     });

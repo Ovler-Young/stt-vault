@@ -3,7 +3,6 @@
     AudioTrack,
     AssetDetail,
     JobEvent,
-    TimedTranscriptUnit,
     TranscriptSegment,
   } from "$lib/api/types";
   import type {
@@ -31,7 +30,6 @@
     selectedAudioTrack: string;
     playbackRate: number;
     currentTime: number;
-    playbackEnded: boolean;
     visualMessage: string;
     speakerMatchMessage: string;
     mediaElement?: HTMLMediaElement | null;
@@ -39,9 +37,7 @@
     speakerControls?: SpeakerControlsHandle | null;
     onRetry: () => MaybePromise;
     onRemove: () => MaybePromise;
-    onTimeUpdate: (mediaElement: HTMLMediaElement) => void;
-    onPlaybackEnded: () => void;
-    onPlaybackResumed: () => void;
+    onTimeUpdate: () => void;
     onStartClock: () => void;
     onStopClock: () => void;
     onRestoreMediaSeek: () => void;
@@ -52,7 +48,6 @@
     onLoad: () => Promise<void>;
     onError: (message: string) => void;
     onTranscriptSeek: (segment: TranscriptSegment) => void;
-    onTimedUnitSeek: (unit: TimedTranscriptUnit) => void;
     onEditSpeaker: (event: MouseEvent, segment: TranscriptSegment) => void;
   };
 
@@ -64,7 +59,6 @@
     selectedAudioTrack,
     playbackRate,
     currentTime,
-    playbackEnded,
     visualMessage,
     speakerMatchMessage,
     mediaElement = $bindable(null),
@@ -73,8 +67,6 @@
     onRetry,
     onRemove,
     onTimeUpdate,
-    onPlaybackEnded,
-    onPlaybackResumed,
     onStartClock,
     onStopClock,
     onRestoreMediaSeek,
@@ -85,7 +77,6 @@
     onLoad,
     onError,
     onTranscriptSeek,
-    onTimedUnitSeek,
     onEditSpeaker,
   }: AssetPageShellProps = $props();
 </script>
@@ -107,8 +98,6 @@
           bind:mediaElement
           bind:progressBar
           {onTimeUpdate}
-          {onPlaybackEnded}
-          {onPlaybackResumed}
           {onStartClock}
           {onStopClock}
           {onRestoreMediaSeek}
@@ -158,9 +147,7 @@
         slot="transcript"
         segments={asset.transcript_segments ?? []}
         {currentTime}
-        {playbackEnded}
         onSeek={onTranscriptSeek}
-        {onTimedUnitSeek}
         {onEditSpeaker}
       />
     </ResizableAssetWorkspace>

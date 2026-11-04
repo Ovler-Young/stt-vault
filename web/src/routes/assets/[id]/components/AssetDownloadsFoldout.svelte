@@ -26,21 +26,23 @@
   }
 
   async function copyText(text: string) {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        return copyTextWithDocument(text);
-      }
+    // This deprecated API must run synchronously while the user gesture is active.
+    if (copyTextWithDocument(text)) return true;
+
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText)
+      return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
     }
-    return copyTextWithDocument(text);
   }
 
-  async function copyExportHref(href: string) {
+  async function copyExportHref(event: MouseEvent, href: string) {
+    event.preventDefault();
     try {
-      const url = new URL(href, window.location.href).href;
-      if (!(await copyText(url)))
+      if (!(await copyText(href)))
         throw new Error("Clipboard access is unavailable");
       downloadMessage = "Download link copied";
     } catch (err) {
@@ -54,29 +56,9 @@
   <div class="exports">
     {#each Object.keys(assetExports) as format}
       {@const href = exportHref(assetId, format)}
-      <span class="export">
-        <a {href} download>{format}</a>
-        <button
-          type="button"
-          class="copy-link"
-          title={`Copy ${format} download link`}
-          aria-label={`Copy ${format} download link`}
-          on:click={() => copyExportHref(href)}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            aria-hidden="true"
-          >
-            <rect x="8" y="8" width="12" height="12" rx="2" />
-            <path d="M16 8V4H4v12h4" />
-          </svg>
-        </button>
-      </span>
+      <a {href} download on:contextmenu={(event) => copyExportHref(event, href)}
+        >{format}</a
+      >
     {/each}
     {#if downloadMessage}<span class="download-message" aria-live="polite"
         >{downloadMessage}</span
@@ -96,20 +78,5 @@
   .download-message {
     color: var(--color-accent);
     font-size: 12px;
-  }
-
-  .export {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .copy-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
   }
 </style>

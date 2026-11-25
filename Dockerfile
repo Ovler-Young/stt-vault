@@ -34,9 +34,13 @@ COPY --from=ghcr.io/astral-sh/uv@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b3
 
 FROM backend-base AS backend-dependencies-cpu
 COPY pyproject.toml uv.lock ./
+# senko compiles its feature extractor with -march=native, which ties the image to the
+# build machine's CPU; build it for x86-64-v3 (AVX2) so the image runs on CPUs without AVX-512.
 RUN --mount=type=cache,target=/var/cache/uv \
     uv export --locked --no-dev --extra cpu --no-emit-project -o requirements.txt \
-    && uv pip install --system \
+    && SKBUILD_CMAKE_BUILD_TYPE=None \
+       CXXFLAGS="-O3 -march=x86-64-v3 -ffast-math -funroll-loops -DNDEBUG" \
+       uv pip install --system \
         --index-url https://pypi.org/simple \
         --find-links https://download.pytorch.org/whl/cpu/torch/ \
         --find-links https://download.pytorch.org/whl/cpu/torchaudio/ \
